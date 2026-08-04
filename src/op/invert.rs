@@ -1,0 +1,170 @@
+use std::collections::BTreeMap;
+
+use crate::attrs::{AttrChange, AttrPatch};
+use crate::change::{
+    Change, ChangeKind, IntChange, ListChange, ListOp, MapChange, MapEntryChange, RichTextChange,
+    RichTextOp, TextChange, TextOp,
+};
+use crate::error::{ApplyError, InvertError};
+use crate::limits::Limits;
+use crate::path::Path;
+use crate::richtext::flatten;
+use crate::value::{Value, ValueKind, ValueType};
+
+impl Change {
+    /// Builds an inverse using the snapshot immediately before this Change.
+    pub fn invert(&self, base: &Value, limits: &Limits) -> Result<Change, InvertError> {
+        self.apply_to(base, limits)?;
+        let result = invert_change(self, base)?;
+        if let Err(ApplyError::LimitExceeded {
+            name,
+            actual,
+            limit,
+        }) = result.check_limits(limits)
+        {
+            return Err(InvertError::LimitExceeded {
+                name,
+                actual,
+                limit,
+            });
+        }
+        Ok(result)
+    }
+}
+
+fn invert_change(change: &Change, base: &Value) -> Result<Change, InvertError> {
+    match change.kind() {
+        ChangeKind::Noop => Ok(Change::noop()),
+        ChangeKind::Replace(_) => Ok(Change::replace(base.clone())),
+        ChangeKind::Int(IntChange::Add(delta)) => Ok(match delta.checked_neg() {
+            Some(inverse) => Change::int_add(inverse),
+            None => Change::replace(base.clone()),
+        }),
+        ChangeKind::Map(map_change) => {
+            let map = match base.kind() {
+                ValueKind::Map(map) => map,
+                _ => return Err(type_mismatch(ValueType::Map, base).into()),
+            };
+            let mut out = BTreeMap::new();
+            for (key, entry) in map_change.iter() {
+                let inverse = match entry {
+                    MapEntryChange::Insert(_) => MapEntryChange::Delete,
+                    MapEntryChange::Delete => {
+                        MapEntryChange::Insert(map.get(key).expect("validated").clone())
+                    }
+                    MapEntryChange::Modify(child) => MapEntryChange::Modify(invert_change(
+                        child,
+                        map.get(key).expect("validated"),
+                    )?),
+                };
+                out.insert(key.clone(), inverse);
+            }
+            Ok(Change::map(MapChange::from_btree(out)))
+        }
+        ChangeKind::List(list_change) => {
+            let list = match base.kind() {
+                ValueKind::List(list) => list,
+                _ => return Err(type_mismatch(ValueType::List, base).into()),
+            };
+            let mut index = 0usize;
+            let mut out = Vec::new();
+            for op in list_change.ops() {
+                match op {
+                    ListOp::Retain(len) => {
+                        out.push(ListOp::Retain(*len));
+                        index += len;
+                    }
+                    ListOp::Insert(values) => out.push(ListOp::Delete(values.len())),
+                    ListOp::Delete(len) => {
+                        out.push(ListOp::Insert(list.as_slice()[index..index + len].to_vec()));
+                        index += len;
+                    }
+                    ListOp::Modify(child) => {
+                        out.push(ListOp::Modify(invert_change(
+                            child,
+                            &list.as_slice()[index],
+                        )?));
+                        index += 1;
+                    }
+                }
+            }
+            Ok(Change::list(ListChange::new(out)))
+        }
+        ChangeKind::Text(text_change) => {
+            let text = match base.kind() {
+                ValueKind::Text(text) => text,
+                _ => return Err(type_mismatch(ValueType::Text, base).into()),
+            };
+            let chars: Vec<char> = text.as_str().chars().collect();
+            let mut index = 0usize;
+            let mut out = Vec::new();
+            for op in text_change.ops() {
+                match op {
+                    TextOp::Retain(len) => {
+                        out.push(TextOp::Retain(*len));
+                        index += len;
+                    }
+                    TextOp::Insert(value) => out.push(TextOp::Delete(value.chars().count())),
+                    TextOp::Delete(len) => {
+                        out.push(TextOp::Insert(chars[index..index + len].iter().collect()));
+                        index += len;
+                    }
+                }
+            }
+            Ok(Change::text(TextChange::new(out)))
+        }
+        ChangeKind::RichText(rich_change) => {
+            let rich = match base.kind() {
+                ValueKind::RichText(rich) => rich,
+                _ => return Err(type_mismatch(ValueType::RichText, base).into()),
+            };
+            let atoms = flatten(rich.spans());
+            let mut index = 0usize;
+            let mut out = Vec::new();
+            for op in rich_change.ops() {
+                match op {
+                    RichTextOp::Retain { len, attrs } => {
+                        for atom in &atoms[index..index + len] {
+                            let mut inverse = BTreeMap::new();
+                            for (key, _) in attrs.iter() {
+                                inverse.insert(
+                                    key.clone(),
+                                    match atom.attrs.get(key) {
+                                        Some(value) => AttrChange::Set(value.clone()),
+                                        None => AttrChange::Remove,
+                                    },
+                                );
+                            }
+                            out.push(RichTextOp::Retain {
+                                len: 1,
+                                attrs: AttrPatch::from_btree(inverse),
+                            });
+                        }
+                        index += len;
+                    }
+                    RichTextOp::Insert { content, .. } => {
+                        out.push(RichTextOp::Delete(content.len()))
+                    }
+                    RichTextOp::Delete(len) => {
+                        for atom in &atoms[index..index + len] {
+                            out.push(RichTextOp::Insert {
+                                content: atom.content.clone(),
+                                attrs: atom.attrs.clone(),
+                            });
+                        }
+                        index += len;
+                    }
+                }
+            }
+            Ok(Change::rich_text(RichTextChange::new(out)))
+        }
+    }
+}
+
+fn type_mismatch(expected: ValueType, actual: &Value) -> ApplyError {
+    ApplyError::TypeMismatch {
+        path: Path::new(),
+        expected,
+        actual: actual.value_type(),
+    }
+}
