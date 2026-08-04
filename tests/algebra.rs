@@ -1,6 +1,7 @@
 use colla::{
-    transform_pair, Change, Limits, ListChange, ListOp, MapChange, MapEntryChange, TextChange,
-    TextOp, TieBreak, Value,
+    transform_pair, AttrChange, AttrPatch, AttrValue, Attrs, Change, Limits, ListChange, ListOp,
+    MapChange, MapEntryChange, RichInsert, RichSpan, RichText, RichTextChange, RichTextOp,
+    TextChange, TextOp, TieBreak, Value,
 };
 
 fn assert_tp1(base: &Value, a: &Change, b: &Change) {
@@ -90,4 +91,108 @@ fn transform_checks_logical_sequence_limits_before_expansion() {
     };
     let huge = Change::text(TextChange::new(vec![TextOp::Delete(usize::MAX)]));
     assert!(transform_pair(&huge, &Change::noop(), TieBreak::LeftFirst, &limits).is_err());
+}
+
+#[test]
+fn text_compose_splits_unicode_insert_without_losing_boundaries() {
+    let limits = Limits::default();
+    let base = Value::text("ab");
+    let first = Change::text(TextChange::new(vec![
+        TextOp::Retain(1),
+        TextOp::Insert("你🙂好".into()),
+    ]));
+    let second = Change::text(TextChange::new(vec![TextOp::Retain(2), TextOp::Delete(1)]));
+
+    let combined = first.compose(&second, &limits).unwrap();
+    let sequential = second
+        .apply_to(&first.apply_to(&base, &limits).unwrap(), &limits)
+        .unwrap();
+
+    assert_eq!(sequential, Value::text("a你好b"));
+    assert_eq!(combined.apply_to(&base, &limits).unwrap(), sequential);
+}
+
+#[test]
+fn list_compose_partially_consumes_insert_with_modify_and_delete() {
+    let limits = Limits::default();
+    let base = Value::list([Value::int(0)]);
+    let first = Change::list(ListChange::new(vec![ListOp::Insert(vec![
+        Value::int(1),
+        Value::int(2),
+        Value::int(3),
+    ])]));
+    let second = Change::list(ListChange::new(vec![
+        ListOp::Retain(1),
+        ListOp::Modify(Change::int_add(10)),
+        ListOp::Delete(1),
+    ]));
+
+    let combined = first.compose(&second, &limits).unwrap();
+    let sequential = second
+        .apply_to(&first.apply_to(&base, &limits).unwrap(), &limits)
+        .unwrap();
+
+    assert_eq!(
+        sequential,
+        Value::list([Value::int(1), Value::int(12), Value::int(0)])
+    );
+    assert_eq!(combined.apply_to(&base, &limits).unwrap(), sequential);
+}
+
+#[test]
+fn rich_text_compose_batches_attrs_and_partially_consumes_insert() {
+    let limits = Limits::default();
+    let bold = Attrs::from_entries([("bold", AttrValue::Bool(true))]).unwrap();
+    let red =
+        AttrPatch::from_entries([("color", AttrChange::Set(AttrValue::string("red")))]).unwrap();
+    let base = Value::rich_text(RichText::new(vec![RichSpan::text("z", Attrs::new())]));
+    let first = Change::rich_text(RichTextChange::new(vec![RichTextOp::Insert {
+        content: RichInsert::text("abc"),
+        attrs: bold,
+    }]));
+    let second = Change::rich_text(RichTextChange::new(vec![
+        RichTextOp::Retain { len: 1, attrs: red },
+        RichTextOp::Delete(1),
+    ]));
+
+    let combined = first.compose(&second, &limits).unwrap();
+    let sequential = second
+        .apply_to(&first.apply_to(&base, &limits).unwrap(), &limits)
+        .unwrap();
+
+    let rich = sequential.as_rich_text().unwrap();
+    assert_eq!(rich.to_plain_string(), "acz");
+    assert_eq!(
+        rich.spans()[0].attrs.get("bold"),
+        Some(&AttrValue::Bool(true))
+    );
+    assert_eq!(
+        rich.spans()[0].attrs.get("color"),
+        Some(&AttrValue::string("red"))
+    );
+    assert_eq!(combined.apply_to(&base, &limits).unwrap(), sequential);
+}
+
+#[test]
+fn large_retain_compose_stays_compact() {
+    let limits = Limits::default();
+    let len = 900_000;
+    let first = Change::text(TextChange::new(vec![
+        TextOp::Retain(len),
+        TextOp::Insert("x".into()),
+    ]));
+    let second = Change::text(TextChange::new(vec![
+        TextOp::Retain(len),
+        TextOp::Insert("y".into()),
+    ]));
+
+    let combined = first.compose(&second, &limits).unwrap();
+
+    assert_eq!(
+        combined,
+        Change::text(TextChange::new(vec![
+            TextOp::Retain(len),
+            TextOp::Insert("yx".into()),
+        ]))
+    );
 }

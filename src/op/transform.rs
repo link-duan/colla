@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::BTreeMap;
 
 use crate::attrs::AttrPatch;
 use crate::change::{
@@ -7,7 +7,9 @@ use crate::change::{
 };
 use crate::error::TransformError;
 use crate::limits::Limits;
-use crate::richtext::RichInsert;
+use crate::op::reader::{
+    ListOpReader, ListOpRef, RichTextOpReader, RichTextOpRef, TextOpReader, TextOpRef,
+};
 
 /// Transforms concurrent Changes based on one shared snapshot.
 ///
@@ -156,63 +158,75 @@ fn transform_map(
     ))
 }
 
-#[derive(Clone)]
-enum TUnit {
-    Retain,
-    Insert(char),
-    Delete,
-}
-fn expand_text(change: &TextChange) -> VecDeque<TUnit> {
-    let mut out = VecDeque::new();
-    for op in change.ops() {
-        match op {
-            TextOp::Retain(n) => out.extend((0..*n).map(|_| TUnit::Retain)),
-            TextOp::Insert(s) => out.extend(s.chars().map(TUnit::Insert)),
-            TextOp::Delete(n) => out.extend((0..*n).map(|_| TUnit::Delete)),
-        }
-    }
-    out
-}
 fn transform_text(
     left: &TextChange,
     right: &TextChange,
     tie: TieBreak,
 ) -> (TextChange, TextChange) {
-    let mut a = expand_text(left);
-    let mut b = expand_text(right);
+    let mut a = TextOpReader::new(left.ops());
+    let mut b = TextOpReader::new(right.ops());
     let mut ao = Vec::new();
     let mut bo = Vec::new();
-    while !a.is_empty() || !b.is_empty() {
-        let both_insert = matches!(a.front(), Some(TUnit::Insert(_)))
-            && matches!(b.front(), Some(TUnit::Insert(_)));
-        if matches!(a.front(), Some(TUnit::Insert(_)))
+    loop {
+        let both_insert = matches!(a.peek(), Some(TextOpRef::Insert { .. }))
+            && matches!(b.peek(), Some(TextOpRef::Insert { .. }));
+        if matches!(a.peek(), Some(TextOpRef::Insert { .. }))
             && (!both_insert || tie == TieBreak::LeftFirst)
         {
-            if let Some(TUnit::Insert(ch)) = a.pop_front() {
-                ao.push(TextOp::Insert(ch.to_string()));
-                bo.push(TextOp::Retain(1));
+            if let Some(TextOpRef::Insert { text, len }) = a.peek() {
+                ao.push(TextOp::Insert(text.to_owned()));
+                bo.push(TextOp::Retain(len));
+                a.consume(len);
             }
             continue;
         }
-        if matches!(b.front(), Some(TUnit::Insert(_))) {
-            if let Some(TUnit::Insert(ch)) = b.pop_front() {
-                ao.push(TextOp::Retain(1));
-                bo.push(TextOp::Insert(ch.to_string()));
-            }
+        if let Some(TextOpRef::Insert { text, len }) = b.peek() {
+            ao.push(TextOp::Retain(len));
+            bo.push(TextOp::Insert(text.to_owned()));
+            b.consume(len);
             continue;
         }
-        match (a.pop_front(), b.pop_front()) {
+        match (a.peek(), b.peek()) {
             (None, None) => break,
-            (Some(TUnit::Retain), None) => ao.push(TextOp::Retain(1)),
-            (Some(TUnit::Delete), None) => ao.push(TextOp::Delete(1)),
-            (None, Some(TUnit::Retain)) => bo.push(TextOp::Retain(1)),
-            (None, Some(TUnit::Delete)) => bo.push(TextOp::Delete(1)),
-            (Some(TUnit::Delete), Some(TUnit::Delete)) => {}
-            (Some(TUnit::Delete), Some(TUnit::Retain)) => ao.push(TextOp::Delete(1)),
-            (Some(TUnit::Retain), Some(TUnit::Delete)) => bo.push(TextOp::Delete(1)),
-            (Some(TUnit::Retain), Some(TUnit::Retain)) => {
-                ao.push(TextOp::Retain(1));
-                bo.push(TextOp::Retain(1));
+            (Some(TextOpRef::Retain(len)), None) => {
+                ao.push(TextOp::Retain(len));
+                a.consume(len);
+            }
+            (Some(TextOpRef::Delete(len)), None) => {
+                ao.push(TextOp::Delete(len));
+                a.consume(len);
+            }
+            (None, Some(TextOpRef::Retain(len))) => {
+                bo.push(TextOp::Retain(len));
+                b.consume(len);
+            }
+            (None, Some(TextOpRef::Delete(len))) => {
+                bo.push(TextOp::Delete(len));
+                b.consume(len);
+            }
+            (Some(TextOpRef::Delete(left_len)), Some(TextOpRef::Delete(right_len))) => {
+                let len = left_len.min(right_len);
+                a.consume(len);
+                b.consume(len);
+            }
+            (Some(TextOpRef::Delete(left_len)), Some(TextOpRef::Retain(right_len))) => {
+                let len = left_len.min(right_len);
+                ao.push(TextOp::Delete(len));
+                a.consume(len);
+                b.consume(len);
+            }
+            (Some(TextOpRef::Retain(left_len)), Some(TextOpRef::Delete(right_len))) => {
+                let len = left_len.min(right_len);
+                bo.push(TextOp::Delete(len));
+                a.consume(len);
+                b.consume(len);
+            }
+            (Some(TextOpRef::Retain(left_len)), Some(TextOpRef::Retain(right_len))) => {
+                let len = left_len.min(right_len);
+                ao.push(TextOp::Retain(len));
+                bo.push(TextOp::Retain(len));
+                a.consume(len);
+                b.consume(len);
             }
             _ => unreachable!(),
         }
@@ -220,83 +234,111 @@ fn transform_text(
     (TextChange::new(ao), TextChange::new(bo))
 }
 
-#[derive(Clone)]
-enum LUnit {
-    Retain,
-    Insert(crate::Value),
-    Delete,
-    Modify(Change),
-}
-fn expand_list(change: &ListChange) -> VecDeque<LUnit> {
-    let mut out = VecDeque::new();
-    for op in change.ops() {
-        match op {
-            ListOp::Retain(n) => out.extend((0..*n).map(|_| LUnit::Retain)),
-            ListOp::Insert(values) => out.extend(values.iter().cloned().map(LUnit::Insert)),
-            ListOp::Delete(n) => out.extend((0..*n).map(|_| LUnit::Delete)),
-            ListOp::Modify(change) => out.push_back(LUnit::Modify(change.clone())),
-        }
-    }
-    out
-}
 fn transform_list(
     left: &ListChange,
     right: &ListChange,
     tie: TieBreak,
     limits: &Limits,
 ) -> Result<(Change, Change), TransformError> {
-    let mut a = expand_list(left);
-    let mut b = expand_list(right);
+    let mut a = ListOpReader::new(left.ops());
+    let mut b = ListOpReader::new(right.ops());
     let mut ao = Vec::new();
     let mut bo = Vec::new();
-    while !a.is_empty() || !b.is_empty() {
-        let both_insert = matches!(a.front(), Some(LUnit::Insert(_)))
-            && matches!(b.front(), Some(LUnit::Insert(_)));
-        if matches!(a.front(), Some(LUnit::Insert(_)))
+    loop {
+        let both_insert = matches!(a.peek(), Some(ListOpRef::Insert(_)))
+            && matches!(b.peek(), Some(ListOpRef::Insert(_)));
+        if matches!(a.peek(), Some(ListOpRef::Insert(_)))
             && (!both_insert || tie == TieBreak::LeftFirst)
         {
-            if let Some(LUnit::Insert(value)) = a.pop_front() {
-                ao.push(ListOp::Insert(vec![value]));
-                bo.push(ListOp::Retain(1));
+            if let Some(ListOpRef::Insert(values)) = a.peek() {
+                let len = values.len();
+                ao.push(ListOp::Insert(values.to_vec()));
+                bo.push(ListOp::Retain(len));
+                a.consume(len);
             }
             continue;
         }
-        if matches!(b.front(), Some(LUnit::Insert(_))) {
-            if let Some(LUnit::Insert(value)) = b.pop_front() {
-                ao.push(ListOp::Retain(1));
-                bo.push(ListOp::Insert(vec![value]));
-            }
+        if let Some(ListOpRef::Insert(values)) = b.peek() {
+            let len = values.len();
+            ao.push(ListOp::Retain(len));
+            bo.push(ListOp::Insert(values.to_vec()));
+            b.consume(len);
             continue;
         }
-        match (a.pop_front(), b.pop_front()) {
+        match (a.peek(), b.peek()) {
             (None, None) => break,
-            (Some(LUnit::Retain), None) => ao.push(ListOp::Retain(1)),
-            (Some(LUnit::Delete), None) => ao.push(ListOp::Delete(1)),
-            (Some(LUnit::Modify(change)), None) => ao.push(ListOp::Modify(change)),
-            (None, Some(LUnit::Retain)) => bo.push(ListOp::Retain(1)),
-            (None, Some(LUnit::Delete)) => bo.push(ListOp::Delete(1)),
-            (None, Some(LUnit::Modify(change))) => bo.push(ListOp::Modify(change)),
-            (Some(LUnit::Delete), Some(LUnit::Delete)) => {}
-            (Some(LUnit::Delete), Some(LUnit::Retain | LUnit::Modify(_))) => {
-                ao.push(ListOp::Delete(1))
+            (Some(ListOpRef::Retain(len)), None) => {
+                ao.push(ListOp::Retain(len));
+                a.consume(len);
             }
-            (Some(LUnit::Retain | LUnit::Modify(_)), Some(LUnit::Delete)) => {
-                bo.push(ListOp::Delete(1))
+            (Some(ListOpRef::Delete(len)), None) => {
+                ao.push(ListOp::Delete(len));
+                a.consume(len);
             }
-            (Some(LUnit::Retain), Some(LUnit::Retain)) => {
-                ao.push(ListOp::Retain(1));
+            (Some(ListOpRef::Modify(change)), None) => {
+                ao.push(ListOp::Modify(change.clone()));
+                a.consume(1);
+            }
+            (None, Some(ListOpRef::Retain(len))) => {
+                bo.push(ListOp::Retain(len));
+                b.consume(len);
+            }
+            (None, Some(ListOpRef::Delete(len))) => {
+                bo.push(ListOp::Delete(len));
+                b.consume(len);
+            }
+            (None, Some(ListOpRef::Modify(change))) => {
+                bo.push(ListOp::Modify(change.clone()));
+                b.consume(1);
+            }
+            (Some(ListOpRef::Delete(left_len)), Some(ListOpRef::Delete(right_len))) => {
+                let len = left_len.min(right_len);
+                a.consume(len);
+                b.consume(len);
+            }
+            (Some(ListOpRef::Delete(left_len)), Some(ListOpRef::Retain(right_len))) => {
+                let len = left_len.min(right_len);
+                ao.push(ListOp::Delete(len));
+                a.consume(len);
+                b.consume(len);
+            }
+            (Some(ListOpRef::Delete(_)), Some(ListOpRef::Modify(_))) => {
+                ao.push(ListOp::Delete(1));
+                a.consume(1);
+                b.consume(1);
+            }
+            (Some(ListOpRef::Retain(left_len)), Some(ListOpRef::Delete(right_len))) => {
+                let len = left_len.min(right_len);
+                bo.push(ListOp::Delete(len));
+                a.consume(len);
+                b.consume(len);
+            }
+            (Some(ListOpRef::Modify(_)), Some(ListOpRef::Delete(_))) => {
+                bo.push(ListOp::Delete(1));
+                a.consume(1);
+                b.consume(1);
+            }
+            (Some(ListOpRef::Retain(left_len)), Some(ListOpRef::Retain(right_len))) => {
+                let len = left_len.min(right_len);
+                ao.push(ListOp::Retain(len));
+                bo.push(ListOp::Retain(len));
+                a.consume(len);
+                b.consume(len);
+            }
+            (Some(ListOpRef::Modify(change)), Some(ListOpRef::Retain(_))) => {
+                ao.push(ListOp::Modify(change.clone()));
                 bo.push(ListOp::Retain(1));
+                a.consume(1);
+                b.consume(1);
             }
-            (Some(LUnit::Modify(change)), Some(LUnit::Retain)) => {
-                ao.push(ListOp::Modify(change));
-                bo.push(ListOp::Retain(1));
-            }
-            (Some(LUnit::Retain), Some(LUnit::Modify(change))) => {
+            (Some(ListOpRef::Retain(_)), Some(ListOpRef::Modify(change))) => {
                 ao.push(ListOp::Retain(1));
-                bo.push(ListOp::Modify(change));
+                bo.push(ListOp::Modify(change.clone()));
+                a.consume(1);
+                b.consume(1);
             }
-            (Some(LUnit::Modify(a)), Some(LUnit::Modify(b))) => {
-                let (ap, bp) = transform_change(&a, &b, tie, limits)?;
+            (Some(ListOpRef::Modify(left)), Some(ListOpRef::Modify(right))) => {
+                let (ap, bp) = transform_change(left, right, tie, limits)?;
                 ao.push(if ap.is_noop() {
                     ListOp::Retain(1)
                 } else {
@@ -307,6 +349,8 @@ fn transform_list(
                 } else {
                     ListOp::Modify(bp)
                 });
+                a.consume(1);
+                b.consume(1);
             }
             _ => unreachable!(),
         }
@@ -317,89 +361,111 @@ fn transform_list(
     ))
 }
 
-#[derive(Clone)]
-enum RUnit {
-    Retain(AttrPatch),
-    Insert(RichInsert, crate::Attrs),
-    Delete,
-}
-fn expand_rich(change: &RichTextChange) -> VecDeque<RUnit> {
-    let mut out = VecDeque::new();
-    for op in change.ops() {
-        match op {
-            RichTextOp::Retain { len, attrs } => {
-                out.extend((0..*len).map(|_| RUnit::Retain(attrs.clone())))
-            }
-            RichTextOp::Insert {
-                content: RichInsert::Text(text),
-                attrs,
-            } => out.extend(
-                text.chars()
-                    .map(|ch| RUnit::Insert(RichInsert::text(ch.to_string()), attrs.clone())),
-            ),
-            RichTextOp::Insert { content, attrs } => {
-                out.push_back(RUnit::Insert(content.clone(), attrs.clone()))
-            }
-            RichTextOp::Delete(n) => out.extend((0..*n).map(|_| RUnit::Delete)),
-        }
-    }
-    out
-}
 fn transform_rich(
     left: &RichTextChange,
     right: &RichTextChange,
     tie: TieBreak,
 ) -> (RichTextChange, RichTextChange) {
-    let mut a = expand_rich(left);
-    let mut b = expand_rich(right);
+    let mut a = RichTextOpReader::new(left.ops());
+    let mut b = RichTextOpReader::new(right.ops());
     let mut ao = Vec::new();
     let mut bo = Vec::new();
-    while !a.is_empty() || !b.is_empty() {
-        let both_insert = matches!(a.front(), Some(RUnit::Insert(_, _)))
-            && matches!(b.front(), Some(RUnit::Insert(_, _)));
-        if matches!(a.front(), Some(RUnit::Insert(_, _)))
+    loop {
+        let both_insert = matches!(a.peek(), Some(RichTextOpRef::Insert { .. }))
+            && matches!(b.peek(), Some(RichTextOpRef::Insert { .. }));
+        if matches!(a.peek(), Some(RichTextOpRef::Insert { .. }))
             && (!both_insert || tie == TieBreak::LeftFirst)
         {
-            if let Some(RUnit::Insert(content, attrs)) = a.pop_front() {
+            if let Some(RichTextOpRef::Insert { content, attrs }) = a.peek() {
                 let len = content.len();
-                ao.push(RichTextOp::Insert { content, attrs });
+                ao.push(RichTextOp::Insert {
+                    content: content.prefix(len),
+                    attrs: attrs.clone(),
+                });
                 bo.push(RichTextOp::Retain {
                     len,
                     attrs: AttrPatch::new(),
                 });
+                a.consume(len);
             }
             continue;
         }
-        if matches!(b.front(), Some(RUnit::Insert(_, _))) {
-            if let Some(RUnit::Insert(content, attrs)) = b.pop_front() {
-                let len = content.len();
+        if let Some(RichTextOpRef::Insert { content, attrs }) = b.peek() {
+            let len = content.len();
+            ao.push(RichTextOp::Retain {
+                len,
+                attrs: AttrPatch::new(),
+            });
+            bo.push(RichTextOp::Insert {
+                content: content.prefix(len),
+                attrs: attrs.clone(),
+            });
+            b.consume(len);
+            continue;
+        }
+        match (a.peek(), b.peek()) {
+            (None, None) => break,
+            (Some(RichTextOpRef::Retain { len, attrs }), None) => {
                 ao.push(RichTextOp::Retain {
                     len,
-                    attrs: AttrPatch::new(),
+                    attrs: attrs.clone(),
                 });
-                bo.push(RichTextOp::Insert { content, attrs });
+                a.consume(len);
             }
-            continue;
-        }
-        match (a.pop_front(), b.pop_front()) {
-            (None, None) => break,
-            (Some(RUnit::Retain(patch)), None) => ao.push(RichTextOp::Retain {
-                len: 1,
-                attrs: patch,
-            }),
-            (Some(RUnit::Delete), None) => ao.push(RichTextOp::Delete(1)),
-            (None, Some(RUnit::Retain(patch))) => bo.push(RichTextOp::Retain {
-                len: 1,
-                attrs: patch,
-            }),
-            (None, Some(RUnit::Delete)) => bo.push(RichTextOp::Delete(1)),
-            (Some(RUnit::Delete), Some(RUnit::Delete)) => {}
-            (Some(RUnit::Delete), Some(RUnit::Retain(_))) => ao.push(RichTextOp::Delete(1)),
-            (Some(RUnit::Retain(_)), Some(RUnit::Delete)) => bo.push(RichTextOp::Delete(1)),
-            (Some(RUnit::Retain(a)), Some(RUnit::Retain(b))) => {
-                let (ap, bp) = transform_attr_patch(&a, &b, tie);
-                ao.push(RichTextOp::Retain { len: 1, attrs: ap });
-                bo.push(RichTextOp::Retain { len: 1, attrs: bp });
+            (Some(RichTextOpRef::Delete(len)), None) => {
+                ao.push(RichTextOp::Delete(len));
+                a.consume(len);
+            }
+            (None, Some(RichTextOpRef::Retain { len, attrs })) => {
+                bo.push(RichTextOp::Retain {
+                    len,
+                    attrs: attrs.clone(),
+                });
+                b.consume(len);
+            }
+            (None, Some(RichTextOpRef::Delete(len))) => {
+                bo.push(RichTextOp::Delete(len));
+                b.consume(len);
+            }
+            (Some(RichTextOpRef::Delete(left_len)), Some(RichTextOpRef::Delete(right_len))) => {
+                let len = left_len.min(right_len);
+                a.consume(len);
+                b.consume(len);
+            }
+            (
+                Some(RichTextOpRef::Delete(left_len)),
+                Some(RichTextOpRef::Retain { len: right_len, .. }),
+            ) => {
+                let len = left_len.min(right_len);
+                ao.push(RichTextOp::Delete(len));
+                a.consume(len);
+                b.consume(len);
+            }
+            (
+                Some(RichTextOpRef::Retain { len: left_len, .. }),
+                Some(RichTextOpRef::Delete(right_len)),
+            ) => {
+                let len = left_len.min(right_len);
+                bo.push(RichTextOp::Delete(len));
+                a.consume(len);
+                b.consume(len);
+            }
+            (
+                Some(RichTextOpRef::Retain {
+                    len: left_len,
+                    attrs: left_attrs,
+                }),
+                Some(RichTextOpRef::Retain {
+                    len: right_len,
+                    attrs: right_attrs,
+                }),
+            ) => {
+                let len = left_len.min(right_len);
+                let (ap, bp) = transform_attr_patch(left_attrs, right_attrs, tie);
+                ao.push(RichTextOp::Retain { len, attrs: ap });
+                bo.push(RichTextOp::Retain { len, attrs: bp });
+                a.consume(len);
+                b.consume(len);
             }
             _ => unreachable!(),
         }
