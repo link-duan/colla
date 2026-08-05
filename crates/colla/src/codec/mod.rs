@@ -6,7 +6,7 @@ use crate::change::{
     RichTextOp, TextChange, TextOp,
 };
 use crate::error::CodecError;
-use crate::limits::Limits;
+use crate::input_limits::InputLimits;
 use crate::richtext::{RichInsert, RichSpan, RichText};
 use crate::value::{FiniteF64, Value, ValueKind};
 
@@ -16,10 +16,11 @@ pub fn encode_value(value: &Value) -> Vec<u8> {
     out
 }
 
-pub fn decode_value(bytes: &[u8], limits: &Limits) -> Result<Value, CodecError> {
+pub fn decode_value(bytes: &[u8], limits: &InputLimits) -> Result<Value, CodecError> {
     let mut decoder = Decoder::new(bytes, limits);
     let value = decoder.value(1)?;
     decoder.finish()?;
+    value.check_input_limits(limits)?;
     Ok(value)
 }
 
@@ -29,23 +30,40 @@ pub fn encode_change(change: &Change) -> Vec<u8> {
     out
 }
 
-pub fn decode_change(bytes: &[u8], limits: &Limits) -> Result<Change, CodecError> {
+pub fn decode_change(bytes: &[u8], limits: &InputLimits) -> Result<Change, CodecError> {
     let mut decoder = Decoder::new(bytes, limits);
     let change = decoder.change(1)?;
     decoder.finish()?;
-    if let Err(crate::ApplyError::LimitExceeded {
-        name,
-        actual,
-        limit,
-    }) = change.check_limits(limits)
-    {
-        return Err(CodecError::LimitExceeded {
-            name,
-            actual,
-            limit,
-        });
-    }
+    change.check_input_limits(limits)?;
     Ok(change)
+}
+
+impl Value {
+    pub fn encode(&self) -> Vec<u8> {
+        encode_value(self)
+    }
+
+    pub fn decode(bytes: &[u8]) -> Result<Self, CodecError> {
+        Self::decode_with_limits(bytes, &InputLimits::default())
+    }
+
+    pub fn decode_with_limits(bytes: &[u8], limits: &InputLimits) -> Result<Self, CodecError> {
+        decode_value(bytes, limits)
+    }
+}
+
+impl Change {
+    pub fn encode(&self) -> Vec<u8> {
+        encode_change(self)
+    }
+
+    pub fn decode(bytes: &[u8]) -> Result<Self, CodecError> {
+        Self::decode_with_limits(bytes, &InputLimits::default())
+    }
+
+    pub fn decode_with_limits(bytes: &[u8], limits: &InputLimits) -> Result<Self, CodecError> {
+        decode_change(bytes, limits)
+    }
 }
 
 fn put_varint(mut value: u64, out: &mut Vec<u8>) {
@@ -266,13 +284,13 @@ fn encode_attr_patch(patch: &AttrPatch, out: &mut Vec<u8>) {
 struct Decoder<'a> {
     bytes: &'a [u8],
     pos: usize,
-    limits: &'a Limits,
+    limits: &'a InputLimits,
     value_nodes: usize,
     change_nodes: usize,
 }
 
 impl<'a> Decoder<'a> {
-    fn new(bytes: &'a [u8], limits: &'a Limits) -> Self {
+    fn new(bytes: &'a [u8], limits: &'a InputLimits) -> Self {
         Self {
             bytes,
             pos: 0,
@@ -642,8 +660,7 @@ impl<'a> Decoder<'a> {
                         tag => return Err(self.tag_error(op_offset, tag, "ListOp")),
                     });
                 }
-                let normalized = ListChange::new(ops.clone());
-                if normalized.ops() != ops.as_slice() {
+                if !is_canonical_list_ops(&ops) {
                     return Err(self.noncanonical(offset, "ListChange", "non-canonical ops"));
                 }
                 Ok(Change::list(ListChange::from_canonical(ops)))
@@ -693,8 +710,7 @@ impl<'a> Decoder<'a> {
                         tag => return Err(self.tag_error(op_offset, tag, "TextOp")),
                     });
                 }
-                let normalized = TextChange::new(ops.clone());
-                if normalized.ops() != ops.as_slice() {
+                if !is_canonical_text_ops(&ops) {
                     return Err(self.noncanonical(offset, "TextChange", "non-canonical ops"));
                 }
                 Ok(Change::text(TextChange::from_canonical(ops)))
@@ -740,8 +756,7 @@ impl<'a> Decoder<'a> {
                         tag => return Err(self.tag_error(op_offset, tag, "RichTextOp")),
                     });
                 }
-                let normalized = RichTextChange::new(ops.clone());
-                if normalized.ops() != ops.as_slice() {
+                if !is_canonical_rich_text_ops(&ops) {
                     return Err(self.noncanonical(offset, "RichTextChange", "non-canonical ops"));
                 }
                 Ok(Change::rich_text(RichTextChange::from_canonical(ops)))
@@ -756,4 +771,53 @@ impl<'a> Decoder<'a> {
             _ => Err(self.tag_error(offset, tag, "Change")),
         }
     }
+}
+
+fn is_canonical_list_ops(ops: &[ListOp]) -> bool {
+    !matches!(ops.last(), Some(ListOp::Retain(_)))
+        && ops.windows(2).all(|pair| {
+            !matches!(
+                (&pair[0], &pair[1]),
+                (ListOp::Retain(_), ListOp::Retain(_))
+                    | (ListOp::Insert(_), ListOp::Insert(_))
+                    | (ListOp::Delete(_), ListOp::Delete(_))
+                    | (ListOp::Delete(_), ListOp::Insert(_))
+            )
+        })
+}
+
+fn is_canonical_text_ops(ops: &[TextOp]) -> bool {
+    !matches!(ops.last(), Some(TextOp::Retain(_)))
+        && ops.windows(2).all(|pair| {
+            !matches!(
+                (&pair[0], &pair[1]),
+                (TextOp::Retain(_), TextOp::Retain(_))
+                    | (TextOp::Insert(_), TextOp::Insert(_))
+                    | (TextOp::Delete(_), TextOp::Delete(_))
+                    | (TextOp::Delete(_), TextOp::Insert(_))
+            )
+        })
+}
+
+fn is_canonical_rich_text_ops(ops: &[RichTextOp]) -> bool {
+    !matches!(
+        ops.last(),
+        Some(RichTextOp::Retain { attrs, .. }) if attrs.is_empty()
+    ) && ops.windows(2).all(|pair| match (&pair[0], &pair[1]) {
+        (RichTextOp::Retain { attrs: left, .. }, RichTextOp::Retain { attrs: right, .. }) => {
+            left != right
+        }
+        (RichTextOp::Delete(_), RichTextOp::Delete(_) | RichTextOp::Insert { .. }) => false,
+        (
+            RichTextOp::Insert {
+                content: RichInsert::Text(_),
+                attrs: left,
+            },
+            RichTextOp::Insert {
+                content: RichInsert::Text(_),
+                attrs: right,
+            },
+        ) => left != right,
+        _ => true,
+    })
 }

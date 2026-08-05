@@ -6,15 +6,14 @@ The core model is a closed `Value` tree and one recursive, canonical `Change`.
 It provides functional Apply, sequential Compose, pairwise Transform (TP1),
 Invert, snapshot-aware `ChangeBuilder`, and a strict canonical binary body codec.
 
-    use colla::{path, ChangeBuilder, Limits, Value};
+    use colla::{apply, path, Value};
 
-    let limits = Limits::default();
     let before = Value::map([("title", Value::text("Draft"))])?;
 
-    let mut builder = ChangeBuilder::new(&before, &limits)?;
+    let mut builder = before.change();
     builder.text_insert(&path!["title"], 5, " v2")?;
     let change = builder.build();
-    let after = change.apply_to(&before, &limits)?;
+    let after = apply(&before, &change)?;
 
 Design specifications:
 

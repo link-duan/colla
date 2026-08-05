@@ -3,8 +3,8 @@ use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
-use crate::error::{ApplyError, ValueError};
-use crate::limits::Limits;
+use crate::error::{CodecError, ValueError};
+use crate::input_limits::InputLimits;
 use crate::path::{Path, PathSeg};
 use crate::richtext::RichText;
 
@@ -274,20 +274,20 @@ impl Value {
         Some(current)
     }
 
-    pub fn check_limits(&self, limits: &Limits) -> Result<(), ApplyError> {
+    pub(crate) fn check_input_limits(&self, limits: &InputLimits) -> Result<(), CodecError> {
         let mut stack = vec![(self, 1usize)];
         let mut nodes = 0usize;
         while let Some((value, depth)) = stack.pop() {
             nodes += 1;
             if nodes > limits.max_value_nodes {
-                return Err(ApplyError::LimitExceeded {
+                return Err(CodecError::LimitExceeded {
                     name: "value nodes",
                     actual: nodes,
                     limit: limits.max_value_nodes,
                 });
             }
             if depth > limits.max_depth {
-                return Err(ApplyError::LimitExceeded {
+                return Err(CodecError::LimitExceeded {
                     name: "value depth",
                     actual: depth,
                     limit: limits.max_depth,
@@ -348,9 +348,9 @@ impl Value {
     }
 }
 
-fn check_len(name: &'static str, actual: usize, limit: usize) -> Result<(), ApplyError> {
+fn check_len(name: &'static str, actual: usize, limit: usize) -> Result<(), CodecError> {
     if actual > limit {
-        Err(ApplyError::LimitExceeded {
+        Err(CodecError::LimitExceeded {
             name,
             actual,
             limit,

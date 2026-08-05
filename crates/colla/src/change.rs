@@ -3,8 +3,8 @@ use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 use crate::attrs::{AttrPatch, Attrs};
-use crate::error::{ApplyError, ValueError};
-use crate::limits::Limits;
+use crate::error::{CodecError, ValueError};
+use crate::input_limits::InputLimits;
 use crate::richtext::RichInsert;
 use crate::value::Value;
 
@@ -238,7 +238,7 @@ impl Change {
             ChangeKind::Int(_) => "Int",
         }
     }
-    pub(crate) fn check_limits(&self, limits: &Limits) -> Result<(), ApplyError> {
+    pub(crate) fn check_input_limits(&self, limits: &InputLimits) -> Result<(), CodecError> {
         let mut stack = vec![(self, 1usize)];
         let mut nodes = 0usize;
         while let Some((change, depth)) = stack.pop() {
@@ -247,13 +247,13 @@ impl Change {
             check_limit("change depth", depth, limits.max_depth)?;
             match change.kind() {
                 ChangeKind::Noop | ChangeKind::Int(_) => {}
-                ChangeKind::Replace(value) => value.check_limits(limits)?,
+                ChangeKind::Replace(value) => value.check_input_limits(limits)?,
                 ChangeKind::Map(map) => {
                     check_limit("container length", map.len(), limits.max_container_len)?;
                     for (key, entry) in map.iter() {
                         check_limit("string bytes", key.len(), limits.max_string_bytes)?;
                         match entry {
-                            MapEntryChange::Insert(value) => value.check_limits(limits)?,
+                            MapEntryChange::Insert(value) => value.check_input_limits(limits)?,
                             MapEntryChange::Delete => {}
                             MapEntryChange::Modify(child) => stack.push((child, depth + 1)),
                         }
@@ -272,7 +272,7 @@ impl Change {
                                     limits.max_container_len,
                                 )?;
                                 for value in values {
-                                    value.check_limits(limits)?;
+                                    value.check_input_limits(limits)?;
                                 }
                                 output_len = add_len(output_len, values.len(), limits)?;
                             }
@@ -331,7 +331,7 @@ impl Change {
                                         text.len(),
                                         limits.max_string_bytes,
                                     )?,
-                                    RichInsert::Embed(value) => value.check_limits(limits)?,
+                                    RichInsert::Embed(value) => value.check_input_limits(limits)?,
                                 }
                             }
                             RichTextOp::Delete(len) => {
@@ -346,7 +346,7 @@ impl Change {
     }
 }
 
-fn check_attrs(attrs: &Attrs, limits: &Limits) -> Result<(), ApplyError> {
+fn check_attrs(attrs: &Attrs, limits: &InputLimits) -> Result<(), CodecError> {
     check_limit("container length", attrs.len(), limits.max_container_len)?;
     for (key, value) in attrs.iter() {
         check_limit("string bytes", key.len(), limits.max_string_bytes)?;
@@ -357,7 +357,7 @@ fn check_attrs(attrs: &Attrs, limits: &Limits) -> Result<(), ApplyError> {
     Ok(())
 }
 
-fn check_attr_patch(patch: &AttrPatch, limits: &Limits) -> Result<(), ApplyError> {
+fn check_attr_patch(patch: &AttrPatch, limits: &InputLimits) -> Result<(), CodecError> {
     check_limit("container length", patch.len(), limits.max_container_len)?;
     for (key, change) in patch.iter() {
         check_limit("string bytes", key.len(), limits.max_string_bytes)?;
@@ -368,9 +368,9 @@ fn check_attr_patch(patch: &AttrPatch, limits: &Limits) -> Result<(), ApplyError
     Ok(())
 }
 
-fn check_limit(name: &'static str, actual: usize, limit: usize) -> Result<(), ApplyError> {
+fn check_limit(name: &'static str, actual: usize, limit: usize) -> Result<(), CodecError> {
     if actual > limit {
-        Err(ApplyError::LimitExceeded {
+        Err(CodecError::LimitExceeded {
             name,
             actual,
             limit,
@@ -380,10 +380,10 @@ fn check_limit(name: &'static str, actual: usize, limit: usize) -> Result<(), Ap
     }
 }
 
-fn add_len(current: usize, amount: usize, limits: &Limits) -> Result<usize, ApplyError> {
+fn add_len(current: usize, amount: usize, limits: &InputLimits) -> Result<usize, CodecError> {
     let value = current
         .checked_add(amount)
-        .ok_or(ApplyError::LimitExceeded {
+        .ok_or(CodecError::LimitExceeded {
             name: "sequence length",
             actual: usize::MAX,
             limit: limits.max_sequence_len,

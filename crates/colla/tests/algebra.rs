@@ -1,18 +1,13 @@
 use colla::{
-    transform_pair, AttrChange, AttrPatch, AttrValue, Attrs, Change, Limits, ListChange, ListOp,
-    MapChange, MapEntryChange, RichInsert, RichSpan, RichText, RichTextChange, RichTextOp,
-    TextChange, TextOp, TieBreak, Value,
+    transform_pair, AttrChange, AttrPatch, AttrValue, Attrs, Change, ListChange, ListOp, MapChange,
+    MapEntryChange, RichInsert, RichSpan, RichText, RichTextChange, RichTextOp, TextChange, TextOp,
+    TieBreak, Value,
 };
 
 fn assert_tp1(base: &Value, a: &Change, b: &Change) {
-    let limits = Limits::default();
-    let (ap, bp) = transform_pair(a, b, TieBreak::LeftFirst, &limits).unwrap();
-    let left = bp
-        .apply_to(&a.apply_to(base, &limits).unwrap(), &limits)
-        .unwrap();
-    let right = ap
-        .apply_to(&b.apply_to(base, &limits).unwrap(), &limits)
-        .unwrap();
+    let (ap, bp) = transform_pair(a, b, TieBreak::LeftFirst).unwrap();
+    let left = bp.apply_to(&a.apply_to(base).unwrap()).unwrap();
+    let right = ap.apply_to(&b.apply_to(base).unwrap()).unwrap();
     assert_eq!(left, right);
 }
 
@@ -45,57 +40,48 @@ fn map_insert_conflict_uses_tie_break() {
         MapChange::from_entries([("x", MapEntryChange::Insert(Value::int(2)))]).unwrap(),
     );
     assert_tp1(&base, &a, &b);
-    let limits = Limits::default();
-    let (ap, _) = transform_pair(&a, &b, TieBreak::LeftFirst, &limits).unwrap();
-    let result = ap
-        .apply_to(&b.apply_to(&base, &limits).unwrap(), &limits)
-        .unwrap();
+    let (ap, _) = transform_pair(&a, &b, TieBreak::LeftFirst).unwrap();
+    let result = ap.apply_to(&b.apply_to(&base).unwrap()).unwrap();
     assert_eq!(result.as_map().unwrap().get("x"), Some(&Value::int(1)));
 }
 
 #[test]
 fn compose_matches_sequential_apply() {
-    let limits = Limits::default();
     let base = Value::text("hello");
     let a = Change::text(TextChange::new(vec![
         TextOp::Retain(5),
         TextOp::Insert("!".into()),
     ]));
     let b = Change::text(TextChange::new(vec![TextOp::Delete(1)]));
-    let combined = a.compose(&b, &limits).unwrap();
-    let sequential = b
-        .apply_to(&a.apply_to(&base, &limits).unwrap(), &limits)
-        .unwrap();
-    assert_eq!(combined.apply_to(&base, &limits).unwrap(), sequential);
+    let combined = a.compose(&b).unwrap();
+    let sequential = b.apply_to(&a.apply_to(&base).unwrap()).unwrap();
+    assert_eq!(combined.apply_to(&base).unwrap(), sequential);
 }
 
 #[test]
 fn inverse_restores_base() {
-    let limits = Limits::default();
     let base = Value::list([Value::int(1), Value::int(2), Value::int(3)]);
     let change = Change::list(ListChange::new(vec![
         ListOp::Retain(1),
         ListOp::Delete(1),
         ListOp::Insert(vec![Value::int(9)]),
     ]));
-    let inverse = change.invert(&base, &limits).unwrap();
-    let after = change.apply_to(&base, &limits).unwrap();
-    assert_eq!(inverse.apply_to(&after, &limits).unwrap(), base);
+    let inverse = change.invert(&base).unwrap();
+    let after = change.apply_to(&base).unwrap();
+    assert_eq!(inverse.apply_to(&after).unwrap(), base);
 }
 
 #[test]
-fn transform_checks_logical_sequence_limits_before_expansion() {
-    let limits = Limits {
-        max_sequence_len: 8,
-        ..Limits::default()
-    };
+fn transform_keeps_huge_logical_sequences_compact() {
     let huge = Change::text(TextChange::new(vec![TextOp::Delete(usize::MAX)]));
-    assert!(transform_pair(&huge, &Change::noop(), TieBreak::LeftFirst, &limits).is_err());
+    assert_eq!(
+        transform_pair(&huge, &Change::noop(), TieBreak::LeftFirst).unwrap(),
+        (huge, Change::noop())
+    );
 }
 
 #[test]
 fn text_compose_splits_unicode_insert_without_losing_boundaries() {
-    let limits = Limits::default();
     let base = Value::text("ab");
     let first = Change::text(TextChange::new(vec![
         TextOp::Retain(1),
@@ -103,18 +89,15 @@ fn text_compose_splits_unicode_insert_without_losing_boundaries() {
     ]));
     let second = Change::text(TextChange::new(vec![TextOp::Retain(2), TextOp::Delete(1)]));
 
-    let combined = first.compose(&second, &limits).unwrap();
-    let sequential = second
-        .apply_to(&first.apply_to(&base, &limits).unwrap(), &limits)
-        .unwrap();
+    let combined = first.compose(&second).unwrap();
+    let sequential = second.apply_to(&first.apply_to(&base).unwrap()).unwrap();
 
     assert_eq!(sequential, Value::text("a你好b"));
-    assert_eq!(combined.apply_to(&base, &limits).unwrap(), sequential);
+    assert_eq!(combined.apply_to(&base).unwrap(), sequential);
 }
 
 #[test]
 fn list_compose_partially_consumes_insert_with_modify_and_delete() {
-    let limits = Limits::default();
     let base = Value::list([Value::int(0)]);
     let first = Change::list(ListChange::new(vec![ListOp::Insert(vec![
         Value::int(1),
@@ -127,21 +110,18 @@ fn list_compose_partially_consumes_insert_with_modify_and_delete() {
         ListOp::Delete(1),
     ]));
 
-    let combined = first.compose(&second, &limits).unwrap();
-    let sequential = second
-        .apply_to(&first.apply_to(&base, &limits).unwrap(), &limits)
-        .unwrap();
+    let combined = first.compose(&second).unwrap();
+    let sequential = second.apply_to(&first.apply_to(&base).unwrap()).unwrap();
 
     assert_eq!(
         sequential,
         Value::list([Value::int(1), Value::int(12), Value::int(0)])
     );
-    assert_eq!(combined.apply_to(&base, &limits).unwrap(), sequential);
+    assert_eq!(combined.apply_to(&base).unwrap(), sequential);
 }
 
 #[test]
 fn rich_text_compose_batches_attrs_and_partially_consumes_insert() {
-    let limits = Limits::default();
     let bold = Attrs::from_entries([("bold", AttrValue::Bool(true))]).unwrap();
     let red =
         AttrPatch::from_entries([("color", AttrChange::Set(AttrValue::string("red")))]).unwrap();
@@ -155,10 +135,8 @@ fn rich_text_compose_batches_attrs_and_partially_consumes_insert() {
         RichTextOp::Delete(1),
     ]));
 
-    let combined = first.compose(&second, &limits).unwrap();
-    let sequential = second
-        .apply_to(&first.apply_to(&base, &limits).unwrap(), &limits)
-        .unwrap();
+    let combined = first.compose(&second).unwrap();
+    let sequential = second.apply_to(&first.apply_to(&base).unwrap()).unwrap();
 
     let rich = sequential.as_rich_text().unwrap();
     assert_eq!(rich.to_plain_string(), "acz");
@@ -170,12 +148,11 @@ fn rich_text_compose_batches_attrs_and_partially_consumes_insert() {
         rich.spans()[0].attrs.get("color"),
         Some(&AttrValue::string("red"))
     );
-    assert_eq!(combined.apply_to(&base, &limits).unwrap(), sequential);
+    assert_eq!(combined.apply_to(&base).unwrap(), sequential);
 }
 
 #[test]
 fn large_retain_compose_stays_compact() {
-    let limits = Limits::default();
     let len = 900_000;
     let first = Change::text(TextChange::new(vec![
         TextOp::Retain(len),
@@ -186,7 +163,7 @@ fn large_retain_compose_stays_compact() {
         TextOp::Insert("y".into()),
     ]));
 
-    let combined = first.compose(&second, &limits).unwrap();
+    let combined = first.compose(&second).unwrap();
 
     assert_eq!(
         combined,

@@ -1,7 +1,6 @@
 use colla::{
-    path, AttrChange, AttrPatch, AttrValue, Attrs, Change, ChangeBuilder, Limits, ListChange,
-    ListOp, MapChange, MapEntryChange, RichSpan, RichText, RichTextChange, RichTextOp, TextChange,
-    TextOp, Value,
+    path, AttrChange, AttrPatch, AttrValue, Attrs, Change, ListChange, ListOp, MapChange,
+    MapEntryChange, RichSpan, RichText, RichTextChange, RichTextOp, TextChange, TextOp, Value,
 };
 
 #[test]
@@ -52,7 +51,7 @@ fn recursive_change_updates_multiple_branches() {
         .unwrap(),
     );
 
-    let after = change.apply_to(&base, &Limits::default()).unwrap();
+    let after = change.apply_to(&base).unwrap();
     assert_eq!(
         after.get(&path!["title"]).unwrap(),
         &Value::text("Sprint 2")
@@ -69,13 +68,12 @@ fn recursive_change_updates_multiple_branches() {
 
 #[test]
 fn builder_is_sequential_and_transactional() {
-    let limits = Limits::default();
     let base = Value::map([(
         "profile",
         Value::map([("name", Value::string("Old")), ("age", Value::int(30))]).unwrap(),
     )])
     .unwrap();
-    let mut builder = ChangeBuilder::new(&base, &limits).unwrap();
+    let mut builder = base.change();
     builder
         .replace(
             &path!["profile"],
@@ -92,7 +90,7 @@ fn builder_is_sequential_and_transactional() {
     let before_error = builder.change().clone();
     assert!(builder.replace(&path!["missing"], Value::null()).is_err());
     assert_eq!(builder.change(), &before_error);
-    let after = builder.build().apply_to(&base, &limits).unwrap();
+    let after = builder.build().apply_to(&base).unwrap();
     assert_eq!(
         after.get(&path!["profile", "name"]).unwrap(),
         &Value::string("Alice")
@@ -112,7 +110,7 @@ fn rich_text_format_has_explicit_patch_semantics() {
         len: 2,
         attrs: patch,
     }]));
-    let after = change.apply_to(&base, &Limits::default()).unwrap();
+    let after = change.apply_to(&base).unwrap();
     let rich = after.as_rich_text().unwrap();
     assert_eq!(rich.spans().len(), 1);
     assert_eq!(

@@ -1,9 +1,9 @@
 use std::collections::BTreeMap;
 
 use colla::{
-    codec, transform_pair, AttrChange, AttrPatch, AttrValue, Attrs, Change, Limits, ListChange,
-    ListOp, MapChange, MapEntryChange, RichSpan, RichText, RichTextChange, RichTextOp, TextChange,
-    TextOp, TieBreak, Value,
+    transform_pair, AttrChange, AttrPatch, AttrValue, Attrs, Change, ListChange, ListOp, MapChange,
+    MapEntryChange, RichSpan, RichText, RichTextChange, RichTextOp, TextChange, TextOp, TieBreak,
+    Value,
 };
 use proptest::prelude::*;
 
@@ -76,15 +76,14 @@ proptest! {
         ap in any::<usize>(), ad in any::<usize>(), ai in arb_string(),
         bp in any::<usize>(), bd in any::<usize>(), bi in arb_string(),
     ) {
-        let limits = Limits::default();
         let base_value = Value::text(base.clone());
         let len = base.chars().count();
         let a = text_change(len, ap, ad, ai);
         let b = text_change(len, bp, bd, bi);
-        prop_assert_eq!(codec::decode_change(&codec::encode_change(&a), &limits).unwrap(), a.clone());
-        let (a_prime, b_prime) = transform_pair(&a, &b, TieBreak::LeftFirst, &limits).unwrap();
-        let left = b_prime.apply_to(&a.apply_to(&base_value, &limits).unwrap(), &limits).unwrap();
-        let right = a_prime.apply_to(&b.apply_to(&base_value, &limits).unwrap(), &limits).unwrap();
+        prop_assert_eq!(Change::decode(&a.encode()).unwrap(), a.clone());
+        let (a_prime, b_prime) = transform_pair(&a, &b, TieBreak::LeftFirst).unwrap();
+        let left = b_prime.apply_to(&a.apply_to(&base_value).unwrap()).unwrap();
+        let right = a_prime.apply_to(&b.apply_to(&base_value).unwrap()).unwrap();
         prop_assert_eq!(left, right);
     }
 
@@ -94,17 +93,16 @@ proptest! {
         ap in any::<usize>(), ad in any::<usize>(), ai in arb_string(),
         bp in any::<usize>(), bd in any::<usize>(), bi in arb_string(),
     ) {
-        let limits = Limits::default();
         let base_value = Value::text(base.clone());
         let a = text_change(base.chars().count(), ap, ad, ai);
-        let middle = a.apply_to(&base_value, &limits).unwrap();
+        let middle = a.apply_to(&base_value).unwrap();
         let middle_len = middle.as_text().unwrap().len();
         let b = text_change(middle_len, bp, bd, bi);
-        let combined = a.compose(&b, &limits).unwrap();
-        let sequential = b.apply_to(&middle, &limits).unwrap();
-        prop_assert_eq!(combined.apply_to(&base_value, &limits).unwrap(), sequential.clone());
-        let inverse = combined.invert(&base_value, &limits).unwrap();
-        prop_assert_eq!(inverse.apply_to(&sequential, &limits).unwrap(), base_value);
+        let combined = a.compose(&b).unwrap();
+        let sequential = b.apply_to(&middle).unwrap();
+        prop_assert_eq!(combined.apply_to(&base_value).unwrap(), sequential.clone());
+        let inverse = combined.invert(&base_value).unwrap();
+        prop_assert_eq!(inverse.apply_to(&sequential).unwrap(), base_value);
     }
 
     #[test]
@@ -113,13 +111,12 @@ proptest! {
         ap in any::<usize>(), ad in any::<usize>(), ai in prop::collection::vec(-20i64..20, 0..5),
         bp in any::<usize>(), bd in any::<usize>(), bi in prop::collection::vec(-20i64..20, 0..5),
     ) {
-        let limits = Limits::default();
         let base_value = Value::list(base.iter().copied().map(Value::int));
         let a = list_change(base.len(), ap, ad, ai);
         let b = list_change(base.len(), bp, bd, bi);
-        let (a_prime, b_prime) = transform_pair(&a, &b, TieBreak::LeftFirst, &limits).unwrap();
-        let left = b_prime.apply_to(&a.apply_to(&base_value, &limits).unwrap(), &limits).unwrap();
-        let right = a_prime.apply_to(&b.apply_to(&base_value, &limits).unwrap(), &limits).unwrap();
+        let (a_prime, b_prime) = transform_pair(&a, &b, TieBreak::LeftFirst).unwrap();
+        let left = b_prime.apply_to(&a.apply_to(&base_value).unwrap()).unwrap();
+        let right = a_prime.apply_to(&b.apply_to(&base_value).unwrap()).unwrap();
         prop_assert_eq!(left, right);
     }
 
@@ -129,13 +126,12 @@ proptest! {
         ap in any::<usize>(), ad in any::<usize>(), ai in arb_string(),
         bp in any::<usize>(), bd in any::<usize>(), bi in arb_string(),
     ) {
-        let limits = Limits::default();
         let base_value = Value::map([("text", Value::text(base.clone()))]).unwrap();
         let a = Change::map(MapChange::from_entries([("text", MapEntryChange::Modify(text_change(base.chars().count(), ap, ad, ai)))]).unwrap());
         let b = Change::map(MapChange::from_entries([("text", MapEntryChange::Modify(text_change(base.chars().count(), bp, bd, bi)))]).unwrap());
-        let (a_prime, b_prime) = transform_pair(&a, &b, TieBreak::LeftFirst, &limits).unwrap();
-        let left = b_prime.apply_to(&a.apply_to(&base_value, &limits).unwrap(), &limits).unwrap();
-        let right = a_prime.apply_to(&b.apply_to(&base_value, &limits).unwrap(), &limits).unwrap();
+        let (a_prime, b_prime) = transform_pair(&a, &b, TieBreak::LeftFirst).unwrap();
+        let left = b_prime.apply_to(&a.apply_to(&base_value).unwrap()).unwrap();
+        let right = a_prime.apply_to(&b.apply_to(&base_value).unwrap()).unwrap();
         prop_assert_eq!(left, right);
     }
 
@@ -145,34 +141,30 @@ proptest! {
         ap in any::<usize>(), ad in any::<usize>(), ai in arb_string().prop_filter("nonempty", |s| !s.is_empty()),
         bp in any::<usize>(), bd in any::<usize>(), bi in arb_string().prop_filter("nonempty", |s| !s.is_empty()),
     ) {
-        let limits = Limits::default();
         let base_value = Value::rich_text(RichText::new(if base.is_empty() { vec![] } else { vec![RichSpan::text(base.clone(), Attrs::new())] }));
         let a = rich_change(base.chars().count(), ap, ad, ai);
         let b = rich_change(base.chars().count(), bp, bd, bi);
-        let (a_prime, b_prime) = transform_pair(&a, &b, TieBreak::LeftFirst, &limits).unwrap();
-        let left = b_prime.apply_to(&a.apply_to(&base_value, &limits).unwrap(), &limits).unwrap();
-        let right = a_prime.apply_to(&b.apply_to(&base_value, &limits).unwrap(), &limits).unwrap();
+        let (a_prime, b_prime) = transform_pair(&a, &b, TieBreak::LeftFirst).unwrap();
+        let left = b_prime.apply_to(&a.apply_to(&base_value).unwrap()).unwrap();
+        let right = a_prime.apply_to(&b.apply_to(&base_value).unwrap()).unwrap();
         prop_assert_eq!(left, right);
     }
 
     #[test]
     fn value_codec_roundtrip_property(value in arb_value()) {
-        let limits = Limits::default();
-        let bytes = codec::encode_value(&value);
-        prop_assert_eq!(codec::decode_value(&bytes, &limits).unwrap(), value);
+        let bytes = value.encode();
+        prop_assert_eq!(Value::decode(&bytes).unwrap(), value);
     }
 
     #[test]
     fn arbitrary_bytes_never_panic(bytes in prop::collection::vec(any::<u8>(), 0..512)) {
-        let limits = Limits::default();
-        let _ = codec::decode_value(&bytes, &limits);
-        let _ = codec::decode_change(&bytes, &limits);
+        let _ = Value::decode(&bytes);
+        let _ = Change::decode(&bytes);
     }
 }
 
 #[test]
 fn rich_text_attribute_tp1() {
-    let limits = Limits::default();
     let base = Value::rich_text(RichText::new(vec![RichSpan::text("hello", Attrs::new())]));
     let red =
         AttrPatch::from_entries([("color", AttrChange::Set(AttrValue::string("red")))]).unwrap();
@@ -186,12 +178,8 @@ fn rich_text_attribute_tp1() {
         len: 5,
         attrs: blue,
     }]));
-    let (ap, bp) = transform_pair(&a, &b, TieBreak::LeftFirst, &limits).unwrap();
-    let left = bp
-        .apply_to(&a.apply_to(&base, &limits).unwrap(), &limits)
-        .unwrap();
-    let right = ap
-        .apply_to(&b.apply_to(&base, &limits).unwrap(), &limits)
-        .unwrap();
+    let (ap, bp) = transform_pair(&a, &b, TieBreak::LeftFirst).unwrap();
+    let left = bp.apply_to(&a.apply_to(&base).unwrap()).unwrap();
+    let right = ap.apply_to(&b.apply_to(&base).unwrap()).unwrap();
     assert_eq!(left, right);
 }

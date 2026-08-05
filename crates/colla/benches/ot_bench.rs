@@ -1,27 +1,21 @@
 use colla::{
-    transform_pair, AttrChange, AttrPatch, AttrValue, Change, Limits, ListChange, ListOp,
-    RichTextChange, RichTextOp, TextChange, TextOp, TieBreak, Value,
+    transform_pair, AttrChange, AttrPatch, AttrValue, Change, ListChange, ListOp, RichTextChange,
+    RichTextOp, TextChange, TextOp, TieBreak, Value,
 };
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 
 fn apply_text(c: &mut Criterion) {
-    let limits = Limits::default();
     let base = Value::text("a".repeat(10_000));
     let change = Change::text(TextChange::new(vec![
         TextOp::Retain(5_000),
         TextOp::Insert("x".into()),
     ]));
     c.bench_function("apply text insert", |b| {
-        b.iter(|| {
-            change
-                .apply_to(black_box(&base), black_box(&limits))
-                .unwrap()
-        })
+        b.iter(|| change.apply_to(black_box(&base)).unwrap())
     });
 }
 
 fn compose_large_retains(c: &mut Criterion) {
-    let limits = Limits::default();
     let mut group = c.benchmark_group("compose large retains");
     for len in [10_000usize, 100_000, 900_000] {
         group.throughput(Throughput::Elements(len as u64));
@@ -37,7 +31,7 @@ fn compose_large_retains(c: &mut Criterion) {
         group.bench_with_input(BenchmarkId::new("text", len), &len, |b, _| {
             b.iter(|| {
                 black_box(&text_left)
-                    .compose(black_box(&text_right), black_box(&limits))
+                    .compose(black_box(&text_right))
                     .unwrap()
             })
         });
@@ -53,7 +47,7 @@ fn compose_large_retains(c: &mut Criterion) {
         group.bench_with_input(BenchmarkId::new("list", len), &len, |b, _| {
             b.iter(|| {
                 black_box(&list_left)
-                    .compose(black_box(&list_right), black_box(&limits))
+                    .compose(black_box(&list_right))
                     .unwrap()
             })
         });
@@ -62,7 +56,6 @@ fn compose_large_retains(c: &mut Criterion) {
 }
 
 fn transform_large_retains(c: &mut Criterion) {
-    let limits = Limits::default();
     let red =
         AttrPatch::from_entries([("color", AttrChange::Set(AttrValue::string("red")))]).unwrap();
     let bold = AttrPatch::from_entries([("bold", AttrChange::Set(AttrValue::Bool(true)))]).unwrap();
@@ -84,7 +77,6 @@ fn transform_large_retains(c: &mut Criterion) {
                     black_box(&text_left),
                     black_box(&text_right),
                     TieBreak::LeftFirst,
-                    black_box(&limits),
                 )
                 .unwrap()
             })
@@ -104,7 +96,6 @@ fn transform_large_retains(c: &mut Criterion) {
                     black_box(&rich_left),
                     black_box(&rich_right),
                     TieBreak::LeftFirst,
-                    black_box(&limits),
                 )
                 .unwrap()
             })

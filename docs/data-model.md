@@ -132,10 +132,14 @@ List 元素的 Modify。并发 RichText 属性修改中，不同 key 合并；�
 
 ## 8. API 轮廓
 
-    change.apply_to(&base, &limits)
-    first.compose(&second, &limits)
-    transform_pair(&left, &right, tie_break, &limits)
-    change.invert(&base, &limits)
+    apply(&base, &change)
+    compose(&first, &second)
+    transform_pair(&left, &right, tie_break)
+    invert(&change, &base)
+
+对应的低层 inherent API 为 `change.apply_to(&base)`、
+`first.compose(&second)` 和 `change.invert(&base)`。`InputLimits` 只用于
+Value/Change decode，不参与代数操作或 Builder。
 
 Apply 返回新的不可变 Value；失败时基准值不变。公共代数 trait 不开放，
 因为 Value/Change 是封闭类型。

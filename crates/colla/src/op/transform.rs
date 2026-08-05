@@ -6,7 +6,6 @@ use crate::change::{
     TextChange, TextOp, TieBreak,
 };
 use crate::error::TransformError;
-use crate::limits::Limits;
 use crate::op::reader::{
     ListOpReader, ListOpRef, RichTextOpReader, RichTextOpRef, TextOpReader, TextOpRef,
 };
@@ -21,45 +20,14 @@ pub fn transform_pair(
     left: &Change,
     right: &Change,
     tie_break: TieBreak,
-    limits: &Limits,
 ) -> Result<(Change, Change), TransformError> {
-    for change in [left, right] {
-        if let Err(crate::ApplyError::LimitExceeded {
-            name,
-            actual,
-            limit,
-        }) = change.check_limits(limits)
-        {
-            return Err(TransformError::LimitExceeded {
-                name,
-                actual,
-                limit,
-            });
-        }
-    }
-    let pair = transform_change(left, right, tie_break, limits)?;
-    for change in [&pair.0, &pair.1] {
-        if let Err(crate::ApplyError::LimitExceeded {
-            name,
-            actual,
-            limit,
-        }) = change.check_limits(limits)
-        {
-            return Err(TransformError::LimitExceeded {
-                name,
-                actual,
-                limit,
-            });
-        }
-    }
-    Ok(pair)
+    transform_change(left, right, tie_break)
 }
 
 fn transform_change(
     left: &Change,
     right: &Change,
     tie: TieBreak,
-    limits: &Limits,
 ) -> Result<(Change, Change), TransformError> {
     match (left.kind(), right.kind()) {
         (ChangeKind::Noop, _) => Ok((Change::noop(), right.clone())),
@@ -71,8 +39,8 @@ fn transform_change(
         (ChangeKind::Replace(_), _) => Ok((left.clone(), Change::noop())),
         (_, ChangeKind::Replace(_)) => Ok((Change::noop(), right.clone())),
         (ChangeKind::Int(_), ChangeKind::Int(_)) => Ok((left.clone(), right.clone())),
-        (ChangeKind::Map(a), ChangeKind::Map(b)) => transform_map(a, b, tie, limits),
-        (ChangeKind::List(a), ChangeKind::List(b)) => transform_list(a, b, tie, limits),
+        (ChangeKind::Map(a), ChangeKind::Map(b)) => transform_map(a, b, tie),
+        (ChangeKind::List(a), ChangeKind::List(b)) => transform_list(a, b, tie),
         (ChangeKind::Text(a), ChangeKind::Text(b)) => {
             let (a, b) = transform_text(a, b, tie);
             Ok((Change::text(a), Change::text(b)))
@@ -92,7 +60,6 @@ fn transform_map(
     left: &MapChange,
     right: &MapChange,
     tie: TieBreak,
-    limits: &Limits,
 ) -> Result<(Change, Change), TransformError> {
     let mut a_out = BTreeMap::new();
     let mut b_out = BTreeMap::new();
@@ -141,7 +108,7 @@ fn transform_map(
                 b_out.insert(key.clone(), MapEntryChange::Delete);
             }
             (Some(MapEntryChange::Modify(a)), Some(MapEntryChange::Modify(b))) => {
-                let (ap, bp) = transform_change(a, b, tie, limits)?;
+                let (ap, bp) = transform_change(a, b, tie)?;
                 if !ap.is_noop() {
                     a_out.insert(key.clone(), MapEntryChange::Modify(ap));
                 }
@@ -238,7 +205,6 @@ fn transform_list(
     left: &ListChange,
     right: &ListChange,
     tie: TieBreak,
-    limits: &Limits,
 ) -> Result<(Change, Change), TransformError> {
     let mut a = ListOpReader::new(left.ops());
     let mut b = ListOpReader::new(right.ops());
@@ -338,7 +304,7 @@ fn transform_list(
                 b.consume(1);
             }
             (Some(ListOpRef::Modify(left)), Some(ListOpRef::Modify(right))) => {
-                let (ap, bp) = transform_change(left, right, tie, limits)?;
+                let (ap, bp) = transform_change(left, right, tie)?;
                 ao.push(if ap.is_noop() {
                     ListOp::Retain(1)
                 } else {

@@ -34,12 +34,6 @@ pub enum ApplyError {
     SequenceOutOfBounds { path: Path },
     #[error("integer addition overflow at {path}")]
     IntegerOverflow { path: Path },
-    #[error("resource limit exceeded: {name} ({actual} > {limit})")]
-    LimitExceeded {
-        name: &'static str,
-        actual: usize,
-        limit: usize,
-    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -54,12 +48,6 @@ pub enum ComposeError {
     IncompatibleMapEntry(String),
     #[error(transparent)]
     Apply(#[from] ApplyError),
-    #[error("resource limit exceeded: {name} ({actual} > {limit})")]
-    LimitExceeded {
-        name: &'static str,
-        actual: usize,
-        limit: usize,
-    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -72,12 +60,6 @@ pub enum TransformError {
     },
     #[error("map entry changes cannot share one base key: {0}")]
     IncompatibleMapEntry(String),
-    #[error("resource limit exceeded: {name} ({actual} > {limit})")]
-    LimitExceeded {
-        name: &'static str,
-        actual: usize,
-        limit: usize,
-    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -85,12 +67,6 @@ pub enum TransformError {
 pub enum InvertError {
     #[error(transparent)]
     Apply(#[from] ApplyError),
-    #[error("resource limit exceeded: {name} ({actual} > {limit})")]
-    LimitExceeded {
-        name: &'static str,
-        actual: usize,
-        limit: usize,
-    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]

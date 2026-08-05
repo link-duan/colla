@@ -1,5 +1,5 @@
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Limits {
+pub struct InputLimits {
     pub max_depth: usize,
     pub max_value_nodes: usize,
     pub max_change_nodes: usize,
@@ -9,7 +9,7 @@ pub struct Limits {
     pub max_sequence_len: usize,
 }
 
-impl Default for Limits {
+impl Default for InputLimits {
     fn default() -> Self {
         Self {
             max_depth: 128,

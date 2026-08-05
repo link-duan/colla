@@ -2,25 +2,21 @@ use crate::change::{
     Change, ListChange, ListOp, MapChange, MapEntryChange, RichTextChange, TextChange, TextOp,
 };
 use crate::error::{ApplyError, BuildError};
-use crate::limits::Limits;
 use crate::path::{Path, PathSeg};
 use crate::value::{Value, ValueKind, ValueType};
 
 /// Snapshot-aware, sequential construction of one canonical recursive Change.
-pub struct ChangeBuilder<'a> {
-    limits: &'a Limits,
+pub struct ChangeBuilder {
     current: Value,
     change: Change,
 }
 
-impl<'a> ChangeBuilder<'a> {
-    pub fn new(base: &Value, limits: &'a Limits) -> Result<Self, ApplyError> {
-        base.check_limits(limits)?;
-        Ok(Self {
-            limits,
+impl ChangeBuilder {
+    pub fn new(base: &Value) -> Self {
+        Self {
             current: base.clone(),
             change: Change::noop(),
-        })
+        }
     }
 
     pub fn current(&self) -> &Value {
@@ -35,8 +31,8 @@ impl<'a> ChangeBuilder<'a> {
 
     pub fn change_at(&mut self, path: &Path, leaf: Change) -> Result<&mut Self, BuildError> {
         let small = wrap_at(&self.current, path.segments(), path, 0, leaf)?;
-        let next_value = small.apply_to(&self.current, self.limits)?;
-        let next_change = self.change.compose(&small, self.limits)?;
+        let next_value = small.apply_to(&self.current)?;
+        let next_change = self.change.compose(&small)?;
         self.current = next_value;
         self.change = next_change;
         Ok(self)
@@ -145,6 +141,13 @@ impl<'a> ChangeBuilder<'a> {
 
     pub fn int_add(&mut self, path: &Path, delta: i64) -> Result<&mut Self, BuildError> {
         self.change_at(path, Change::int_add(delta))
+    }
+}
+
+impl Value {
+    /// Starts a sequential ChangeBuilder relative to this Snapshot.
+    pub fn change(&self) -> ChangeBuilder {
+        ChangeBuilder::new(self)
     }
 }
 

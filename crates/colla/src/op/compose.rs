@@ -6,43 +6,23 @@ use crate::change::{
     RichTextOp, TextChange, TextOp,
 };
 use crate::error::ComposeError;
-use crate::limits::Limits;
 use crate::op::reader::{
     text_prefix, ListOpReader, ListOpRef, RichTextOpReader, RichTextOpRef, TextOpReader, TextOpRef,
 };
 
 impl Change {
     /// Sequentially composes `self` followed by `next`.
-    pub fn compose(&self, next: &Change, limits: &Limits) -> Result<Change, ComposeError> {
-        self.check_limits(limits).map_err(map_limit)?;
-        next.check_limits(limits).map_err(map_limit)?;
-        let result = compose_change(self, next, limits)?;
-        result.check_limits(limits).map_err(map_limit)?;
-        Ok(result)
+    pub fn compose(&self, next: &Change) -> Result<Change, ComposeError> {
+        compose_change(self, next)
     }
 }
 
-fn map_limit(error: crate::ApplyError) -> ComposeError {
-    match error {
-        crate::ApplyError::LimitExceeded {
-            name,
-            actual,
-            limit,
-        } => ComposeError::LimitExceeded {
-            name,
-            actual,
-            limit,
-        },
-        other => ComposeError::Apply(other),
-    }
-}
-
-fn compose_change(left: &Change, right: &Change, limits: &Limits) -> Result<Change, ComposeError> {
+fn compose_change(left: &Change, right: &Change) -> Result<Change, ComposeError> {
     match (left.kind(), right.kind()) {
         (ChangeKind::Noop, _) => Ok(right.clone()),
         (_, ChangeKind::Noop) => Ok(left.clone()),
         (_, ChangeKind::Replace(value)) => Ok(Change::replace(value.clone())),
-        (ChangeKind::Replace(value), _) => Ok(Change::replace(right.apply_to(value, limits)?)),
+        (ChangeKind::Replace(value), _) => Ok(Change::replace(right.apply_to(value)?)),
         (ChangeKind::Int(IntChange::Add(a)), ChangeKind::Int(IntChange::Add(b))) => {
             let sum = a.checked_add(*b).ok_or_else(|| {
                 ComposeError::Apply(crate::error::ApplyError::IntegerOverflow {
@@ -51,8 +31,8 @@ fn compose_change(left: &Change, right: &Change, limits: &Limits) -> Result<Chan
             })?;
             Ok(Change::int_add(sum))
         }
-        (ChangeKind::Map(a), ChangeKind::Map(b)) => compose_map(a, b, limits),
-        (ChangeKind::List(a), ChangeKind::List(b)) => compose_list(a, b, limits),
+        (ChangeKind::Map(a), ChangeKind::Map(b)) => compose_map(a, b),
+        (ChangeKind::List(a), ChangeKind::List(b)) => compose_list(a, b),
         (ChangeKind::Text(a), ChangeKind::Text(b)) => Ok(Change::text(compose_text(a, b))),
         (ChangeKind::RichText(a), ChangeKind::RichText(b)) => {
             Ok(Change::rich_text(compose_rich(a, b)))
@@ -64,11 +44,7 @@ fn compose_change(left: &Change, right: &Change, limits: &Limits) -> Result<Chan
     }
 }
 
-fn compose_map(
-    left: &MapChange,
-    right: &MapChange,
-    limits: &Limits,
-) -> Result<Change, ComposeError> {
+fn compose_map(left: &MapChange, right: &MapChange) -> Result<Change, ComposeError> {
     let mut out = BTreeMap::new();
     let mut keys = BTreeMap::<String, ()>::new();
     for (key, _) in left.iter() {
@@ -90,14 +66,14 @@ fn compose_map(
             (Some(value), None) => Some(value.clone()),
             (None, Some(value)) => Some(value.clone()),
             (Some(MapEntryChange::Insert(value)), Some(MapEntryChange::Modify(change))) => {
-                Some(MapEntryChange::Insert(change.apply_to(value, limits)?))
+                Some(MapEntryChange::Insert(change.apply_to(value)?))
             }
             (Some(MapEntryChange::Insert(_)), Some(MapEntryChange::Delete)) => None,
             (Some(MapEntryChange::Delete), Some(MapEntryChange::Insert(value))) => {
                 Some(MapEntryChange::Modify(Change::replace(value.clone())))
             }
             (Some(MapEntryChange::Modify(a)), Some(MapEntryChange::Modify(b))) => {
-                let child = compose_change(a, b, limits)?;
+                let child = compose_change(a, b)?;
                 if child.is_noop() {
                     None
                 } else {
@@ -184,11 +160,7 @@ fn compose_text(left: &TextChange, right: &TextChange) -> TextChange {
     TextChange::new(out)
 }
 
-fn compose_list(
-    left: &ListChange,
-    right: &ListChange,
-    limits: &Limits,
-) -> Result<Change, ComposeError> {
+fn compose_list(left: &ListChange, right: &ListChange) -> Result<Change, ComposeError> {
     let mut a = ListOpReader::new(left.ops());
     let mut b = ListOpReader::new(right.ops());
     let mut out = Vec::new();
@@ -243,7 +215,7 @@ fn compose_list(
                 b.consume(len);
             }
             (Some(ListOpRef::Insert(values)), Some(ListOpRef::Modify(change))) => {
-                out.push(ListOp::Insert(vec![change.apply_to(&values[0], limits)?]));
+                out.push(ListOp::Insert(vec![change.apply_to(&values[0])?]));
                 a.consume(1);
                 b.consume(1);
             }
@@ -275,7 +247,7 @@ fn compose_list(
                 b.consume(1);
             }
             (Some(ListOpRef::Modify(left)), Some(ListOpRef::Modify(right))) => {
-                out.push(ListOp::Modify(compose_change(left, right, limits)?));
+                out.push(ListOp::Modify(compose_change(left, right)?));
                 a.consume(1);
                 b.consume(1);
             }

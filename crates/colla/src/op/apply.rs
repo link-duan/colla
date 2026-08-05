@@ -1,6 +1,5 @@
 use crate::change::{Change, ChangeKind, IntChange, ListOp, MapEntryChange, RichTextOp, TextOp};
 use crate::error::ApplyError;
-use crate::limits::Limits;
 use crate::path::{Path, PathSeg};
 use crate::richtext::{collapse, flatten, RichAtom, RichInsert};
 use crate::value::{List, Map, Text, Value, ValueKind, ValueType};
@@ -8,13 +7,9 @@ use crate::value::{List, Map, Text, Value, ValueKind, ValueType};
 impl Change {
     /// Applies this contextual Change to `base`, returning a new immutable
     /// Value. The input is unchanged on every error path.
-    pub fn apply_to(&self, base: &Value, limits: &Limits) -> Result<Value, ApplyError> {
-        base.check_limits(limits)?;
-        self.check_limits(limits)?;
+    pub fn apply_to(&self, base: &Value) -> Result<Value, ApplyError> {
         let mut path = Path::new();
-        let result = apply_at(self, base, &mut path)?;
-        result.check_limits(limits)?;
-        Ok(result)
+        apply_at(self, base, &mut path)
     }
 }
 

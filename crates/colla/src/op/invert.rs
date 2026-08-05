@@ -6,29 +6,15 @@ use crate::change::{
     RichTextOp, TextChange, TextOp,
 };
 use crate::error::{ApplyError, InvertError};
-use crate::limits::Limits;
 use crate::path::Path;
 use crate::richtext::flatten;
 use crate::value::{Value, ValueKind, ValueType};
 
 impl Change {
     /// Builds an inverse using the snapshot immediately before this Change.
-    pub fn invert(&self, base: &Value, limits: &Limits) -> Result<Change, InvertError> {
-        self.apply_to(base, limits)?;
-        let result = invert_change(self, base)?;
-        if let Err(ApplyError::LimitExceeded {
-            name,
-            actual,
-            limit,
-        }) = result.check_limits(limits)
-        {
-            return Err(InvertError::LimitExceeded {
-                name,
-                actual,
-                limit,
-            });
-        }
-        Ok(result)
+    pub fn invert(&self, base: &Value) -> Result<Change, InvertError> {
+        self.apply_to(base)?;
+        invert_change(self, base)
     }
 }
 
