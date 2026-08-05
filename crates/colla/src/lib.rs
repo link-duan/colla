@@ -4,6 +4,7 @@ pub mod attrs;
 pub mod builder;
 pub mod change;
 pub mod codec;
+pub mod context;
 pub mod error;
 pub mod limits;
 pub mod op;
@@ -17,6 +18,7 @@ pub use change::{
     Change, ChangeKind, IntChange, ListChange, ListOp, MapChange, MapEntryChange, RichTextChange,
     RichTextOp, TextChange, TextOp, TieBreak,
 };
+pub use context::Context;
 pub use error::{
     ApplyError, BuildError, CodecError, ComposeError, InvertError, TransformError, ValueError,
 };
