@@ -28,6 +28,7 @@ try {
       CollaError,
       DEFAULT_INPUT_LIMITS,
       int,
+      richText,
       resolveCodePointPosition,
       resolveUtf16Position,
       text,
@@ -176,6 +177,152 @@ try {
     const textRollbackNext = apply(textBase, textRollbackChange)
     assert.deepEqual(textRollbackNext.toJS(), textBase.toJS())
 
+    const richInput = richText([
+      { type: "text", text: "A😀", attrs: { bold: true, count: 2n, opacity: 0.5, label: "base" } },
+      { type: "text", text: "B", attrs: { label: "base", opacity: 0.5, count: 2n, bold: true } },
+      { type: "embed", value: { id: "one" }, attrs: { kind: "mention", bold: true } },
+      { type: "text", text: "C" },
+      { type: "text", text: "" },
+    ])
+    assert.equal(richInput.spans.length, 3)
+    assert.equal(richInput.spans[0].text, "A😀B")
+    assert.ok(Object.isFrozen(richInput))
+    assert.ok(Object.isFrozen(richInput.spans))
+    assert.ok(Object.isFrozen(richInput.spans[0]))
+    assert.ok(Object.isFrozen(richInput.spans[0].attrs))
+
+    const richAccessorSpans = []
+    Object.defineProperty(richAccessorSpans, "0", {
+      get() { throw new Error("must not run") },
+    })
+    richAccessorSpans.length = 1
+    assert.throws(() => richText(richAccessorSpans), error =>
+      error instanceof CollaError && error.code === "invalid_value")
+    const richExtraSpans = [{ type: "text", text: "a" }]
+    richExtraSpans.extra = true
+    assert.throws(() => richText(richExtraSpans), error =>
+      error instanceof CollaError && error.code === "invalid_value")
+    const richSymbolSpans = [{ type: "text", text: "a" }]
+    richSymbolSpans[Symbol("x")] = true
+    assert.throws(() => richText(richSymbolSpans), error =>
+      error instanceof CollaError && error.code === "invalid_value")
+
+    assert.throws(
+      () => Value.fromJS(richText([
+        { type: "text", text: "a", attrs: { first: true } },
+        { type: "text", text: "b", attrs: { second: true } },
+      ]), { limits: { maxContainerLength: 1 } }),
+      error => error instanceof CollaError && error.code === "limit_exceeded" &&
+        error.details.limit === "container length",
+    )
+    assert.throws(
+      () => Value.fromJS(richText([
+        { type: "text", text: "a", attrs: { first: true, second: true } },
+      ]), { limits: { maxContainerLength: 1 } }),
+      error => error instanceof CollaError && error.code === "limit_exceeded" &&
+        error.details.limit === "container length",
+    )
+    assert.throws(
+      () => Value.fromJS(richText([
+        { type: "text", text: "too long" },
+      ]), { limits: { maxStringBytes: 2 } }),
+      error => error instanceof CollaError && error.code === "limit_exceeded" &&
+        error.details.limit === "string bytes",
+    )
+    assert.throws(
+      () => Value.fromJS(richText([
+        { type: "text", text: "a", attrs: { label: "too long" } },
+      ]), { limits: { maxStringBytes: 2 } }),
+      error => error instanceof CollaError && error.code === "limit_exceeded" &&
+        error.details.limit === "string bytes",
+    )
+    assert.throws(
+      () => Value.fromJS(richText([
+        { type: "embed", value: { nested: true } },
+      ]), { limits: { maxDepth: 1 } }),
+      error => error instanceof CollaError && error.code === "limit_exceeded" &&
+        error.details.limit === "value depth",
+    )
+    assert.throws(
+      () => Value.fromJS(richText([
+        { type: "embed", value: true },
+      ]), { limits: { maxValueNodes: 1 } }),
+      error => error instanceof CollaError && error.code === "limit_exceeded" &&
+        error.details.limit === "value nodes",
+    )
+
+    const richBase = Value.fromJS(richInput)
+    assert.equal(richBase.kind(), "richText")
+    const richData = richBase.toJS()
+    assert.equal(richData.spans[0].attrs.count, 2n)
+    assert.equal(richData.spans[0].attrs.opacity, 0.5)
+    assert.equal(richData.spans[1].value.id, "one")
+    assert.ok(Object.isFrozen(richData.spans[1].value))
+    assert.equal(resolveCodePointPosition(richBase, [], 4), 3)
+    assert.equal(resolveCodePointPosition(richBase, [], 5), 4)
+    assert.equal(resolveUtf16Position(richBase, [], 4), 5)
+    assert.throws(() => resolveCodePointPosition(richBase, [], 2), error =>
+      error instanceof CollaError && error.code === "invalid_utf16_boundary")
+
+    let escapedPatch
+    const richChange = richBase.change().richText([], editor => {
+      assert.equal(editor.replace, undefined)
+      assert.equal(editor.insert, undefined)
+      editor
+        .insertText(4, "X", { italic: true })
+        .insertEmbed(6, { id: "two" }, { kind: "chip" })
+        .delete({ from: 3, to: 4 })
+        .format({ from: 3, to: 6 }, patch => {
+          escapedPatch = patch
+          patch.remove("bold").set("color", "red")
+        })
+    }).build()
+    assert.deepEqual(richChange.encode(), Uint8Array.from([
+      5, 5, 0, 2, 0, 1, 0, 1, 88, 2, 5, 99, 111, 108, 111, 114, 4, 3, 114, 101,
+      100, 6, 105, 116, 97, 108, 105, 99, 1, 2, 1, 0, 1, 2, 4, 98, 111, 108, 100, 1,
+      5, 99, 111, 108, 111, 114, 0, 4, 3, 114, 101, 100, 1, 1, 9, 1, 2, 105, 100,
+      5, 3, 116, 119, 111, 2, 5, 99, 111, 108, 111, 114, 4, 3, 114, 101, 100, 4,
+      107, 105, 110, 100, 4, 4, 99, 104, 105, 112,
+    ]))
+    assert.throws(() => escapedPatch.set("late", true), error =>
+      error instanceof CollaError && error.code === "invalid_state" &&
+      error.details.reason === "scope_closed")
+    const richNext = apply(richBase, richChange)
+    const richNextData = richNext.toJS()
+    assert.equal(richNextData.spans.filter(span => span.type === "embed").length, 2)
+    assert.equal(richNextData.spans.at(-1).text, "C")
+    for (const span of richNextData.spans.slice(1, 4)) {
+      assert.equal(span.attrs.color, "red")
+      assert.equal(span.attrs.bold, undefined)
+    }
+
+    const richRollback = richBase.change()
+    const patchFailure = new Error("patch failure")
+    assert.throws(
+      () => richRollback.richText([], editor => {
+        editor.insertText(0, "temporary").format({ from: 0, to: 1 }, patch => {
+          patch.set("temporary", true)
+          throw patchFailure
+        })
+      }),
+      error => error === patchFailure,
+    )
+    const richRollbackChange = richRollback.build()
+    const richRollbackNext = apply(richBase, richRollbackChange)
+    assert.deepEqual(richRollbackNext.toJS(), richBase.toJS())
+
+    const trustedRichBase = Value.fromJS(
+      richText([{ type: "text", text: "a" }]),
+      { limits: { maxStringBytes: 1, maxContainerLength: 1, maxValueNodes: 1 } },
+    )
+    const trustedRichChange = trustedRichBase.change().richText([], editor => editor
+      .insertText(1, " larger")
+      .insertEmbed(8, { nested: ["larger"] }, { description: "larger" }))
+      .build()
+    const trustedRichNext = apply(trustedRichBase, trustedRichChange)
+    assert.equal(trustedRichNext.toJS().spans[0].text, "a larger")
+    assert.deepEqual(trustedRichNext.toJS().spans[1].value.nested, ["larger"])
+
     const structuredBase = Value.fromJS({
       meta: { status: "draft" },
       items: ["a", "b"],
@@ -302,6 +449,14 @@ try {
       textNext,
       textRollbackChange,
       textRollbackNext,
+      richBase,
+      richChange,
+      richNext,
+      richRollbackChange,
+      richRollbackNext,
+      trustedRichBase,
+      trustedRichChange,
+      trustedRichNext,
       structuredBase,
       structuredChange,
       structuredNext,

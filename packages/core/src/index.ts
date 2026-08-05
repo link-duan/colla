@@ -26,6 +26,7 @@ export type ValueInput =
   | number
   | string
   | TextInput
+  | RichTextInput
   | readonly ValueInput[]
   | ValueInputMap
 export interface ValueInputMap {
@@ -36,6 +37,24 @@ export interface TextData {
   readonly value: string
 }
 export type TextInput = TextData
+export type AttrValueData = boolean | bigint | number | string
+export interface AttrsData {
+  readonly [key: string]: AttrValueData
+}
+export type RichTextSpanData =
+  | { readonly type: "text"; readonly text: string; readonly attrs?: AttrsData }
+  | { readonly type: "embed"; readonly value: ValueData; readonly attrs?: AttrsData }
+export type RichTextSpanInput =
+  | { readonly type: "text"; readonly text: string; readonly attrs?: AttrsData }
+  | { readonly type: "embed"; readonly value: ValueInput; readonly attrs?: AttrsData }
+export interface RichTextData {
+  readonly type: "richText"
+  readonly spans: readonly RichTextSpanData[]
+}
+export interface RichTextInput {
+  readonly type: "richText"
+  readonly spans: readonly RichTextSpanInput[]
+}
 export type ValueData =
   | null
   | boolean
@@ -43,6 +62,7 @@ export type ValueData =
   | number
   | string
   | TextData
+  | RichTextData
   | readonly ValueData[]
   | ValueDataMap
 export interface ValueDataMap {
@@ -189,6 +209,145 @@ export function text(value: string): TextInput {
   return Object.freeze({ type: "text", value: assertWellFormedString(value, "text") })
 }
 
+type AttrEntry = {
+  readonly key: string
+  readonly kind: "bool" | "int" | "float" | "string"
+  readonly value: boolean | string | number
+}
+
+function attrEntries(
+  attrs: AttrsData | undefined,
+  operation: string,
+  limits?: InputLimits,
+): AttrEntry[] {
+  if (attrs === undefined) return []
+  if (!isRecord(attrs)) throw new CollaError("invalid_value", operation, { reason: "attributes must be a plain record" })
+  const entries = ownDataEntries(attrs, operation)
+  if (limits !== undefined && entries.length > limits.maxContainerLength) {
+    limitExceeded("container length", entries.length, limits.maxContainerLength, operation)
+  }
+  const result: AttrEntry[] = []
+  for (const [key, value] of entries) {
+    assertWellFormedString(key, operation)
+    const keyBytes = utf8.encode(key).length
+    if (limits !== undefined && keyBytes > limits.maxStringBytes) {
+      limitExceeded("string bytes", keyBytes, limits.maxStringBytes, operation)
+    }
+    if (typeof value === "boolean") {
+      result.push({ key, kind: "bool", value })
+    } else if (typeof value === "bigint") {
+      if (value < I64_MIN || value > I64_MAX) {
+        throw new CollaError("invalid_value", operation, { reason: "attribute Int is out of range" })
+      }
+      result.push({ key, kind: "int", value: value.toString() })
+    } else if (typeof value === "number") {
+      if (!Number.isFinite(value)) {
+        throw new CollaError("invalid_value", operation, { reason: "attribute Float must be finite" })
+      }
+      result.push({ key, kind: "float", value: Object.is(value, -0) ? 0 : value })
+    } else if (typeof value === "string") {
+      assertWellFormedString(value, operation)
+      const valueBytes = utf8.encode(value).length
+      if (limits !== undefined && valueBytes > limits.maxStringBytes) {
+        limitExceeded("string bytes", valueBytes, limits.maxStringBytes, operation)
+      }
+      result.push({ key, kind: "string", value })
+    } else {
+      throw new CollaError("invalid_value", operation, { reason: "unsupported attribute value" })
+    }
+  }
+  return result.sort((left, right) => compareUtf8(left.key, right.key))
+}
+
+function attrsData(entries: readonly AttrEntry[]): AttrsData | undefined {
+  if (entries.length === 0) return undefined
+  const result = Object.create(null) as Record<string, AttrValueData>
+  for (const entry of entries) {
+    result[entry.key] = entry.kind === "int" ? BigInt(entry.value) : entry.value
+  }
+  return Object.freeze(result)
+}
+
+function sameAttrs(left: readonly AttrEntry[], right: readonly AttrEntry[]): boolean {
+  return JSON.stringify(left) === JSON.stringify(right)
+}
+
+function writeAttrs(writer: ByteWriter, entries: readonly AttrEntry[]): void {
+  writer.varint(BigInt(entries.length))
+  for (const entry of entries) {
+    writer.string(entry.key)
+    switch (entry.kind) {
+      case "bool": writer.byte(entry.value ? 1 : 0); break
+      case "int": writer.byte(2); writer.int64(BigInt(entry.value)); break
+      case "float": writer.byte(3); writer.float64(entry.value as number); break
+      case "string": writer.byte(4); writer.string(entry.value as string); break
+    }
+  }
+}
+
+type NormalizedRichSpan =
+  | { type: "text"; text: string; attrs: AttrEntry[] }
+  | { type: "embed"; value: ValueInput; attrs: AttrEntry[] }
+
+function normalizedRichSpans(
+  spans: readonly RichTextSpanInput[],
+  operation: string,
+  limits?: InputLimits,
+): NormalizedRichSpan[] {
+  if (!Array.isArray(spans)) throw new CollaError("invalid_value", operation, { reason: "RichText spans must be an array" })
+  const values = ownArrayDataValues(spans, operation)
+  const result: NormalizedRichSpan[] = []
+  for (const span of values) {
+    if (!isRecord(span)) throw new CollaError("invalid_value", operation, { reason: "RichText span must be a plain record" })
+    const entries = ownDataEntries(span, operation)
+    const type = entries.find(([key]) => key === "type")?.[1]
+    const attrs = attrEntries(entries.find(([key]) => key === "attrs")?.[1] as AttrsData | undefined, operation, limits)
+    if (type === "text") {
+      if (entries.some(([key]) => !["type", "text", "attrs"].includes(key))) {
+        throw new CollaError("invalid_value", operation, { reason: "unknown RichText Text span field" })
+      }
+      const value = entries.find(([key]) => key === "text")?.[1]
+      if (typeof value !== "string") throw new CollaError("invalid_value", operation, { reason: "RichText Text span requires text" })
+      assertWellFormedString(value, operation)
+      const bytes = utf8.encode(value).length
+      if (limits !== undefined && bytes > limits.maxStringBytes) {
+        limitExceeded("string bytes", bytes, limits.maxStringBytes, operation)
+      }
+      if (value.length === 0) continue
+      const previous = result.at(-1)
+      if (previous?.type === "text" && sameAttrs(previous.attrs, attrs)) {
+        previous.text += value
+      } else {
+        result.push({ type: "text", text: value, attrs })
+      }
+    } else if (type === "embed") {
+      if (entries.some(([key]) => !["type", "value", "attrs"].includes(key))) {
+        throw new CollaError("invalid_value", operation, { reason: "unknown RichText Embed span field" })
+      }
+      const valueEntry = entries.find(([key]) => key === "value")
+      if (valueEntry === undefined) throw new CollaError("invalid_value", operation, { reason: "RichText Embed span requires value" })
+      result.push({ type: "embed", value: valueEntry[1] as ValueInput, attrs })
+    } else {
+      throw new CollaError("invalid_value", operation, { reason: "unknown RichText span type" })
+    }
+  }
+  if (limits !== undefined && result.length > limits.maxContainerLength) {
+    limitExceeded("container length", result.length, limits.maxContainerLength, operation)
+  }
+  return result
+}
+
+export function richText(spans: readonly RichTextSpanInput[]): RichTextInput {
+  const normalized = normalizedRichSpans(spans, "rich_text")
+  const frozen = normalized.map(span => {
+    const attrs = attrsData(span.attrs)
+    return Object.freeze(span.type === "text"
+      ? { type: "text" as const, text: span.text, ...(attrs === undefined ? {} : { attrs }) }
+      : { type: "embed" as const, value: span.value, ...(attrs === undefined ? {} : { attrs }) })
+  })
+  return Object.freeze({ type: "richText", spans: Object.freeze(frozen) })
+}
+
 const inputLimitNames = Object.keys(DEFAULT_INPUT_LIMITS) as (keyof InputLimits)[]
 const utf8 = new TextEncoder()
 
@@ -214,6 +373,31 @@ function ownDataEntries(
     entries.push([key, descriptor.value])
   }
   return entries
+}
+
+function ownArrayDataValues(value: readonly unknown[], operation: string): readonly unknown[] {
+  const result: unknown[] = []
+  for (const key of Reflect.ownKeys(value)) {
+    if (typeof key !== "string") {
+      throw new CollaError("invalid_value", operation, { reason: "symbol keys are not supported" })
+    }
+    if (key === "length") continue
+    const index = Number(key)
+    if (!Number.isSafeInteger(index) || index < 0 || index >= value.length || String(index) !== key) {
+      throw new CollaError("invalid_value", operation, { reason: "array has non-index properties" })
+    }
+    const descriptor = Object.getOwnPropertyDescriptor(value, key)
+    if (descriptor === undefined || !("value" in descriptor)) {
+      throw new CollaError("invalid_value", operation, { reason: "array accessors are not supported" })
+    }
+    result[index] = descriptor.value
+  }
+  for (let index = 0; index < value.length; index += 1) {
+    if (!Object.hasOwn(value, index)) {
+      throw new CollaError("invalid_value", operation, { reason: "sparse arrays are not supported" })
+    }
+  }
+  return result
 }
 
 function normalizeInputLimits(options: InputOptions | undefined, operation: string): InputLimits {
@@ -333,30 +517,12 @@ function encodeValueInput(
         throw new CollaError("invalid_value", operation, { reason: "cyclic ValueInput" })
       }
       check("container length", value.length, limits?.maxContainerLength)
-      for (const key of Reflect.ownKeys(value)) {
-        if (typeof key !== "string") {
-          throw new CollaError("invalid_value", operation, { reason: "symbol keys are not supported" })
-        }
-        if (key === "length") continue
-        const index = Number(key)
-        if (!Number.isSafeInteger(index) || index < 0 || index >= value.length || String(index) !== key) {
-          throw new CollaError("invalid_value", operation, { reason: "array has non-index properties" })
-        }
-        const descriptor = Object.getOwnPropertyDescriptor(value, key)
-        if (descriptor === undefined || !("value" in descriptor)) {
-          throw new CollaError("invalid_value", operation, { reason: "array accessors are not supported" })
-        }
-      }
-      for (let index = 0; index < value.length; index += 1) {
-        if (!Object.hasOwn(value, index)) {
-          throw new CollaError("invalid_value", operation, { reason: "sparse arrays are not supported" })
-        }
-      }
+      const values = ownArrayDataValues(value, operation)
       active.add(value)
       try {
         writer.byte(8)
         writer.varint(BigInt(value.length))
-        for (let index = 0; index < value.length; index += 1) encode(value[index], depth + 1)
+        for (const child of values) encode(child as ValueInput, depth + 1)
       } finally {
         active.delete(value)
       }
@@ -375,6 +541,37 @@ function encodeValueInput(
         check("text bytes", utf8.encode(textValue).length, limits?.maxStringBytes)
         writer.byte(6)
         writer.string(textValue)
+        return
+      }
+      if (marker?.[1] === "richText") {
+        if (entries.length !== 2 || !entries.some(([key]) => key === "spans")) {
+          throw new CollaError("invalid_value", operation, { reason: "invalid RichTextInput marker" })
+        }
+        if (active.has(value)) {
+          throw new CollaError("invalid_value", operation, { reason: "cyclic ValueInput" })
+        }
+        const spans = normalizedRichSpans(
+          entries.find(([key]) => key === "spans")?.[1] as readonly RichTextSpanInput[],
+          operation,
+          limits,
+        )
+        active.add(value)
+        try {
+          writer.byte(7)
+          writer.varint(BigInt(spans.length))
+          for (const span of spans) {
+            if (span.type === "text") {
+              writer.byte(0)
+              writer.string(span.text)
+            } else {
+              writer.byte(1)
+              encode(span.value, depth + 1)
+            }
+            writeAttrs(writer, span.attrs)
+          }
+        } finally {
+          active.delete(value)
+        }
         return
       }
       if (active.has(value)) {
@@ -460,6 +657,31 @@ class ByteReader {
   }
 }
 
+function readAttrs(reader: ByteReader): AttrsData | undefined {
+  const result = Object.create(null) as Record<string, AttrValueData>
+  const length = reader.length()
+  for (let index = 0; index < length; index += 1) {
+    const key = reader.string()
+    switch (reader.byte()) {
+      case 0: result[key] = false; break
+      case 1: result[key] = true; break
+      case 2: {
+        const value = reader.varint()
+        result[key] = (value >> 1n) ^ -(value & 1n)
+        break
+      }
+      case 3: {
+        const bytes = reader.exact(8)
+        result[key] = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getFloat64(0, true)
+        break
+      }
+      case 4: result[key] = reader.string(); break
+      default: return reader.fail("unsupported attribute value kind")
+    }
+  }
+  return length === 0 ? undefined : Object.freeze(result)
+}
+
 function decodeValueData(bytes: Uint8Array, operation: string): ValueData {
   const reader = new ByteReader(bytes, operation)
   const decode = (): ValueData => {
@@ -477,6 +699,33 @@ function decodeValueData(bytes: Uint8Array, operation: string): ValueData {
       }
       case 5: return reader.string()
       case 6: return Object.freeze({ type: "text" as const, value: reader.string() })
+      case 7: {
+        const spans: RichTextSpanData[] = []
+        const length = reader.length()
+        for (let index = 0; index < length; index += 1) {
+          const kind = reader.byte()
+          if (kind === 0) {
+            const text = reader.string()
+            const attrs = readAttrs(reader)
+            spans.push(Object.freeze({
+              type: "text",
+              text,
+              ...(attrs === undefined ? {} : { attrs }),
+            }))
+          } else if (kind === 1) {
+            const value = decode()
+            const attrs = readAttrs(reader)
+            spans.push(Object.freeze({
+              type: "embed",
+              value,
+              ...(attrs === undefined ? {} : { attrs }),
+            }))
+          } else {
+            reader.fail("unsupported RichText content kind")
+          }
+        }
+        return Object.freeze({ type: "richText", spans: Object.freeze(spans) })
+      }
       case 8: {
         const values: ValueData[] = []
         const length = reader.length()
@@ -700,6 +949,18 @@ export interface TextChangeBuilder {
   replace(range: Range, text: string): this
 }
 
+export interface RichTextChangeBuilder {
+  insertText(position: number, text: string, attrs?: AttrsData): this
+  insertEmbed(position: number, embed: ValueInput, attrs?: AttrsData): this
+  delete(range: Range): this
+  format(range: Range, edit: (patch: AttrPatchBuilder) => unknown): this
+}
+
+export interface AttrPatchBuilder {
+  set(key: string, value: AttrValueData): this
+  remove(key: string): this
+}
+
 function indexArgument(value: unknown, operation: string, argument: string): number {
   if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
     throw invalidArgument(operation, argument, "expected a non-negative safe integer")
@@ -853,6 +1114,127 @@ class TextScope extends ScopedBuilder implements TextChangeBuilder {
   }
 }
 
+function attrsPayload(attrs: AttrsData | undefined, operation: string): string {
+  return JSON.stringify(attrEntries(attrs, operation).map(entry => ({ ...entry, action: "set" })))
+}
+
+class PatchScope implements AttrPatchBuilder {
+  #active = true
+  readonly #entries = new Map<string, { action: "remove" } | ({ action: "set" } & AttrEntry)>()
+
+  set(key: string, value: AttrValueData): this {
+    const operation = "rich_text_format"
+    this.#assertActive(operation)
+    if (typeof key !== "string") throw invalidArgument(operation, "key", "expected a string")
+    const record = Object.create(null) as Record<string, AttrValueData>
+    record[key] = value
+    const entry = attrEntries(record, operation)[0]
+    this.#entries.set(key, { ...entry, action: "set" })
+    return this
+  }
+
+  remove(key: string): this {
+    const operation = "rich_text_format"
+    this.#assertActive(operation)
+    if (typeof key !== "string") throw invalidArgument(operation, "key", "expected a string")
+    assertWellFormedString(key, operation)
+    this.#entries.set(key, { action: "remove" })
+    return this
+  }
+
+  close(): void {
+    this.#active = false
+  }
+
+  payload(): string {
+    return JSON.stringify(
+      [...this.#entries.entries()]
+        .sort(([left], [right]) => compareUtf8(left, right))
+        .map(([key, entry]) => entry.action === "remove"
+          ? { key, action: "remove" }
+          : entry),
+    )
+  }
+
+  #assertActive(operation: string): void {
+    if (!this.#active) throw invalidState(operation, "AttrPatchBuilder", "scope_closed")
+  }
+}
+
+class RichTextScope extends ScopedBuilder implements RichTextChangeBuilder {
+  insertText(position: number, value: string, attrs?: AttrsData): this {
+    const operation = "rich_text_insert_text"
+    this.assertActive(operation)
+    const index = indexArgument(position, operation, "position")
+    if (typeof value !== "string") throw invalidArgument(operation, "text", "expected a string")
+    assertWellFormedString(value, operation)
+    try {
+      this.handle.richTextInsertText(this.pathData, index, value, attrsPayload(attrs, operation))
+      return this
+    } catch (error) {
+      throw fromWasmError(error, operation, this.path)
+    }
+  }
+
+  insertEmbed(position: number, embed: ValueInput, attrs?: AttrsData): this {
+    const operation = "rich_text_insert_embed"
+    this.assertActive(operation)
+    const index = indexArgument(position, operation, "position")
+    const input = Value._fromTrustedJS(embed, operation)
+    try {
+      this.handle.richTextInsertEmbed(
+        this.pathData,
+        index,
+        Value._handle(input, operation),
+        attrsPayload(attrs, operation),
+      )
+      return this
+    } catch (error) {
+      throw fromWasmError(error, operation, this.path)
+    } finally {
+      input.dispose()
+    }
+  }
+
+  delete(range: Range): this {
+    const operation = "rich_text_delete"
+    this.assertActive(operation)
+    const { from, to } = rangeArgument(range, operation)
+    try {
+      this.handle.richTextDelete(this.pathData, from, to)
+      return this
+    } catch (error) {
+      throw fromWasmError(error, operation, this.path)
+    }
+  }
+
+  format(range: Range, edit: (patch: AttrPatchBuilder) => unknown): this {
+    const operation = "rich_text_format"
+    this.assertActive(operation)
+    const { from, to } = rangeArgument(range, operation)
+    if (typeof edit !== "function") throw invalidArgument(operation, "edit", "expected a function")
+    const patch = new PatchScope()
+    try {
+      const result = edit(patch)
+      if (
+        result !== null &&
+        (typeof result === "object" || typeof result === "function") &&
+        typeof (result as { then?: unknown }).then === "function"
+      ) {
+        throw invalidArgument(operation, "edit", "callback must be synchronous")
+      }
+      try {
+        this.handle.richTextFormat(this.pathData, from, to, patch.payload())
+      } catch (error) {
+        throw fromWasmError(error, operation, this.path)
+      }
+      return this
+    } finally {
+      patch.close()
+    }
+  }
+}
+
 export class ChangeBuilder {
   #handle: BuilderHandle | undefined
   #consumed = false
@@ -889,6 +1271,11 @@ export class ChangeBuilder {
   text(path: Path, edit: (text: TextChangeBuilder) => unknown): this {
     return this.#scope<TextScope>(path, edit, "text", (handle, scopePath, pathData) =>
       new TextScope(handle, scopePath, pathData))
+  }
+
+  richText(path: Path, edit: (richText: RichTextChangeBuilder) => unknown): this {
+    return this.#scope<RichTextScope>(path, edit, "richText", (handle, scopePath, pathData) =>
+      new RichTextScope(handle, scopePath, pathData))
   }
 
   build(): Change {
@@ -933,7 +1320,7 @@ export class ChangeBuilder {
   #scope<T extends ScopedBuilder>(
     path: Path,
     edit: (scope: T) => unknown,
-    expected: "map" | "list" | "text",
+    expected: "map" | "list" | "text" | "richText",
     create: (handle: BuilderHandle, path: Path, pathData: string) => T,
   ): this {
     const operation = `builder_${expected}`

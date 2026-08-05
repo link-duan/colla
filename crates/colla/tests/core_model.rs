@@ -234,6 +234,82 @@ fn builder_text_replace_uses_scalar_positions_transactionally() {
 }
 
 #[test]
+fn builder_rich_text_treats_embeds_as_atomic_units() {
+    let base_attrs = Attrs::from_entries([
+        ("bold", AttrValue::Bool(true)),
+        ("count", AttrValue::Int(2)),
+        ("opacity", AttrValue::float(0.5).unwrap()),
+        ("label", AttrValue::string("base")),
+    ])
+    .unwrap();
+    let base = Value::rich_text(RichText::new(vec![
+        RichSpan::text("A😀", base_attrs.clone()),
+        RichSpan::text("B", base_attrs),
+        RichSpan::embed(
+            Value::map([("id", Value::string("one"))]).unwrap(),
+            Attrs::from_entries([
+                ("kind", AttrValue::string("mention")),
+                ("bold", AttrValue::Bool(true)),
+            ])
+            .unwrap(),
+        ),
+        RichSpan::text("C", Attrs::new()),
+    ]));
+    assert_eq!(base.as_rich_text().unwrap().spans().len(), 3);
+
+    let mut builder = base.change();
+    builder
+        .rich_text_insert_text(
+            &path![],
+            3,
+            "X",
+            Attrs::from_entries([("italic", AttrValue::Bool(true))]).unwrap(),
+        )
+        .unwrap()
+        .rich_text_insert_embed(
+            &path![],
+            5,
+            Value::map([("id", Value::string("two"))]).unwrap(),
+            Attrs::from_entries([("kind", AttrValue::string("chip"))]).unwrap(),
+        )
+        .unwrap()
+        .rich_text_delete(&path![], 2, 1)
+        .unwrap()
+        .rich_text_format(
+            &path![],
+            2,
+            3,
+            AttrPatch::from_entries([
+                ("bold", AttrChange::Remove),
+                ("color", AttrChange::Set(AttrValue::string("red"))),
+            ])
+            .unwrap(),
+        )
+        .unwrap();
+    let change = builder.build();
+    assert_eq!(
+        change.encode(),
+        [
+            5, 5, 0, 2, 0, 1, 0, 1, 88, 2, 5, 99, 111, 108, 111, 114, 4, 3, 114, 101, 100, 6, 105,
+            116, 97, 108, 105, 99, 1, 2, 1, 0, 1, 2, 4, 98, 111, 108, 100, 1, 5, 99, 111, 108, 111,
+            114, 0, 4, 3, 114, 101, 100, 1, 1, 9, 1, 2, 105, 100, 5, 3, 116, 119, 111, 2, 5, 99,
+            111, 108, 111, 114, 4, 3, 114, 101, 100, 4, 107, 105, 110, 100, 4, 4, 99, 104, 105,
+            112,
+        ]
+    );
+    let after = change.apply_to(&base).unwrap();
+    let rich = after.as_rich_text().unwrap();
+    assert_eq!(rich.to_plain_string(), "A😀XC");
+    assert_eq!(
+        rich.spans()
+            .iter()
+            .filter(|span| matches!(span.content, colla::RichInsert::Embed(_)))
+            .count(),
+        2
+    );
+}
+
+#[test]
 fn rich_text_format_has_explicit_patch_semantics() {
     let attrs = Attrs::from_entries([("color", AttrValue::string("red"))]).unwrap();
     let base = Value::rich_text(RichText::new(vec![RichSpan::text("hi", attrs)]));

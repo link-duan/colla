@@ -1,8 +1,11 @@
+use crate::attrs::{AttrPatch, Attrs};
 use crate::change::{
-    Change, ListChange, ListOp, MapChange, MapEntryChange, RichTextChange, TextChange, TextOp,
+    Change, ListChange, ListOp, MapChange, MapEntryChange, RichTextChange, RichTextOp, TextChange,
+    TextOp,
 };
 use crate::error::{ApplyError, BuildError};
 use crate::path::{Path, PathSeg};
+use crate::richtext::RichInsert;
 use crate::value::{Value, ValueKind, ValueType};
 
 /// Snapshot-aware, sequential construction of one canonical recursive Change.
@@ -350,8 +353,157 @@ impl ChangeBuilder {
         self.change_at(path, Change::rich_text(change))
     }
 
+    pub fn rich_text_insert_text(
+        &mut self,
+        path: &Path,
+        index: usize,
+        value: impl Into<String>,
+        attrs: Attrs,
+    ) -> Result<&mut Self, BuildError> {
+        let value = value.into();
+        self.check_rich_text_position(path, index)?;
+        if value.is_empty() {
+            return Ok(self);
+        }
+        self.rich_text(
+            path,
+            RichTextChange::new(vec![
+                RichTextOp::Retain {
+                    len: index,
+                    attrs: AttrPatch::new(),
+                },
+                RichTextOp::Insert {
+                    content: RichInsert::text(value),
+                    attrs,
+                },
+            ]),
+        )
+    }
+
+    pub fn rich_text_insert_embed(
+        &mut self,
+        path: &Path,
+        index: usize,
+        value: Value,
+        attrs: Attrs,
+    ) -> Result<&mut Self, BuildError> {
+        self.check_rich_text_position(path, index)?;
+        self.rich_text(
+            path,
+            RichTextChange::new(vec![
+                RichTextOp::Retain {
+                    len: index,
+                    attrs: AttrPatch::new(),
+                },
+                RichTextOp::Insert {
+                    content: RichInsert::embed(value),
+                    attrs,
+                },
+            ]),
+        )
+    }
+
+    pub fn rich_text_delete(
+        &mut self,
+        path: &Path,
+        index: usize,
+        len: usize,
+    ) -> Result<&mut Self, BuildError> {
+        self.check_rich_text_range(path, index, len)?;
+        if len == 0 {
+            return Ok(self);
+        }
+        self.rich_text(
+            path,
+            RichTextChange::new(vec![
+                RichTextOp::Retain {
+                    len: index,
+                    attrs: AttrPatch::new(),
+                },
+                RichTextOp::Delete(len),
+            ]),
+        )
+    }
+
+    pub fn rich_text_format(
+        &mut self,
+        path: &Path,
+        index: usize,
+        len: usize,
+        patch: AttrPatch,
+    ) -> Result<&mut Self, BuildError> {
+        self.check_rich_text_range(path, index, len)?;
+        if len == 0 || patch.is_empty() {
+            return Ok(self);
+        }
+        self.rich_text(
+            path,
+            RichTextChange::new(vec![
+                RichTextOp::Retain {
+                    len: index,
+                    attrs: AttrPatch::new(),
+                },
+                RichTextOp::Retain { len, attrs: patch },
+            ]),
+        )
+    }
+
     pub fn int_add(&mut self, path: &Path, delta: i64) -> Result<&mut Self, BuildError> {
         self.change_at(path, Change::int_add(delta))
+    }
+
+    fn check_rich_text_position(&self, path: &Path, index: usize) -> Result<(), BuildError> {
+        let target = value_at_path(&self.current, path)?;
+        let ValueKind::RichText(rich_text) = target.kind() else {
+            return Err(ApplyError::TypeMismatch {
+                path: path.clone(),
+                expected: ValueType::RichText,
+                actual: target.value_type(),
+            }
+            .into());
+        };
+        if index > rich_text.len() {
+            return Err(ApplyError::IndexOutOfBounds {
+                path: path.clone(),
+                index,
+                len: rich_text.len(),
+            }
+            .into());
+        }
+        Ok(())
+    }
+
+    fn check_rich_text_range(
+        &self,
+        path: &Path,
+        index: usize,
+        len: usize,
+    ) -> Result<(), BuildError> {
+        let target = value_at_path(&self.current, path)?;
+        let ValueKind::RichText(rich_text) = target.kind() else {
+            return Err(ApplyError::TypeMismatch {
+                path: path.clone(),
+                expected: ValueType::RichText,
+                actual: target.value_type(),
+            }
+            .into());
+        };
+        let end = index
+            .checked_add(len)
+            .ok_or_else(|| ApplyError::IndexOutOfBounds {
+                path: path.clone(),
+                index,
+                len: rich_text.len(),
+            })?;
+        if end > rich_text.len() {
+            return Err(ApplyError::IndexOutOfBounds {
+                path: path.clone(),
+                index: end,
+                len: rich_text.len(),
+            }
+            .into());
+        }
+        Ok(())
     }
 }
 

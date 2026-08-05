@@ -4,8 +4,9 @@
 //! detail of the handwritten `@colla/core` facade.
 
 use colla::{
-    apply, ApplyError, BuildError, Change, ChangeBuilder, CodecError, ComposeError, InputLimits,
-    Path, PathSeg, Value, ValueKind, ValueType,
+    apply, ApplyError, AttrChange, AttrPatch, AttrValue, Attrs, BuildError, Change, ChangeBuilder,
+    CodecError, ComposeError, InputLimits, Path, PathSeg, RichInsert, RichText, Value, ValueKind,
+    ValueType,
 };
 use serde_json::{json, Value as JsonValue};
 use wasm_bindgen::prelude::*;
@@ -327,6 +328,115 @@ impl BuilderHandle {
             .map_err(|error| build_error(error, "text_replace"))
     }
 
+    #[wasm_bindgen(js_name = richTextInsertText)]
+    pub fn rich_text_insert_text(
+        &mut self,
+        path: &str,
+        position: usize,
+        value: &str,
+        attrs: &str,
+    ) -> Result<(), JsValue> {
+        let path = parse_path(path, "rich_text_insert_text")?;
+        let index = {
+            let rich = rich_text_at_path(
+                self.builder_ref("rich_text_insert_text")?.current(),
+                &path,
+                "rich_text_insert_text",
+            )?;
+            rich_utf16_to_code_point(rich, position, "rich_text_insert_text")?
+        };
+        let attrs = parse_attrs(attrs, "rich_text_insert_text")?;
+        self.builder_mut()?
+            .rich_text_insert_text(&path, index, value, attrs)
+            .map(|_| ())
+            .map_err(|error| build_error(error, "rich_text_insert_text"))
+    }
+
+    #[wasm_bindgen(js_name = richTextInsertEmbed)]
+    pub fn rich_text_insert_embed(
+        &mut self,
+        path: &str,
+        position: usize,
+        value: &ValueHandle,
+        attrs: &str,
+    ) -> Result<(), JsValue> {
+        let path = parse_path(path, "rich_text_insert_embed")?;
+        let index = {
+            let rich = rich_text_at_path(
+                self.builder_ref("rich_text_insert_embed")?.current(),
+                &path,
+                "rich_text_insert_embed",
+            )?;
+            rich_utf16_to_code_point(rich, position, "rich_text_insert_embed")?
+        };
+        let attrs = parse_attrs(attrs, "rich_text_insert_embed")?;
+        self.builder_mut()?
+            .rich_text_insert_embed(&path, index, value.value.clone(), attrs)
+            .map(|_| ())
+            .map_err(|error| build_error(error, "rich_text_insert_embed"))
+    }
+
+    #[wasm_bindgen(js_name = richTextDelete)]
+    pub fn rich_text_delete(&mut self, path: &str, from: usize, to: usize) -> Result<(), JsValue> {
+        let path = parse_path(path, "rich_text_delete")?;
+        let (from, to) = {
+            let rich = rich_text_at_path(
+                self.builder_ref("rich_text_delete")?.current(),
+                &path,
+                "rich_text_delete",
+            )?;
+            (
+                rich_utf16_to_code_point(rich, from, "rich_text_delete")?,
+                rich_utf16_to_code_point(rich, to, "rich_text_delete")?,
+            )
+        };
+        let len = to.checked_sub(from).ok_or_else(|| {
+            wasm_error_details(
+                "invalid_argument",
+                "rich_text_delete",
+                json!({ "argument": "range", "reason": "from must not exceed to" }),
+            )
+        })?;
+        self.builder_mut()?
+            .rich_text_delete(&path, from, len)
+            .map(|_| ())
+            .map_err(|error| build_error(error, "rich_text_delete"))
+    }
+
+    #[wasm_bindgen(js_name = richTextFormat)]
+    pub fn rich_text_format(
+        &mut self,
+        path: &str,
+        from: usize,
+        to: usize,
+        patch: &str,
+    ) -> Result<(), JsValue> {
+        let path = parse_path(path, "rich_text_format")?;
+        let (from, to) = {
+            let rich = rich_text_at_path(
+                self.builder_ref("rich_text_format")?.current(),
+                &path,
+                "rich_text_format",
+            )?;
+            (
+                rich_utf16_to_code_point(rich, from, "rich_text_format")?,
+                rich_utf16_to_code_point(rich, to, "rich_text_format")?,
+            )
+        };
+        let len = to.checked_sub(from).ok_or_else(|| {
+            wasm_error_details(
+                "invalid_argument",
+                "rich_text_format",
+                json!({ "argument": "range", "reason": "from must not exceed to" }),
+            )
+        })?;
+        let patch = parse_attr_patch(patch, "rich_text_format")?;
+        self.builder_mut()?
+            .rich_text_format(&path, from, len, patch)
+            .map(|_| ())
+            .map_err(|error| build_error(error, "rich_text_format"))
+    }
+
     #[wasm_bindgen(js_name = cloneForScope)]
     pub fn clone_for_scope(&self) -> Result<Self, JsValue> {
         let builder = self.builder.as_ref().ok_or_else(|| {
@@ -390,8 +500,20 @@ pub fn resolve_code_point_position_handle(
     position: usize,
 ) -> Result<usize, JsValue> {
     let path = parse_path(path, "resolve_code_point_position")?;
-    let text = text_at_path(&value.value, &path, "resolve_code_point_position")?;
-    utf16_to_code_point(text, position, "resolve_code_point_position")
+    let value = value_at_path(&value.value, &path, "resolve_code_point_position")?;
+    match value.kind() {
+        ValueKind::Text(text) => {
+            utf16_to_code_point(text.as_str(), position, "resolve_code_point_position")
+        }
+        ValueKind::RichText(rich) => {
+            rich_utf16_to_code_point(rich, position, "resolve_code_point_position")
+        }
+        actual => Err(wasm_error_details(
+            "type_mismatch",
+            "resolve_code_point_position",
+            json!({ "expected": ["text", "richText"], "actual": value_kind_name(actual) }),
+        )),
+    }
 }
 
 #[wasm_bindgen(js_name = resolveUtf16PositionHandle)]
@@ -401,8 +523,20 @@ pub fn resolve_utf16_position_handle(
     position: usize,
 ) -> Result<usize, JsValue> {
     let path = parse_path(path, "resolve_utf16_position")?;
-    let text = text_at_path(&value.value, &path, "resolve_utf16_position")?;
-    code_point_to_utf16(text, position, "resolve_utf16_position")
+    let value = value_at_path(&value.value, &path, "resolve_utf16_position")?;
+    match value.kind() {
+        ValueKind::Text(text) => {
+            code_point_to_utf16(text.as_str(), position, "resolve_utf16_position")
+        }
+        ValueKind::RichText(rich) => {
+            rich_code_point_to_utf16(rich, position, "resolve_utf16_position")
+        }
+        actual => Err(wasm_error_details(
+            "type_mismatch",
+            "resolve_utf16_position",
+            json!({ "expected": ["text", "richText"], "actual": value_kind_name(actual) }),
+        )),
+    }
 }
 
 fn value_kind_name(kind: &ValueKind) -> &'static str {
@@ -531,6 +665,103 @@ fn value_type_name(value_type: ValueType) -> &'static str {
         ValueType::List => "list",
         ValueType::Map => "map",
     }
+}
+
+fn parse_attrs(value: &str, operation: &'static str) -> Result<Attrs, JsValue> {
+    let entries = parse_attr_entries(value, operation)?;
+    let mut attrs = Vec::with_capacity(entries.len());
+    for (key, _, value) in entries {
+        let value = value.ok_or_else(|| {
+            wasm_error("invalid_value", operation, "attribute entry cannot remove")
+        })?;
+        attrs.push((key, value));
+    }
+    Attrs::from_entries(attrs)
+        .map_err(|error| wasm_error("invalid_value", operation, error.to_string()))
+}
+
+fn parse_attr_patch(value: &str, operation: &'static str) -> Result<AttrPatch, JsValue> {
+    let entries = parse_attr_entries(value, operation)?;
+    AttrPatch::from_entries(entries.into_iter().map(|(key, action, value)| {
+        let change = if action == "remove" {
+            AttrChange::Remove
+        } else {
+            AttrChange::Set(value.expect("set entries have a value"))
+        };
+        (key, change)
+    }))
+    .map_err(|error| wasm_error("invalid_value", operation, error.to_string()))
+}
+
+fn parse_attr_entries(
+    value: &str,
+    operation: &'static str,
+) -> Result<Vec<(String, String, Option<AttrValue>)>, JsValue> {
+    let value: JsonValue = serde_json::from_str(value)
+        .map_err(|error| wasm_error("invalid_value", operation, error.to_string()))?;
+    let entries = value
+        .as_array()
+        .ok_or_else(|| wasm_error("invalid_value", operation, "attributes must be an array"))?;
+    let mut out = Vec::with_capacity(entries.len());
+    for entry in entries {
+        let key = entry
+            .get("key")
+            .and_then(JsonValue::as_str)
+            .ok_or_else(|| wasm_error("invalid_value", operation, "attribute key is missing"))?
+            .to_owned();
+        let action = entry
+            .get("action")
+            .and_then(JsonValue::as_str)
+            .unwrap_or("set")
+            .to_owned();
+        if action == "remove" {
+            out.push((key, action, None));
+            continue;
+        }
+        if action != "set" {
+            return Err(wasm_error(
+                "invalid_value",
+                operation,
+                "unknown attribute patch action",
+            ));
+        }
+        let kind = entry
+            .get("kind")
+            .and_then(JsonValue::as_str)
+            .ok_or_else(|| wasm_error("invalid_value", operation, "attribute kind is missing"))?;
+        let data = entry
+            .get("value")
+            .ok_or_else(|| wasm_error("invalid_value", operation, "attribute value is missing"))?;
+        let value =
+            match kind {
+                "bool" => AttrValue::Bool(data.as_bool().ok_or_else(|| {
+                    wasm_error("invalid_value", operation, "invalid Bool attribute")
+                })?),
+                "int" => AttrValue::Int(
+                    data.as_str()
+                        .and_then(|value| value.parse::<i64>().ok())
+                        .ok_or_else(|| {
+                            wasm_error("invalid_value", operation, "invalid Int attribute")
+                        })?,
+                ),
+                "float" => AttrValue::float(data.as_f64().ok_or_else(|| {
+                    wasm_error("invalid_value", operation, "invalid Float attribute")
+                })?)
+                .map_err(|error| wasm_error("invalid_value", operation, error.to_string()))?,
+                "string" => AttrValue::string(data.as_str().ok_or_else(|| {
+                    wasm_error("invalid_value", operation, "invalid String attribute")
+                })?),
+                _ => {
+                    return Err(wasm_error(
+                        "invalid_value",
+                        operation,
+                        "unknown attribute kind",
+                    ))
+                }
+            };
+        out.push((key, action, Some(value)));
+    }
+    Ok(out)
 }
 
 fn parse_limits(value: &str, operation: &'static str) -> Result<InputLimits, JsValue> {
@@ -704,6 +935,106 @@ fn code_point_to_utf16(
             "out_of_bounds",
             operation,
             json!({ "target": "text", "length": length, "index": position }),
+        ))
+    }
+}
+
+fn rich_text_at_path<'a>(
+    root: &'a Value,
+    path: &Path,
+    operation: &'static str,
+) -> Result<&'a RichText, JsValue> {
+    let value = value_at_path(root, path, operation)?;
+    match value.kind() {
+        ValueKind::RichText(rich) => Ok(rich),
+        actual => Err(wasm_error_details(
+            "type_mismatch",
+            operation,
+            json!({ "expected": "richText", "actual": value_kind_name(actual) }),
+        )),
+    }
+}
+
+fn rich_utf16_to_code_point(
+    rich: &RichText,
+    position: usize,
+    operation: &'static str,
+) -> Result<usize, JsValue> {
+    let mut utf16 = 0usize;
+    let mut code_point = 0usize;
+    for span in rich.spans() {
+        match &span.content {
+            RichInsert::Text(text) => {
+                for character in text.chars() {
+                    if position == utf16 {
+                        return Ok(code_point);
+                    }
+                    let next = utf16 + character.len_utf16();
+                    if position < next {
+                        return Err(wasm_error_details(
+                            "invalid_utf16_boundary",
+                            operation,
+                            json!({ "position": position }),
+                        ));
+                    }
+                    utf16 = next;
+                    code_point += 1;
+                }
+            }
+            RichInsert::Embed(_) => {
+                if position == utf16 {
+                    return Ok(code_point);
+                }
+                utf16 += 1;
+                code_point += 1;
+            }
+        }
+    }
+    if position == utf16 {
+        Ok(code_point)
+    } else {
+        Err(wasm_error_details(
+            "out_of_bounds",
+            operation,
+            json!({ "target": "richText", "length": utf16, "index": position }),
+        ))
+    }
+}
+
+fn rich_code_point_to_utf16(
+    rich: &RichText,
+    position: usize,
+    operation: &'static str,
+) -> Result<usize, JsValue> {
+    let mut utf16 = 0usize;
+    let mut code_point = 0usize;
+    for span in rich.spans() {
+        match &span.content {
+            RichInsert::Text(text) => {
+                for character in text.chars() {
+                    if code_point == position {
+                        return Ok(utf16);
+                    }
+                    utf16 += character.len_utf16();
+                    code_point += 1;
+                }
+            }
+            RichInsert::Embed(_) => {
+                if code_point == position {
+                    return Ok(utf16);
+                }
+                utf16 += 1;
+                code_point += 1;
+            }
+        }
+    }
+    if position == code_point {
+        Ok(utf16)
+    } else {
+        Err(wasm_error_details(
+            "out_of_bounds",
+            operation,
+            json!({ "target": "richText", "length": code_point, "index": position }),
         ))
     }
 }
