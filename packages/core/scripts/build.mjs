@@ -1,4 +1,4 @@
-import { cp, mkdir, rm } from "node:fs/promises"
+import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { execFileSync } from "node:child_process"
 import { fileURLToPath } from "node:url"
 import { dirname, resolve } from "node:path"
@@ -25,6 +25,12 @@ execFileSync(
     "colla_wasm",
   ],
   { cwd: workspaceDir, stdio: "inherit" },
+)
+
+const wasmBase64 = (await readFile(resolve(generatedDir, "colla_wasm_bg.wasm"))).toString("base64")
+await writeFile(
+  resolve(generatedDir, "wasm_base64.ts"),
+  `const wasmBase64 = ${JSON.stringify(wasmBase64)}\nexport default wasmBase64\n`,
 )
 
 execFileSync("pnpm", ["exec", "tsc", "-p", resolve(packageDir, "tsconfig.json")], {

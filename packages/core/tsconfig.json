@@ -9,7 +9,7 @@
     "skipLibCheck": true,
     "outDir": "dist",
     "rootDir": "src",
-    "lib": ["ES2022", "ESNext.Disposable"]
+    "lib": ["ES2022", "DOM", "ESNext.Disposable"]
   },
   "include": ["src/**/*.ts"]
 }
