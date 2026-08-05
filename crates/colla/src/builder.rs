@@ -6,6 +6,7 @@ use crate::path::{Path, PathSeg};
 use crate::value::{Value, ValueKind, ValueType};
 
 /// Snapshot-aware, sequential construction of one canonical recursive Change.
+#[derive(Clone)]
 pub struct ChangeBuilder {
     current: Value,
     change: Change,
@@ -55,14 +56,53 @@ impl ChangeBuilder {
         self.change_at(path, leaf)
     }
 
+    pub fn map_set(
+        &mut self,
+        path: &Path,
+        key: impl Into<String>,
+        value: Value,
+    ) -> Result<&mut Self, BuildError> {
+        let key = key.into();
+        let target = value_at_path(&self.current, path)?;
+        let ValueKind::Map(map) = target.kind() else {
+            return Err(ApplyError::TypeMismatch {
+                path: path.clone(),
+                expected: ValueType::Map,
+                actual: target.value_type(),
+            }
+            .into());
+        };
+        let entry = match map.get(&key) {
+            Some(current) if current == &value => return Ok(self),
+            Some(_) => MapEntryChange::Modify(Change::replace(value)),
+            None => MapEntryChange::Insert(value),
+        };
+        self.change_at(
+            path,
+            Change::map(MapChange::from_entries([(key, entry)]).expect("one unique key")),
+        )
+    }
+
     pub fn map_delete(
         &mut self,
         path: &Path,
         key: impl Into<String>,
     ) -> Result<&mut Self, BuildError> {
+        let key = key.into();
+        let target = value_at_path(&self.current, path)?;
+        let ValueKind::Map(map) = target.kind() else {
+            return Err(ApplyError::TypeMismatch {
+                path: path.clone(),
+                expected: ValueType::Map,
+                actual: target.value_type(),
+            }
+            .into());
+        };
+        if map.get(&key).is_none() {
+            return Ok(self);
+        }
         let leaf = Change::map(
-            MapChange::from_entries([(key.into(), MapEntryChange::Delete)])
-                .expect("one unique key"),
+            MapChange::from_entries([(key, MapEntryChange::Delete)]).expect("one unique key"),
         );
         self.change_at(path, leaf)
     }
@@ -77,6 +117,26 @@ impl ChangeBuilder {
         I: IntoIterator<Item = Value>,
     {
         let values: Vec<Value> = values.into_iter().collect();
+        let target = value_at_path(&self.current, path)?;
+        let ValueKind::List(list) = target.kind() else {
+            return Err(ApplyError::TypeMismatch {
+                path: path.clone(),
+                expected: ValueType::List,
+                actual: target.value_type(),
+            }
+            .into());
+        };
+        if index > list.len() {
+            return Err(ApplyError::IndexOutOfBounds {
+                path: path.clone(),
+                index,
+                len: list.len(),
+            }
+            .into());
+        }
+        if values.is_empty() {
+            return Ok(self);
+        }
         self.change_at(
             path,
             Change::list(ListChange::new(vec![
@@ -92,11 +152,72 @@ impl ChangeBuilder {
         index: usize,
         len: usize,
     ) -> Result<&mut Self, BuildError> {
+        let target = value_at_path(&self.current, path)?;
+        let ValueKind::List(list) = target.kind() else {
+            return Err(ApplyError::TypeMismatch {
+                path: path.clone(),
+                expected: ValueType::List,
+                actual: target.value_type(),
+            }
+            .into());
+        };
+        let end = index
+            .checked_add(len)
+            .ok_or_else(|| ApplyError::IndexOutOfBounds {
+                path: path.clone(),
+                index,
+                len: list.len(),
+            })?;
+        if end > list.len() {
+            return Err(ApplyError::IndexOutOfBounds {
+                path: path.clone(),
+                index: end,
+                len: list.len(),
+            }
+            .into());
+        }
+        if len == 0 {
+            return Ok(self);
+        }
         self.change_at(
             path,
             Change::list(ListChange::new(vec![
                 ListOp::Retain(index),
                 ListOp::Delete(len),
+            ])),
+        )
+    }
+
+    pub fn list_set(
+        &mut self,
+        path: &Path,
+        index: usize,
+        value: Value,
+    ) -> Result<&mut Self, BuildError> {
+        let target = value_at_path(&self.current, path)?;
+        let ValueKind::List(list) = target.kind() else {
+            return Err(ApplyError::TypeMismatch {
+                path: path.clone(),
+                expected: ValueType::List,
+                actual: target.value_type(),
+            }
+            .into());
+        };
+        let current = list
+            .get(index)
+            .ok_or_else(|| ApplyError::IndexOutOfBounds {
+                path: path.clone(),
+                index,
+                len: list.len(),
+            })?;
+        if current == &value {
+            return Ok(self);
+        }
+        self.change_at(
+            path,
+            Change::list(ListChange::new(vec![
+                ListOp::Retain(index),
+                ListOp::Modify(Change::replace(value)),
             ])),
         )
     }
@@ -216,4 +337,42 @@ fn prefix(path: &Path, len: usize) -> Path {
         out.push(segment.clone());
     }
     out
+}
+
+fn value_at_path<'a>(current: &'a Value, path: &Path) -> Result<&'a Value, ApplyError> {
+    let mut value = current;
+    for (depth, segment) in path.segments().iter().enumerate() {
+        let actual_type = value.value_type();
+        value = match (value.kind(), segment) {
+            (ValueKind::Map(map), PathSeg::Key(key)) => {
+                map.get(key).ok_or_else(|| ApplyError::MissingKey {
+                    path: prefix(path, depth),
+                    key: key.clone(),
+                })?
+            }
+            (ValueKind::List(list), PathSeg::Index(index)) => {
+                list.get(*index)
+                    .ok_or_else(|| ApplyError::IndexOutOfBounds {
+                        path: prefix(path, depth),
+                        index: *index,
+                        len: list.len(),
+                    })?
+            }
+            (_, PathSeg::Key(_)) => {
+                return Err(ApplyError::TypeMismatch {
+                    path: prefix(path, depth),
+                    expected: ValueType::Map,
+                    actual: actual_type,
+                })
+            }
+            (_, PathSeg::Index(_)) => {
+                return Err(ApplyError::TypeMismatch {
+                    path: prefix(path, depth),
+                    expected: ValueType::List,
+                    actual: actual_type,
+                })
+            }
+        };
+    }
+    Ok(value)
 }

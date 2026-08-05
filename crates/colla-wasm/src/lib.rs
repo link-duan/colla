@@ -4,7 +4,8 @@
 //! detail of the handwritten `@colla/core` facade.
 
 use colla::{
-    apply, Change, ChangeBuilder, CodecError, InputLimits, Path, PathSeg, Value, ValueKind,
+    apply, ApplyError, BuildError, Change, ChangeBuilder, CodecError, ComposeError, InputLimits,
+    Path, PathSeg, Value, ValueKind, ValueType,
 };
 use serde_json::{json, Value as JsonValue};
 use wasm_bindgen::prelude::*;
@@ -164,12 +165,110 @@ pub struct BuilderHandle {
 
 #[wasm_bindgen]
 impl BuilderHandle {
-    #[wasm_bindgen(js_name = replaceRoot)]
-    pub fn replace_root(&mut self, value: &ValueHandle) -> Result<(), JsValue> {
+    pub fn replace(&mut self, path: &str, value: &ValueHandle) -> Result<(), JsValue> {
+        let path = parse_path(path, "builder_replace")?;
         self.builder_mut()?
-            .replace(&Path::new(), value.value.clone())
+            .replace(&path, value.value.clone())
             .map(|_| ())
-            .map_err(|error| wasm_error("invalid_argument", "builder_replace", error.to_string()))
+            .map_err(|error| build_error(error, "builder_replace"))
+    }
+
+    #[wasm_bindgen(js_name = mapSet)]
+    pub fn map_set(&mut self, path: &str, key: &str, value: &ValueHandle) -> Result<(), JsValue> {
+        let path = parse_path(path, "map_set")?;
+        self.builder_mut()?
+            .map_set(&path, key, value.value.clone())
+            .map(|_| ())
+            .map_err(|error| build_error(error, "map_set"))
+    }
+
+    #[wasm_bindgen(js_name = mapDelete)]
+    pub fn map_delete(&mut self, path: &str, key: &str) -> Result<(), JsValue> {
+        let path = parse_path(path, "map_delete")?;
+        self.builder_mut()?
+            .map_delete(&path, key)
+            .map(|_| ())
+            .map_err(|error| build_error(error, "map_delete"))
+    }
+
+    #[wasm_bindgen(js_name = listInsert)]
+    pub fn list_insert(
+        &mut self,
+        path: &str,
+        index: usize,
+        values: &ValueHandle,
+    ) -> Result<(), JsValue> {
+        let path = parse_path(path, "list_insert")?;
+        let ValueKind::List(values) = values.value.kind() else {
+            return Err(type_error("list", values.value.kind()));
+        };
+        self.builder_mut()?
+            .list_insert(&path, index, values.as_slice().iter().cloned())
+            .map(|_| ())
+            .map_err(|error| build_error(error, "list_insert"))
+    }
+
+    #[wasm_bindgen(js_name = listSet)]
+    pub fn list_set(
+        &mut self,
+        path: &str,
+        index: usize,
+        value: &ValueHandle,
+    ) -> Result<(), JsValue> {
+        let path = parse_path(path, "list_set")?;
+        self.builder_mut()?
+            .list_set(&path, index, value.value.clone())
+            .map(|_| ())
+            .map_err(|error| build_error(error, "list_set"))
+    }
+
+    #[wasm_bindgen(js_name = listDelete)]
+    pub fn list_delete(&mut self, path: &str, from: usize, to: usize) -> Result<(), JsValue> {
+        let path = parse_path(path, "list_delete")?;
+        let len = to.checked_sub(from).ok_or_else(|| {
+            wasm_error_details(
+                "invalid_argument",
+                "list_delete",
+                json!({ "argument": "range", "reason": "from must not exceed to" }),
+            )
+        })?;
+        self.builder_mut()?
+            .list_delete(&path, from, len)
+            .map(|_| ())
+            .map_err(|error| build_error(error, "list_delete"))
+    }
+
+    #[wasm_bindgen(js_name = currentKind)]
+    pub fn current_kind(&self, path: &str) -> Result<String, JsValue> {
+        let path = parse_path(path, "builder_scope")?;
+        let builder = self.builder.as_ref().ok_or_else(|| {
+            wasm_error("invalid_state", "builder_scope", "builder already consumed")
+        })?;
+        Ok(
+            value_kind_name(value_at_path(builder.current(), &path, "builder_scope")?.kind())
+                .into(),
+        )
+    }
+
+    #[wasm_bindgen(js_name = cloneForScope)]
+    pub fn clone_for_scope(&self) -> Result<Self, JsValue> {
+        let builder = self.builder.as_ref().ok_or_else(|| {
+            wasm_error("invalid_state", "builder_scope", "builder already consumed")
+        })?;
+        Ok(Self {
+            builder: Some(builder.clone()),
+        })
+    }
+
+    #[wasm_bindgen(js_name = commitScope)]
+    pub fn commit_scope(&mut self, scope: &mut BuilderHandle) -> Result<(), JsValue> {
+        self.builder_mut()?;
+        let next = scope
+            .builder
+            .take()
+            .ok_or_else(|| wasm_error("invalid_state", "builder_scope", "scope already closed"))?;
+        self.builder = Some(next);
+        Ok(())
     }
 
     pub fn build(&mut self) -> Result<ChangeHandle, JsValue> {
@@ -267,6 +366,65 @@ fn codec_error(error: CodecError, operation: &'static str) -> JsValue {
             }
             wasm_error_details("invalid_encoding", operation, details)
         }
+    }
+}
+
+fn build_error(error: BuildError, operation: &'static str) -> JsValue {
+    match error {
+        BuildError::Apply(error) => apply_error(error, operation),
+        BuildError::Compose(ComposeError::Apply(error)) => apply_error(error, operation),
+        BuildError::Compose(error) => wasm_error_details(
+            "incompatible_change",
+            operation,
+            json!({ "reason": error.to_string() }),
+        ),
+        _ => wasm_error("invalid_argument", operation, error.to_string()),
+    }
+}
+
+fn apply_error(error: ApplyError, operation: &'static str) -> JsValue {
+    match error {
+        ApplyError::TypeMismatch {
+            expected, actual, ..
+        } => wasm_error_details(
+            "type_mismatch",
+            operation,
+            json!({ "expected": value_type_name(expected), "actual": value_type_name(actual) }),
+        ),
+        ApplyError::MissingKey { key, .. } => {
+            wasm_error_details("missing_key", operation, json!({ "key": key }))
+        }
+        ApplyError::ExistingKey { key, .. } => {
+            wasm_error_details("key_already_exists", operation, json!({ "key": key }))
+        }
+        ApplyError::IndexOutOfBounds { index, len, .. } => wasm_error_details(
+            "out_of_bounds",
+            operation,
+            json!({ "target": "list", "length": len, "index": index }),
+        ),
+        ApplyError::SequenceOutOfBounds { .. } => wasm_error_details(
+            "out_of_bounds",
+            operation,
+            json!({ "target": "sequence", "length": 0 }),
+        ),
+        ApplyError::IntegerOverflow { .. } => {
+            wasm_error_details("integer_overflow", operation, json!({}))
+        }
+        _ => wasm_error("invalid_argument", operation, error.to_string()),
+    }
+}
+
+fn value_type_name(value_type: ValueType) -> &'static str {
+    match value_type {
+        ValueType::Null => "null",
+        ValueType::Bool => "bool",
+        ValueType::Int => "int",
+        ValueType::Float => "float",
+        ValueType::String => "string",
+        ValueType::Text => "text",
+        ValueType::RichText => "richText",
+        ValueType::List => "list",
+        ValueType::Map => "map",
     }
 }
 

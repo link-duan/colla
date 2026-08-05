@@ -98,6 +98,113 @@ fn builder_is_sequential_and_transactional() {
 }
 
 #[test]
+fn builder_map_set_and_list_edits_use_current_snapshot() {
+    let base = Value::map([
+        (
+            "meta",
+            Value::map([("status", Value::string("draft"))]).unwrap(),
+        ),
+        (
+            "items",
+            Value::list([Value::string("a"), Value::string("b")]),
+        ),
+    ])
+    .unwrap();
+    let mut builder = base.change();
+
+    builder
+        .map_set(&path!["meta"], "status", Value::string("draft"))
+        .unwrap()
+        .map_delete(&path!["meta"], "missing")
+        .unwrap()
+        .map_set(&path!["meta"], "status", Value::string("published"))
+        .unwrap()
+        .map_set(&path!["meta"], "owner", Value::string("team"))
+        .unwrap()
+        .list_insert(&path!["items"], 1, [Value::string("x")])
+        .unwrap()
+        .list_set(&path!["items"], 2, Value::string("b"))
+        .unwrap()
+        .list_delete(&path!["items"], 0, 1)
+        .unwrap();
+
+    let change = builder.build();
+    let after = change.apply_to(&base).unwrap();
+    assert_eq!(
+        after,
+        Value::map([
+            (
+                "meta",
+                Value::map([
+                    ("owner", Value::string("team")),
+                    ("status", Value::string("published")),
+                ])
+                .unwrap(),
+            ),
+            (
+                "items",
+                Value::list([Value::string("x"), Value::string("b")]),
+            ),
+        ])
+        .unwrap()
+    );
+}
+
+#[test]
+fn builder_container_errors_are_transactional() {
+    let base = Value::map([("items", Value::list([Value::int(1)]))]).unwrap();
+    let mut builder = base.change();
+    let before = builder.change().clone();
+
+    assert!(builder
+        .list_insert(&path!["items"], 2, [Value::int(2)])
+        .is_err());
+    assert_eq!(builder.change(), &before);
+    assert!(builder.list_delete(&path!["items"], 1, usize::MAX).is_err());
+    assert_eq!(builder.change(), &before);
+    assert!(builder
+        .map_set(&path!["items"], "key", Value::null())
+        .is_err());
+    assert_eq!(builder.change(), &before);
+}
+
+#[test]
+fn builder_map_list_bytes_match_javascript_golden() {
+    let base = Value::map([
+        (
+            "meta",
+            Value::map([("status", Value::string("draft"))]).unwrap(),
+        ),
+        (
+            "items",
+            Value::list([Value::string("a"), Value::string("b")]),
+        ),
+    ])
+    .unwrap();
+    let mut builder = base.change();
+    builder
+        .map_set(&path!["meta"], "status", Value::string("published"))
+        .unwrap()
+        .map_set(&path!["meta"], "owner", Value::string("team"))
+        .unwrap()
+        .list_insert(&path!["items"], 1, [Value::string("x")])
+        .unwrap()
+        .list_set(&path!["items"], 2, Value::string("B"))
+        .unwrap()
+        .list_delete(&path!["items"], 0, 1)
+        .unwrap();
+
+    assert_eq!(
+        builder.build().encode(),
+        [
+            2, 2, 5, 105, 116, 101, 109, 115, 2, 3, 3, 1, 1, 5, 1, 120, 2, 1, 3, 1, 5, 1, 66, 4,
+            109, 101, 116, 97, 2, 2, 2, 5, 111, 119, 110, 101, 114, 0, 5, 4, 116, 101, 97, 109, 6,
+            115, 116, 97, 116, 117, 115, 2, 1, 5, 9, 112, 117, 98, 108, 105, 115, 104, 101, 100,
+        ]
+    );
+}
+
+#[test]
 fn rich_text_format_has_explicit_patch_semantics() {
     let attrs = Attrs::from_entries([("color", AttrValue::string("red"))]).unwrap();
     let base = Value::rich_text(RichText::new(vec![RichSpan::text("hi", attrs)]));

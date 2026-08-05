@@ -103,6 +103,86 @@ try {
     assert.throws(() => Value.fromJS(null, { limits: { unknown: 1 } }), error =>
       error instanceof CollaError && error.code === "invalid_argument")
 
+    const structuredBase = Value.fromJS({
+      meta: { status: "draft" },
+      items: ["a", "b"],
+    })
+    let escapedMap
+    const structuredBuilder = structuredBase.change()
+      .map(["meta"], map => {
+        escapedMap = map
+        map.set("status", "published").set("owner", "team").delete("missing")
+      })
+      .list(["items"], list => {
+        list.insert(1, ["x"]).set(2, "B").delete({ from: 0, to: 1 })
+      })
+    assert.throws(() => escapedMap.set("late", true), error =>
+      error instanceof CollaError && error.code === "invalid_state" &&
+      error.details.reason === "scope_closed")
+    const structuredChange = structuredBuilder.build()
+    assert.deepEqual(structuredChange.encode(), Uint8Array.from([
+      2, 2, 5, 105, 116, 101, 109, 115, 2, 3, 3, 1, 1, 5, 1, 120, 2, 1, 3, 1, 5,
+      1, 66, 4, 109, 101, 116, 97, 2, 2, 2, 5, 111, 119, 110, 101, 114, 0, 5, 4,
+      116, 101, 97, 109, 6, 115, 116, 97, 116, 117, 115, 2, 1, 5, 9, 112, 117, 98,
+      108, 105, 115, 104, 101, 100,
+    ]))
+    const structuredNext = apply(structuredBase, structuredChange)
+    assert.deepEqual(structuredNext.toJS(), Object.assign(Object.create(null), {
+      items: ["x", "B"],
+      meta: Object.assign(Object.create(null), { owner: "team", status: "published" }),
+    }))
+
+    const rollbackBuilder = structuredBase.change()
+    const callbackFailure = new Error("callback failure")
+    assert.throws(
+      () => rollbackBuilder.map(["meta"], map => {
+        map.set("temporary", true)
+        throw callbackFailure
+      }),
+      error => error === callbackFailure,
+    )
+    assert.throws(
+      () => rollbackBuilder.map(["meta"], map => {
+        map.set("temporary", true).set("invalid", new Date())
+      }),
+      error => error instanceof CollaError && error.code === "invalid_value",
+    )
+    assert.throws(
+      () => rollbackBuilder.list(["items"], list => list.insert(9, ["x"])),
+      error => error instanceof CollaError && error.code === "out_of_bounds",
+    )
+    rollbackBuilder
+      .map(["meta"], map => map.set("status", "draft").delete("missing"))
+      .list(["items"], list => list.insert(0, []).delete({ from: 1, to: 1 }))
+    const rollbackChange = rollbackBuilder.build()
+    const rollbackNext = apply(structuredBase, rollbackChange)
+    assert.deepEqual(rollbackNext.toJS(), structuredBase.toJS())
+
+    const asyncBuilder = structuredBase.change()
+    assert.throws(
+      () => asyncBuilder.map(["meta"], async map => map.set("async", true)),
+      error => error instanceof CollaError && error.code === "invalid_argument",
+    )
+    const asyncChange = asyncBuilder.build()
+    const asyncNext = apply(structuredBase, asyncChange)
+    assert.deepEqual(asyncNext.toJS(), structuredBase.toJS())
+
+    const independentOriginal = Value.fromJS({ meta: {} })
+    const independentSnapshot = independentOriginal.clone()
+    const independentBuilder = independentOriginal.change()
+    independentOriginal.dispose()
+    const independentChange = independentBuilder
+      .map(["meta"], map => map.set("alive", true))
+      .build()
+    const independentNext = apply(independentSnapshot, independentChange)
+    assert.equal(independentNext.get(["meta", "alive"]), true)
+
+    const abandoned = structuredBase.change()
+    abandoned.dispose()
+    assert.throws(() => abandoned.build(), error =>
+      error instanceof CollaError && error.code === "invalid_state" &&
+      error.details.reason === "disposed")
+
     const base = Value.fromJS("draft", { limits: { maxStringBytes: 5 } })
     const integer = Value.fromJS(42n)
     assert.equal(integer.toJS(), 42n)
@@ -138,6 +218,16 @@ try {
       composite,
       firstOrder,
       secondOrder,
+      structuredBase,
+      structuredChange,
+      structuredNext,
+      rollbackChange,
+      rollbackNext,
+      asyncChange,
+      asyncNext,
+      independentSnapshot,
+      independentChange,
+      independentNext,
       integer,
       clone,
       decodedBase,

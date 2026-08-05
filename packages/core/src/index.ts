@@ -117,7 +117,7 @@ function invalidArgument(operation: string, argument: string, reason: string): C
 function invalidState(
   operation: string,
   resource: string,
-  reason: "disposed" | "consumed",
+  reason: "disposed" | "consumed" | "scope_closed",
 ): CollaError {
   return new CollaError("invalid_state", operation, { resource, reason })
 }
@@ -629,6 +629,133 @@ export class Change {
   }
 }
 
+export interface Range {
+  readonly from: number
+  readonly to: number
+}
+
+export interface MapChangeBuilder {
+  set(key: string, value: ValueInput): this
+  delete(key: string): this
+}
+
+export interface ListChangeBuilder {
+  insert(index: number, values: readonly ValueInput[]): this
+  set(index: number, value: ValueInput): this
+  delete(range: Range): this
+}
+
+function indexArgument(value: unknown, operation: string, argument: string): number {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
+    throw invalidArgument(operation, argument, "expected a non-negative safe integer")
+  }
+  return value
+}
+
+function rangeArgument(value: Range, operation: string): Range {
+  if (!isRecord(value)) throw invalidArgument(operation, "range", "expected a plain record")
+  const entries = ownDataEntries(value, operation)
+  if (entries.length !== 2 || !entries.some(([key]) => key === "from") || !entries.some(([key]) => key === "to")) {
+    throw invalidArgument(operation, "range", "expected only from and to")
+  }
+  const from = indexArgument(value.from, operation, "range.from")
+  const to = indexArgument(value.to, operation, "range.to")
+  if (from > to) throw invalidArgument(operation, "range", "from must not exceed to")
+  return { from, to }
+}
+
+abstract class ScopedBuilder {
+  #active = true
+
+  constructor(
+    protected readonly handle: BuilderHandle,
+    protected readonly path: Path,
+    protected readonly pathData: string,
+  ) {}
+
+  close(): void {
+    this.#active = false
+  }
+
+  protected assertActive(operation: string): void {
+    if (!this.#active) throw invalidState(operation, "ScopedBuilder", "scope_closed")
+  }
+}
+
+class MapScope extends ScopedBuilder implements MapChangeBuilder {
+  set(key: string, value: ValueInput): this {
+    const operation = "map_set"
+    this.assertActive(operation)
+    if (typeof key !== "string") throw invalidArgument(operation, "key", "expected a string")
+    const input = Value._fromTrustedJS(value, operation)
+    try {
+      this.handle.mapSet(this.pathData, key, Value._handle(input, operation))
+      return this
+    } catch (error) {
+      throw fromWasmError(error, operation, this.path)
+    } finally {
+      input.dispose()
+    }
+  }
+
+  delete(key: string): this {
+    const operation = "map_delete"
+    this.assertActive(operation)
+    if (typeof key !== "string") throw invalidArgument(operation, "key", "expected a string")
+    try {
+      this.handle.mapDelete(this.pathData, key)
+      return this
+    } catch (error) {
+      throw fromWasmError(error, operation, this.path)
+    }
+  }
+}
+
+class ListScope extends ScopedBuilder implements ListChangeBuilder {
+  insert(index: number, values: readonly ValueInput[]): this {
+    const operation = "list_insert"
+    this.assertActive(operation)
+    const position = indexArgument(index, operation, "index")
+    if (!Array.isArray(values)) throw invalidArgument(operation, "values", "expected an array")
+    const input = Value._fromTrustedJS(values, operation)
+    try {
+      this.handle.listInsert(this.pathData, position, Value._handle(input, operation))
+      return this
+    } catch (error) {
+      throw fromWasmError(error, operation, this.path)
+    } finally {
+      input.dispose()
+    }
+  }
+
+  set(index: number, value: ValueInput): this {
+    const operation = "list_set"
+    this.assertActive(operation)
+    const position = indexArgument(index, operation, "index")
+    const input = Value._fromTrustedJS(value, operation)
+    try {
+      this.handle.listSet(this.pathData, position, Value._handle(input, operation))
+      return this
+    } catch (error) {
+      throw fromWasmError(error, operation, this.path)
+    } finally {
+      input.dispose()
+    }
+  }
+
+  delete(range: Range): this {
+    const operation = "list_delete"
+    this.assertActive(operation)
+    const { from, to } = rangeArgument(range, operation)
+    try {
+      this.handle.listDelete(this.pathData, from, to)
+      return this
+    } catch (error) {
+      throw fromWasmError(error, operation, this.path)
+    }
+  }
+}
+
 export class ChangeBuilder {
   #handle: BuilderHandle | undefined
   #consumed = false
@@ -640,18 +767,26 @@ export class ChangeBuilder {
 
   replace(path: Path, value: ValueInput): this {
     const handle = this.#get("builder_replace")
-    if (!Array.isArray(path) || path.length !== 0) {
-      throw invalidArgument("builder_replace", "path", "minimal tracer supports root path only")
-    }
+    const pathData = pathJson(path, "builder_replace")
     const replacement = Value._fromTrustedJS(value, "builder_replace")
     try {
-      handle.replaceRoot(Value._handle(replacement, "builder_replace"))
+      handle.replace(pathData, Value._handle(replacement, "builder_replace"))
       return this
     } catch (error) {
-      throw fromWasmError(error, "builder_replace")
+      throw fromWasmError(error, "builder_replace", path)
     } finally {
       replacement.dispose()
     }
+  }
+
+  map(path: Path, edit: (map: MapChangeBuilder) => unknown): this {
+    return this.#scope<MapScope>(path, edit, "map", (handle, scopePath, pathData) =>
+      new MapScope(handle, scopePath, pathData))
+  }
+
+  list(path: Path, edit: (list: ListChangeBuilder) => unknown): this {
+    return this.#scope<ListScope>(path, edit, "list", (handle, scopePath, pathData) =>
+      new ListScope(handle, scopePath, pathData))
   }
 
   build(): Change {
@@ -691,6 +826,54 @@ export class ChangeBuilder {
       throw invalidState(operation, "ChangeBuilder", this.#consumed ? "consumed" : "disposed")
     }
     return this.#handle
+  }
+
+  #scope<T extends ScopedBuilder>(
+    path: Path,
+    edit: (scope: T) => unknown,
+    expected: "map" | "list",
+    create: (handle: BuilderHandle, path: Path, pathData: string) => T,
+  ): this {
+    const operation = `builder_${expected}`
+    if (typeof edit !== "function") throw invalidArgument(operation, "edit", "expected a function")
+    const root = this.#get(operation)
+    const scopePath = Object.freeze([...path])
+    const pathData = pathJson(scopePath, operation)
+    let trial: BuilderHandle
+    try {
+      trial = root.cloneForScope()
+    } catch (error) {
+      throw fromWasmError(error, operation, scopePath)
+    }
+    const scope = create(trial, scopePath, pathData)
+    try {
+      let actual: string
+      try {
+        actual = trial.currentKind(pathData)
+      } catch (error) {
+        throw fromWasmError(error, operation, scopePath)
+      }
+      if (actual !== expected) {
+        throw new CollaError("type_mismatch", operation, { expected, actual }, scopePath)
+      }
+      const result = edit(scope)
+      if (
+        result !== null &&
+        (typeof result === "object" || typeof result === "function") &&
+        typeof (result as { then?: unknown }).then === "function"
+      ) {
+        throw invalidArgument(operation, "edit", "callback must be synchronous")
+      }
+      try {
+        root.commitScope(trial)
+      } catch (error) {
+        throw fromWasmError(error, operation, scopePath)
+      }
+      return this
+    } finally {
+      scope.close()
+      trial.free()
+    }
   }
 
   /** @internal */
