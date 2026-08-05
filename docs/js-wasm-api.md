@@ -19,8 +19,8 @@ Value、Change、ChangeBuilder、Apply、Compose、TransformPair、Invert、规�
 
 v1 不承诺 CommonJS、Deno、Bun、Service Worker 或 edge worker runtime。
 
-package 只公开 `@colla/core` 根入口。JavaScript 不公开 `Context`，所有 API 在
-package 导入后同步可用。
+package 只公开 `@colla/core` 根入口，使用 Value/Change 类型入口、从 Snapshot
+创建的 Builder 和包级代数函数；所有 API 在 package 导入后同步可用。
 
 ## 2. 使用轮廓
 
@@ -187,27 +187,35 @@ export function int(value: number | bigint): bigint
 helper 返回冻结的显式输入 marker。`int(number)` 要求参数是 safe integer，
 并与 bigint 输入一样校验 i64 范围。facade 在运行时执行上述严格边界验证。
 
-## 5. Limits
+## 5. InputLimits
 
 ```ts
-export interface Limits {
+export interface InputLimits {
   readonly maxDepth: number
   readonly maxValueNodes: number
   readonly maxChangeNodes: number
   readonly maxContainerLength: number
   readonly maxStringBytes: number
-  readonly maxSequenceOperations: number
+  readonly maxSequenceOps: number
   readonly maxSequenceLength: number
 }
 
-export const DEFAULT_LIMITS: Readonly<Limits>
+export const DEFAULT_INPUT_LIMITS: Readonly<InputLimits>
 
-export interface OperationOptions {
-  readonly limits?: Partial<Limits>
+export interface InputOptions {
+  readonly limits?: Partial<InputLimits>
 }
 ```
 
-options 仅在本次同步调用期间读取，不保留引用。没有可变全局默认值。
+默认值固定为：`maxDepth = 128`、`maxValueNodes = 1_000_000`、
+`maxChangeNodes = 1_000_000`、`maxContainerLength = 1_000_000`、
+`maxStringBytes = 16 * 1024 * 1024`、`maxSequenceOps = 1_000_000`、
+`maxSequenceLength = 1_000_000`。
+
+`InputLimits` 只约束 `Value.fromJS()`、`Value.decode()` 和 `Change.decode()` 接收的
+外部数据，不定义 Core Value/Change 的合法大小，也不限制 Builder 或代数结果。
+partial overrides 仅在本次同步调用期间读取，不保留引用。所有字段必须是非负
+safe integer；没有可变全局默认值。
 
 ## 6. Value
 
@@ -217,15 +225,15 @@ export class Value {
 
   static fromJS(
     input: ValueInput,
-    options?: OperationOptions,
+    options?: InputOptions,
   ): Value
 
   static decode(
     bytes: Uint8Array,
-    options?: OperationOptions,
+    options?: InputOptions,
   ): Value
 
-  change(options?: OperationOptions): ChangeBuilder
+  change(): ChangeBuilder
 
   kind(path?: Path): ValueKind
   has(path: Path): boolean
@@ -250,7 +258,7 @@ export class Change {
 
   static decode(
     bytes: Uint8Array,
-    options?: OperationOptions,
+    options?: InputOptions,
   ): Change
 
   encode(): Uint8Array
@@ -352,7 +360,8 @@ export interface AttrPatchBuilder {
 scoped builder 只在同步 callback 期间有效，不能逃逸。每个 callback 事务提交，
 失败时回滚该 callback。`build()` 成功时消费根 Builder。Map `set` 是 snapshot-aware
 upsert；缺失 key 的 delete 为 Noop。Text replace 是 Delete+Insert sugar。RichText 不提供
-通用 insert 或 replace。
+通用 insert 或 replace。Builder 收到的 ValueInput 仍执行 Core 合法性验证，但不接收
+或隐式应用 InputLimits；输入规模由消费方负责。
 
 ## 9. 代数运算
 
@@ -360,23 +369,19 @@ upsert；缺失 key 的 delete 为 Noop。Text replace 是 Delete+Insert sugar�
 export function apply(
   base: Value,
   change: Change,
-  options?: OperationOptions,
 ): Value
 
 export function compose(
   first: Change,
   second: Change,
-  options?: OperationOptions,
 ): Change
 
 export function invert(
   change: Change,
   base: Value,
-  options?: OperationOptions,
 ): Change
 
-export interface TransformPairOptions
-  extends OperationOptions {
+export interface TransformPairOptions {
   readonly order: "left-first" | "right-first"
 }
 
@@ -418,7 +423,6 @@ path 必须指向 Text 或 RichText。这两个包级函数只读取 Value，不
 export function inspectChange(
   change: Change,
   base: Value,
-  options?: OperationOptions,
 ): ChangeView
 
 export type ChangeView =
@@ -620,6 +624,8 @@ code 和 operation 使用 lower_snake_case。code 表示可恢复原因，operat
 异常形状不是公共契约。
 
 scoped callback 主动抛出的普通 JavaScript 异常原样传播，不包装为 CollaError。
+`limit_exceeded` 只由 `Value.fromJS()`、`Value.decode()` 和 `Change.decode()` 的
+InputLimits 检查产生，不属于 Builder、代数、坐标转换或 ChangeView 的错误集合。
 
 ## 13. 资源生命周期
 
@@ -640,3 +646,19 @@ scoped callback 主动抛出的普通 JavaScript 异常原样传播，不包装�
 - wasm-bindgen 生成 class、glue 和文件布局是私有 ABI。
 
 Rust crate 与 `@colla/core` 始终使用相同 SemVer 并原子发布。
+
+## 15. Rust API 对齐
+
+Rust 推荐的包级代数入口与 JavaScript 保持相同参数顺序：
+
+```rust
+apply(&base, &change)
+compose(&first, &second)
+invert(&change, &base)
+transform_pair(&left, &right, tie_break)
+```
+
+Rust Value/Change 提供 `decode()`、`decode_with_limits()` 和实例 `encode()`；
+`Value::change()` 创建 Builder。现有 inherent 与 codec 入口可以作为等价底层 API
+保留，但代数和 Builder 都不接受 `InputLimits`。Rust 使用 snake_case 字段，
+JavaScript 使用 camelCase 完整名称。

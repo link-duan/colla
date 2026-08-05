@@ -5,7 +5,7 @@
 ## 1. 范围
 
 Colla 的核心只包含不可变 `Value`、不可变递归 `Change`、`Path` 导航、
-`ChangeBuilder`、OT 代数操作、资源限制和规范二进制 body codec。
+`ChangeBuilder`、OT 代数操作、输入资源策略和规范二进制 body codec。
 
 核心不提供 `DocOp`、`Action`、`Document`、Session、Cursor/Selection、Diff、
 JSON、历史格式兼容、原子 Move 或业务 Schema。
@@ -29,12 +29,14 @@ JSON、历史格式兼容、原子 Move 或业务 Schema。
 `Float` 必须有限，且 `-0.0` 规范化为 `0.0`。Map key 只能是字符串。
 Value 根节点可以是任意类型。
 
-Value 通过受控构造器保证局部合法。深度、节点数、文本和容器大小属于
-调用边界的 `Limits`，不是 Value 类型的固定语义上限。
+Value 通过受控构造器保证局部合法。深度、节点数、文本和容器大小不是 Value
+类型的固定语义上限。`InputLimits` 只约束外部 Value/Change 输入，至少覆盖 Value
+节点数、Change 节点数、递归深度、容器长度、字符串字节数、序列 op 数和序列
+逻辑长度。
 
-Limits 至少约束 Value 节点数、Change 节点数、递归深度、容器长度、字符串
-字节数、序列 op 数和序列逻辑长度。Apply、Compose、Transform、Invert 与
-decoder 都必须在展开或分配前检查对应限制。
+Apply、Compose、Transform、Invert 和 Builder 不接收或读取 InputLimits；运算结果
+可以超过接收方的默认输入策略。序列算法必须保持紧凑，不能依赖可配置阈值避免
+展开超大逻辑 retain/delete。
 
 ## 3. RichText
 

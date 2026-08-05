@@ -1,6 +1,6 @@
 # @colla/core JavaScript/Wasm v1 实施计划
 
-本计划以 [JavaScript/Wasm v1 API](./js-wasm-api.md) 和 ADR-0001—0035 为边界。
+本计划以 [JavaScript/Wasm v1 API](./js-wasm-api.md) 和 ADR-0001—0008 为边界。
 实施应按阶段小步提交，每个阶段保持 Rust tests 可运行，不在一个变更中
 同时完成目录迁移、Rust API 重构、Wasm ABI 和 npm 发布。
 
@@ -44,28 +44,29 @@ colla/
 退出条件：根目录执行 Rust tests 与 pnpm workspace 基础命令成功，规范二进制
 与迁移前一致。
 
-## 阶段 2：扩展 Rust 高层 API
+## 阶段 2：对齐 Rust 函数与输入 API
 
 工作：
 
-- 引入 Rust `Context::default()` 与 `Context::new(limits)`，内部委托现有 Apply、
-  Compose、Transform、Invert 和 codec。
-- 在现有 ChangeBuilder 上增加 scoped `MapChangeBuilder`、`ListChangeBuilder`、
-  `TextChangeBuilder`、`RichTextChangeBuilder`、`IntChangeBuilder` 和
-  `AttrPatchBuilder`。
-- 实现 callback 事务回滚，snapshot-aware Map set/delete、List set、Text replace
-  和 RichText 最小操作集。
-- 保留现有扁平 Builder 方法作为底层 API，不改变 Value、Change、OT 或 wire。
+- 移除独立 operation facade object，提供与 JavaScript 参数顺序一致的包级 Apply、
+  Compose、TransformPair 和 Invert 函数。
+- 为 Value/Change 增加默认 `decode()`、显式 `decode_with_limits()` 与实例 `encode()`；
+  codec 自由函数继续作为底层 API。
+- 将 `Limits` 重命名为 `InputLimits`，只用于外部输入转换和 decode；从代数、Builder
+  及其错误类型删除 limits 参数与不可达错误分支。
+- 为 Value 增加 `change()`，与不接收 limits 的 `ChangeBuilder::new(&base)` 等价。
+- 重构大逻辑序列路径，使 Apply、Compose、TransformPair 和 Invert 不依赖可配置阈值
+  仍保持紧凑，并仅在真实语义或算术错误时失败。
 
 测试：
 
-- 每个 scoped callback 成功、失败回滚与连续调用语义。
-- Map 缺失 delete、相同 set、空 range/content 的 Noop。
-- List/Text/RichText 越界、核心 Unicode scalar 坐标和 canonical normalization。
-- 新高层 API 与现有扁平 API 产生相同 Change bytes。
+- 包级函数与底层方法产生相同 Value、Change、错误和规范 bytes。
+- 默认 decode 与 `InputLimits::default()` 等价，显式输入覆盖只影响 decode。
+- Builder 和代数结果可以超过默认 InputLimits，重新 decode 时由接收方策略决定。
+- 超大 retain/delete 等逻辑序列不会展开或依赖默认 operation budget。
 
-退出条件：Rust 已能直接表达 JavaScript facade 需要的所有语义，且二进制格式
-未变。
+退出条件：Rust 与 JavaScript 共享函数式公共概念，输入资源策略与 Core 运算语义
+分离，且二进制格式未变。
 
 ## 阶段 3：实现私有 colla-wasm ABI
 
@@ -73,14 +74,14 @@ colla/
 
 - 使用 wasm-bindgen 导出不稳定的内部 Value、Change 和根 Builder handles。
 - 句柄导出 clone/free、codec、查询、Builder 和代数运算所需的最小方法。
-- Value/Change 不保存 JavaScript Context identity。每次受限调用将 options 转为
-  Rust Limits/Context。
+- ABI 不保存 facade identity。只有 Value.fromJS 与 Value/Change decode 将 InputOptions
+  转为 Rust InputLimits；Builder 和代数 ABI 不接收 limits。
 - Builder 内部持有 Snapshot `Arc` clone，不借用 Value facade。
 - 将 Rust errors 转为结构化私有 ABI data，不直接暴露 thiserror message。
 - 保证 ABI 失败路径释放临时分配，transform pair 不泄漏部分结果。
 
 测试：在 Wasm 层验证 clone/free 顺序、重复 free、Builder consume、错误路径和
-Limits。
+InputLimits 只作用于显式输入入口。
 
 退出条件：私有 ABI 能完整驱动 facade，且没有生成名称或 class 被视为公共 API。
 
@@ -96,6 +97,8 @@ Limits。
 - 所有 Wasm 异常在 facade 边界映射为稳定 CollaError；callback 主动抛出的 JS
   异常原样传播。
 - 只从公共 root module 导出规范 API，内部 wrap/unwrap 和 wasm-bindgen types 不导出。
+- `InputOptions` 只由 Value.fromJS 与 Value/Change decode 接受；Builder ValueInput
+  继续验证 Core 合法性，但规模由消费方保证。
 
 测试：
 
@@ -150,8 +153,8 @@ dispose。Rollup 除常规 node resolver 外不使用 Wasm、资源复制或 top
 - Value/Change bytes 逐字节一致。
 - Apply、Compose、TransformPair、Invert 结果一致。
 - UTF-16/code point 转换与 surrogate 拒绝一致。
-- 非规范 bytes、未知 tag、非最短 varint、非法 UTF-8、尾随 bytes 和 Limits 超限在
-  两端一致拒绝。
+- 非规范 bytes、未知 tag、非最短 varint、非法 UTF-8、尾随 bytes 和 InputLimits
+  超限在两端输入边界一致拒绝。
 
 退出条件：Rust crate 与 npm tarball 之间的所有规范边界都由双向 fixture 覆盖。
 
@@ -172,7 +175,7 @@ dispose。Rollup 除常规 node resolver 外不使用 Wasm、资源复制或 top
 ## 建议的提交边界
 
 1. `chore: create cargo and pnpm workspaces`
-2. `feat(rust): add context and scoped builders`
+2. `feat(core)!: align function and input APIs`
 3. `feat(wasm): add private wasm bindings`
 4. `feat(js): add value and change facade`
 5. `feat(js): add fluent change builders`

@@ -38,12 +38,13 @@ wasm-bindgen 会把导出的 Rust struct 表示为生成的 JavaScript class。�
 显式释放。wasm-pack 的 bundler、Node.js、web 等 target 会生成不同的加载代码，
 因此不应把某一 target 的生成入口当作稳定的跨运行时公共 API。
 
-## Wasm 初始化与领域实例创建
+## 被拒绝的 Context/factory 方案
 
 Wasm 模块初始化是进程或 JavaScript realm 级的一次性动作。将它合并进
 `await createContext()` 会混淆生命周期，并让普通 Value/Change 创建不必要地
-传播异步性；进一步的 facade 设计表明，JavaScript 也不需要为无 Document/Session
-状态的核心运算公开 Context。
+传播异步性。进一步设计后，Colla 明确拒绝在 Rust 或 JavaScript 中引入 Context：
+无 Document/Session 状态的核心运算使用包级函数，Value/Change codec 使用类型与实例
+方法，输入限制只存在于明确的外部输入入口。
 
 | 库 | 版本 | 默认 Wasm 准备 | 领域实例创建 | 可选入口 |
 | --- | ---: | --- | --- | --- |

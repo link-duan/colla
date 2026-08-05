@@ -17,9 +17,9 @@ bundler target 差异。Colla 需要一个稳定的 npm package，复用 Rust co
 handles、从 Snapshot 开始的 fluent ChangeBuilder、包级 OT 代数函数、规范 codec、
 ChangeView 检查和明确的 UTF-16/code point 坐标工具。
 
-JavaScript 不公开 Context。Value 通过静态工厂创建，Builder 通过 `Value.change()` 从
-Snapshot 创建，Apply/Compose/Invert/TransformPair 使用包级函数。默认 Limits 由冻结
-常量提供，特殊 Limits 作为单次调用 options 传入，不引入可变全局状态。
+Rust 与 JavaScript 都采用函数式公共 API。Value 通过类型工厂创建，Builder 通过
+`Value.change()` 从 Snapshot 创建，Apply/Compose/Invert/TransformPair 使用包级函数。
+`InputLimits` 只约束外部输入入口，不参与 Builder 或代数运算，也不存在可变全局状态。
 
 Browser/default ESM 入口内嵌 base64 Wasm 并同步初始化；Node.js ESM 条件入口
 读取同一份独立 Wasm binary。consumer 始终从同一 package 根入口导入，不需要
@@ -35,10 +35,10 @@ top-level await、Wasm plugin、资源复制配置或公开初始化步骤。
 6. As a browser developer, I want the same public imports in browser and Node.js, so that environment packaging details stay internal.
 7. As a web worker developer, I want the browser entry to avoid DOM dependencies, so that I can use Colla in Dedicated and Shared Workers.
 8. As a library consumer, I want Wasm initialization to be hidden, so that I do not need to call `init()` or await a factory.
-9. As a library consumer, I want to create a Value without first creating a Context, so that simple operations do not require ceremonial setup.
+9. As a library consumer, I want to create a Value directly through its type API, so that simple operations do not require a separate operation container.
 10. As a developer creating a Snapshot, I want `Value.fromJS()` to validate inputs, so that every resulting Core Value is valid and canonical.
-11. As a developer loading persisted state, I want `Value.decode()` to enforce canonical bytes and Limits, so that malformed data is rejected before entering the core.
-12. As a developer loading persisted changes, I want `Change.decode()` to enforce canonical bytes and Limits, so that invalid operations cannot enter algebra functions.
+11. As a developer loading persisted state, I want `Value.decode()` to enforce canonical bytes and InputLimits, so that malformed or excessive data is rejected before entering the core.
+12. As a developer loading persisted changes, I want `Change.decode()` to enforce canonical bytes and InputLimits, so that invalid or excessive operations cannot enter algebra functions.
 13. As a developer persisting state, I want Value and Change handles to encode to fresh `Uint8Array` values, so that the bytes do not depend on Wasm memory lifetime.
 14. As a JavaScript developer, I want ordinary strings to remain atomic Colla String values, so that character-level collaboration is always explicit.
 15. As a developer needing collaborative text, I want a `text()` marker, so that Text and String round-trip without ambiguity.
@@ -72,7 +72,7 @@ top-level await、Wasm plugin、资源复制配置或公开初始化步骤。
 43. As a consumer handling failures, I want one CollaError class with stable code, operation, path and details, so that recovery does not depend on messages.
 44. As a TypeScript consumer, I want `error.is(code)` to narrow details, so that error handling remains type-safe.
 45. As a consumer handling malformed bytes, I want codec failures grouped under `invalid_encoding`, so that Rust decoder refactors do not break my code.
-46. As a consumer enforcing resource policy, I want frozen default Limits and per-call overrides, so that I can bound work without mutable global configuration.
+46. As a consumer enforcing an input resource policy, I want frozen default InputLimits and per-input overrides, so that I can bound external conversion and decoding without changing Core semantics.
 47. As a long-running application, I want Value, Change and Builder handles to support deterministic disposal, so that Wasm memory is released promptly.
 48. As a developer using Explicit Resource Management, I want handles to implement Symbol.dispose, so that `using` can release resources automatically.
 49. As a developer who forgets disposal, I want FinalizationRegistry to be a fallback, so that leaks are mitigated without treating GC timing as correctness.
@@ -90,14 +90,14 @@ top-level await、Wasm plugin、资源复制配置或公开初始化步骤。
 
 - The repository will become a dual Cargo and pnpm workspace. The publishable Rust core, private Wasm wrapper and publishable npm facade are separate modules with explicit dependency direction.
 - The Rust core remains free of wasm-bindgen dependencies. A private Wasm crate depends on the Rust core, and the TypeScript facade depends on generated private bindings.
-- Rust retains a Context abstraction for immutable Limits and operation delegation. JavaScript does not expose Context and is not required to mirror the Rust facade shape.
+- Rust and JavaScript use package-level Apply, Compose, Invert and TransformPair functions with aligned argument order; neither side introduces a separate operation facade object.
 - The npm package name is `@colla/core`. Versioning is aligned exactly with the Rust crate, and the two artifacts are released atomically.
 - The package is ESM-only in v1 and only exposes its root export. Browser, Node, Wasm and internal subpaths are not public.
 - Browser/default ESM embeds the Wasm binary as base64 and initializes synchronously during module evaluation. Node.js ESM reads the same binary from a package-relative asset and initializes synchronously.
 - The package does not use top-level await or synchronous XHR and does not expose public Wasm initialization. The root module is explicitly side-effectful.
 - The stable public API is a handwritten TypeScript facade. wasm-bindgen classes, initialization functions, filenames, generated declarations and error shapes are private ABI.
 - Value and Change are immutable Wasm-backed handles with private constructors. They are created through named static factories, Builder output or algebra output.
-- `Value.fromJS()` creates Core Value from validated JavaScript input. `Value.decode()` and `Change.decode()` create handles from canonical binary under default or per-call Limits.
+- `Value.fromJS()` creates Core Value from semantically validated JavaScript input. `Value.decode()` and `Change.decode()` create handles from canonical binary under default or per-input `InputLimits`.
 - `Value.change()` creates the root ChangeBuilder from a Snapshot. The Builder owns a cheap Rust Arc clone of the Snapshot and does not borrow the JavaScript Value handle.
 - The root Builder is linear and disposable. Successful `build()` consumes it. Scoped builders are valid only during synchronous callbacks and commit transactionally.
 - Map Builder provides snapshot-aware set and delete. List Builder provides insert, set and half-open delete. Text Builder provides insert, delete and Delete+Insert replace sugar. RichText Builder provides explicit insertText, insertEmbed, delete and format. Int Builder provides checked i64 add.
@@ -109,7 +109,7 @@ top-level await、Wasm plugin、资源复制配置或公开初始化步骤。
 - ChangeView is a stable, flat, ordered and recursively frozen Snapshot-relative projection. It uses user semantic operations and JavaScript coordinates, is not a construction API, and is not a persistence format.
 - One CollaError class exposes stable reason-oriented lower_snake_case codes, a separate lower_snake_case operation, optional Path and code-specific frozen details. Message text and Rust enum names are not contractual.
 - Value, Change and root Builder provide idempotent dispose and Symbol.dispose. FinalizationRegistry is only a nondeterministic fallback. Value and Change provide cheap independent clones; Builder does not.
-- Default Limits are exported as a frozen value. Per-call options can provide partial overrides, are read synchronously and are not retained. No mutable global Limits exist.
+- `DEFAULT_INPUT_LIMITS` is exported as a frozen value. `InputOptions` can provide partial overrides only to `Value.fromJS()` and Value/Change decode, are read synchronously and are not retained. Builder ValueInput remains semantically validated but is trusted for size; operations and results never read InputLimits.
 - The supported baseline is Node.js 20+, Vite 5+ and Rollup 4+. Browser support covers main thread, Dedicated Worker and Shared Worker. CommonJS, Deno, Bun, Service Worker and edge workers are not v1 commitments.
 - The first implementation records size and performance baselines. Absolute budgets and regression thresholds are set only after repeatable measurements exist.
 
@@ -117,10 +117,10 @@ top-level await、Wasm plugin、资源复制配置或公开初始化步骤。
 
 - The primary acceptance seam is the release-artifact boundary: the publishable Rust crate and `@colla/core` installed from a real npm tarball at the same version. Tests should prefer this seam over generated binding or facade internals.
 - A good acceptance test observes public behavior: canonical bytes, ValueData, ChangeView, CollaError fields, OT results, resource lifecycle and consumer bundling. Tests must not assert wasm-bindgen names, private pointer values or generated directory layout.
-- Existing Rust codec, algebra, core-model and property tests remain the lower-level prior art. New Rust Context and scoped Builder tests extend these seams rather than replacing them.
+- Existing Rust codec, algebra, core-model and property tests remain the lower-level prior art. New function-facade, type-codec and scoped Builder tests extend these seams rather than replacing them.
 - Cross-language golden tests are a release gate. They cover Rust encode to JavaScript decode, JavaScript encode to Rust decode, byte-for-byte Value/Change equality, and identical Apply/Compose/TransformPair/Invert results.
 - Cross-language tests cover UTF-16/code point conversion, surrogate rejection, RichText Embed length and half-open ranges.
-- Both runtimes must consistently reject non-canonical varints, invalid UTF-8, unknown tags, trailing bytes, non-canonical operations and Limits violations.
+- Both runtimes must consistently reject non-canonical varints, invalid UTF-8, unknown tags, trailing bytes, non-canonical operations and InputLimits violations at explicit input boundaries.
 - Packaging fixtures install the packed npm artifact outside the pnpm workspace. They execute real Value construction, Builder, Apply, codec and disposal operations.
 - Compatibility fixtures cover the minimum and latest stable Vite versions in development, build and SSR modes; the minimum and latest stable Rollup versions; and Node.js 20+ ESM.
 - Rollup fixtures may use ordinary node module resolution but cannot use Wasm, asset-copy or top-level-await plugins.
@@ -133,7 +133,7 @@ top-level await、Wasm plugin、资源复制配置或公开初始化步骤。
 
 ## Out of Scope
 
-- A JavaScript Context object or public Wasm initialization API.
+- A public Wasm initialization API or mutable global operation configuration.
 - CommonJS, Deno, Bun, Service Worker, Cloudflare Workers or other edge runtime guarantees.
 - Slim, web, node, wasm or internal public package subpaths.
 - Document, Session, client identity, operation identity generation, version vectors, history, offline queues, networking or synchronization protocols.

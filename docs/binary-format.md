@@ -6,14 +6,14 @@
 ## 1. 目标
 
 - 每个规范内存值只有一个合法字节序列。
-- 无状态、单趟编码；严格、受 Limits 约束的解码。
+- 无状态、单趟编码；严格、受 InputLimits 约束的解码。
 - 完整消费输入；拒绝未知 tag、尾随字节和非规范形式。
 - 不编码 Arc 共享、引用 ID、字符串字典或压缩状态。
 
 ## 2. 原语
 
 无符号整数使用最短 u64 LEB128。i64 使用 zigzag 后再编码 varint。长度和索引
-在 wire 中为 u64，decoder 必须检查可转换为当前平台 usize 并满足 Limits。
+在 wire 中为 u64，decoder 必须检查可转换为当前平台 usize 并满足 InputLimits。
 
 字符串编码为 UTF-8 字节长度 varint，随后是原始 UTF-8。Float 固定使用 8
 字节 IEEE-754 little-endian；NaN、Infinity 和负零必须拒绝。
@@ -61,17 +61,23 @@ AttrPatch 是 `(count + key + AttrChange)*`。AttrChange tag：00 Set(AttrValue)
 decoder 必须拒绝：非最短 varint、非法 UTF-8、未知 tag、尾随字节、乱序或重复
 key、零长度 Retain/Delete、空 Insert、相邻可合并 op、尾部纯 Retain、空类型化
 Change、Modify(Noop)、IntAdd(0)、非有限或负零 Float、非规范 RichText span，
-以及任何 Limits 超限。
+以及任何 InputLimits 超限。
 
 Builder 可以接收可规范化的调用序列，但 encoder 的输入始终已经规范。decoder
 绝不静默修复远端非规范字节。
 
 ## 6. API
 
-    encode_value(&Value) -> Vec<u8>
-    decode_value(&[u8], &Limits) -> Result<Value, CodecError>
-    encode_change(&Change) -> Vec<u8>
-    decode_change(&[u8], &Limits) -> Result<Change, CodecError>
+    value.encode() -> Vec<u8>
+    Value::decode(&[u8]) -> Result<Value, CodecError>
+    Value::decode_with_limits(&[u8], &InputLimits) -> Result<Value, CodecError>
+    change.encode() -> Vec<u8>
+    Change::decode(&[u8]) -> Result<Change, CodecError>
+    Change::decode_with_limits(&[u8], &InputLimits) -> Result<Change, CodecError>
+
+`codec::encode_value`、`codec::decode_value`、`codec::encode_change` 和
+`codec::decode_change` 作为等价底层入口保留。InputLimits 只是接收方的输入资源策略，
+不定义 Value/Change 的合法大小，也不限制编码或代数结果。
 
 操作元数据不在 body 内。调用方必须在外部维护文档 ID、版本、作者、时间和
 operation ID 等字段。

@@ -3,8 +3,7 @@
 ## 1. 记号
 
 `apply(v, a)` 表示把 Change a 应用于 Value v。所有等式都以参与操作在对应
-上下文中可成功应用为前提；类型错误、key/index 不存在、整数溢出或 Limits
-超限不属于等式定义域。
+上下文中可成功应用为前提；类型错误、key/index 不存在或整数溢出不属于等式定义域。
 
 ## 2. Apply、Compose 与 Invert
 
@@ -60,6 +59,5 @@ Colla 不保证 TP2。位置型 Text/List OT 在缺少稳定 operation identity�
 ## 6. 验证要求
 
 实现必须用 property-based tests 覆盖 Compose、Invert、TP1、codec roundtrip
-和规范形式。随机字节 decoder 测试必须在 Limits 下保证不 panic、不爆栈且
+和规范形式。随机字节 decoder 测试必须在 InputLimits 下保证不 panic、不爆栈且
 不进行不受限分配。TP2 不作为通过条件，但文档必须保留本节限制说明。
-
