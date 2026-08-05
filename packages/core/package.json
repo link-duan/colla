@@ -2,6 +2,11 @@
   "name": "@colla/core",
   "version": "0.1.0",
   "description": "JavaScript and WebAssembly bindings for Colla",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/link-duan/colla.git",
+    "directory": "packages/core"
+  },
   "type": "module",
   "exports": {
     ".": {
@@ -22,6 +27,7 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "check": "pnpm build && pnpm exec tsc -p tsconfig.json --noEmit",
+    "measure": "node scripts/measure.mjs",
     "test": "node tests/node-tracer.mjs && node tests/bundlers.mjs",
     "prepack": "pnpm build"
   },

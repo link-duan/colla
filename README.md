@@ -20,5 +20,7 @@ Design specifications:
 - `docs/data-model.md`
 - `docs/ot-properties.md`
 - `docs/binary-format.md`
+- [`@colla/core` JavaScript package](packages/core/README.md)
 
-Run tests with `cargo test`.
+Run Rust tests with `cargo test --workspace` and JavaScript artifact tests with
+`pnpm test:js`.

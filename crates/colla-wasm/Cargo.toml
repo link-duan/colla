@@ -2,7 +2,9 @@
 name = "colla-wasm"
 version.workspace = true
 edition.workspace = true
+description = "Private WebAssembly bindings for @colla/core"
 license.workspace = true
+repository.workspace = true
 publish = false
 
 [lib]

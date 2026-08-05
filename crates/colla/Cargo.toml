@@ -4,6 +4,8 @@ version.workspace = true
 edition.workspace = true
 description = "Operational Transformation library for nested documents with text and rich-text"
 license.workspace = true
+readme = "../../README.md"
+repository.workspace = true
 
 [[bench]]
 name = "ot_bench"
