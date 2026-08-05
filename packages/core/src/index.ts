@@ -2,6 +2,8 @@ import {
   applyHandles,
   BuilderHandle,
   ChangeHandle,
+  resolveCodePointPositionHandle,
+  resolveUtf16PositionHandle,
   ValueHandle,
 } from "./internal/colla_wasm.js"
 
@@ -23,17 +25,24 @@ export type ValueInput =
   | bigint
   | number
   | string
+  | TextInput
   | readonly ValueInput[]
   | ValueInputMap
 export interface ValueInputMap {
   readonly [key: string]: ValueInput
 }
+export interface TextData {
+  readonly type: "text"
+  readonly value: string
+}
+export type TextInput = TextData
 export type ValueData =
   | null
   | boolean
   | bigint
   | number
   | string
+  | TextData
   | readonly ValueData[]
   | ValueDataMap
 export interface ValueDataMap {
@@ -157,6 +166,27 @@ export function int(value: number | bigint): bigint {
     throw invalidArgument("int", "value", "outside the signed 64-bit range")
   }
   return result
+}
+
+function assertWellFormedString(value: string, operation: string): string {
+  for (let index = 0; index < value.length; index += 1) {
+    const unit = value.charCodeAt(index)
+    if (unit >= 0xd800 && unit <= 0xdbff) {
+      const next = value.charCodeAt(index + 1)
+      if (!(next >= 0xdc00 && next <= 0xdfff)) {
+        throw new CollaError("invalid_value", operation, { reason: "unpaired UTF-16 surrogate" })
+      }
+      index += 1
+    } else if (unit >= 0xdc00 && unit <= 0xdfff) {
+      throw new CollaError("invalid_value", operation, { reason: "unpaired UTF-16 surrogate" })
+    }
+  }
+  return value
+}
+
+export function text(value: string): TextInput {
+  if (typeof value !== "string") throw invalidArgument("text", "value", "expected a string")
+  return Object.freeze({ type: "text", value: assertWellFormedString(value, "text") })
 }
 
 const inputLimitNames = Object.keys(DEFAULT_INPUT_LIMITS) as (keyof InputLimits)[]
@@ -294,6 +324,7 @@ function encodeValueInput(
       writer.byte(4)
       writer.float64(value)
     } else if (typeof value === "string") {
+      assertWellFormedString(value, operation)
       check("string bytes", utf8.encode(value).length, limits?.maxStringBytes)
       writer.byte(5)
       writer.string(value)
@@ -330,12 +361,29 @@ function encodeValueInput(
         active.delete(value)
       }
     } else if (isRecord(value)) {
+      const entries = [...ownDataEntries(value, operation)]
+      const marker = entries.find(([key]) => key === "type")
+      if (marker?.[1] === "text") {
+        if (entries.length !== 2 || !entries.some(([key]) => key === "value")) {
+          throw new CollaError("invalid_value", operation, { reason: "invalid TextInput marker" })
+        }
+        const textValue = entries.find(([key]) => key === "value")?.[1]
+        if (typeof textValue !== "string") {
+          throw new CollaError("invalid_value", operation, { reason: "TextInput value must be a string" })
+        }
+        assertWellFormedString(textValue, operation)
+        check("text bytes", utf8.encode(textValue).length, limits?.maxStringBytes)
+        writer.byte(6)
+        writer.string(textValue)
+        return
+      }
       if (active.has(value)) {
         throw new CollaError("invalid_value", operation, { reason: "cyclic ValueInput" })
       }
-      const entries = [...ownDataEntries(value, operation)].sort(([left], [right]) => compareUtf8(left, right))
+      entries.sort(([left], [right]) => compareUtf8(left, right))
       check("container length", entries.length, limits?.maxContainerLength)
       for (const [key] of entries) {
+        assertWellFormedString(key, operation)
         check("string bytes", utf8.encode(key).length, limits?.maxStringBytes)
       }
       active.add(value)
@@ -428,6 +476,7 @@ function decodeValueData(bytes: Uint8Array, operation: string): ValueData {
         return new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getFloat64(0, true)
       }
       case 5: return reader.string()
+      case 6: return Object.freeze({ type: "text" as const, value: reader.string() })
       case 8: {
         const values: ValueData[] = []
         const length = reader.length()
@@ -645,6 +694,12 @@ export interface ListChangeBuilder {
   delete(range: Range): this
 }
 
+export interface TextChangeBuilder {
+  insert(position: number, text: string): this
+  delete(range: Range): this
+  replace(range: Range, text: string): this
+}
+
 function indexArgument(value: unknown, operation: string, argument: string): number {
   if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
     throw invalidArgument(operation, argument, "expected a non-negative safe integer")
@@ -756,6 +811,48 @@ class ListScope extends ScopedBuilder implements ListChangeBuilder {
   }
 }
 
+class TextScope extends ScopedBuilder implements TextChangeBuilder {
+  insert(position: number, value: string): this {
+    const operation = "text_insert"
+    this.assertActive(operation)
+    const index = indexArgument(position, operation, "position")
+    if (typeof value !== "string") throw invalidArgument(operation, "text", "expected a string")
+    assertWellFormedString(value, operation)
+    try {
+      this.handle.textInsert(this.pathData, index, value)
+      return this
+    } catch (error) {
+      throw fromWasmError(error, operation, this.path)
+    }
+  }
+
+  delete(range: Range): this {
+    const operation = "text_delete"
+    this.assertActive(operation)
+    const { from, to } = rangeArgument(range, operation)
+    try {
+      this.handle.textDelete(this.pathData, from, to)
+      return this
+    } catch (error) {
+      throw fromWasmError(error, operation, this.path)
+    }
+  }
+
+  replace(range: Range, value: string): this {
+    const operation = "text_replace"
+    this.assertActive(operation)
+    const { from, to } = rangeArgument(range, operation)
+    if (typeof value !== "string") throw invalidArgument(operation, "text", "expected a string")
+    assertWellFormedString(value, operation)
+    try {
+      this.handle.textReplace(this.pathData, from, to, value)
+      return this
+    } catch (error) {
+      throw fromWasmError(error, operation, this.path)
+    }
+  }
+}
+
 export class ChangeBuilder {
   #handle: BuilderHandle | undefined
   #consumed = false
@@ -787,6 +884,11 @@ export class ChangeBuilder {
   list(path: Path, edit: (list: ListChangeBuilder) => unknown): this {
     return this.#scope<ListScope>(path, edit, "list", (handle, scopePath, pathData) =>
       new ListScope(handle, scopePath, pathData))
+  }
+
+  text(path: Path, edit: (text: TextChangeBuilder) => unknown): this {
+    return this.#scope<TextScope>(path, edit, "text", (handle, scopePath, pathData) =>
+      new TextScope(handle, scopePath, pathData))
   }
 
   build(): Change {
@@ -831,7 +933,7 @@ export class ChangeBuilder {
   #scope<T extends ScopedBuilder>(
     path: Path,
     edit: (scope: T) => unknown,
-    expected: "map" | "list",
+    expected: "map" | "list" | "text",
     create: (handle: BuilderHandle, path: Path, pathData: string) => T,
   ): this {
     const operation = `builder_${expected}`
@@ -892,5 +994,41 @@ export function apply(base: Value, change: Change): Value {
     )
   } catch (error) {
     throw fromWasmError(error, "apply")
+  }
+}
+
+export function resolveCodePointPosition(
+  value: Value,
+  path: Path,
+  utf16Position: number,
+): number {
+  const operation = "resolve_code_point_position"
+  const position = indexArgument(utf16Position, operation, "utf16Position")
+  try {
+    return resolveCodePointPositionHandle(
+      Value._handle(value, operation),
+      pathJson(path, operation),
+      position,
+    )
+  } catch (error) {
+    throw fromWasmError(error, operation, path)
+  }
+}
+
+export function resolveUtf16Position(
+  value: Value,
+  path: Path,
+  codePointPosition: number,
+): number {
+  const operation = "resolve_utf16_position"
+  const position = indexArgument(codePointPosition, operation, "codePointPosition")
+  try {
+    return resolveUtf16PositionHandle(
+      Value._handle(value, operation),
+      pathJson(path, operation),
+      position,
+    )
+  } catch (error) {
+    throw fromWasmError(error, operation, path)
   }
 }

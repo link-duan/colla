@@ -28,6 +28,9 @@ try {
       CollaError,
       DEFAULT_INPUT_LIMITS,
       int,
+      resolveCodePointPosition,
+      resolveUtf16Position,
+      text,
       Value,
     } from "@colla/core"
 
@@ -102,6 +105,76 @@ try {
       error instanceof CollaError && error.code === "invalid_argument")
     assert.throws(() => Value.fromJS(null, { limits: { unknown: 1 } }), error =>
       error instanceof CollaError && error.code === "invalid_argument")
+
+    const atomicString = Value.fromJS("A😀B")
+    const collaborativeText = Value.fromJS(text("A😀B"))
+    assert.equal(atomicString.kind(), "string")
+    assert.equal(collaborativeText.kind(), "text")
+    assert.deepEqual(collaborativeText.toJS(), text("A😀B"))
+    const decodedText = Value.decode(collaborativeText.encode())
+    assert.equal(decodedText.kind(), "text")
+    assert.deepEqual(
+      collaborativeText.encode(),
+      Uint8Array.from([6, 6, 65, 240, 159, 152, 128, 66]),
+    )
+    assert.equal(resolveCodePointPosition(collaborativeText, [], 0), 0)
+    assert.equal(resolveCodePointPosition(collaborativeText, [], 1), 1)
+    assert.equal(resolveCodePointPosition(collaborativeText, [], 3), 2)
+    assert.equal(resolveCodePointPosition(collaborativeText, [], 4), 3)
+    assert.equal(resolveUtf16Position(collaborativeText, [], 2), 3)
+    assert.throws(
+      () => resolveCodePointPosition(collaborativeText, [], 2),
+      error => error instanceof CollaError && error.code === "invalid_utf16_boundary" &&
+        error.details.position === 2,
+    )
+    assert.throws(() => Value.fromJS("\\ud800"), error =>
+      error instanceof CollaError && error.code === "invalid_value")
+    assert.throws(() => text("\\udc00"), error =>
+      error instanceof CollaError && error.code === "invalid_value")
+    assert.throws(
+      () => Value.fromJS(text("ab"), { limits: { maxStringBytes: 1 } }),
+      error => error instanceof CollaError && error.code === "limit_exceeded" &&
+        error.details.limit === "text bytes",
+    )
+
+    const trustedTextBase = Value.fromJS(text("a"), { limits: { maxStringBytes: 1 } })
+    const trustedTextChange = trustedTextBase.change()
+      .text([], editor => editor.insert(1, " larger"))
+      .build()
+    const trustedTextNext = apply(trustedTextBase, trustedTextChange)
+    assert.deepEqual(trustedTextNext.toJS(), text("a larger"))
+
+    const textBase = Value.fromJS({ title: text("A😀B") })
+    const textBuilder = textBase.change()
+    let escapedText
+    const textChange = textBuilder.text(["title"], editor => {
+      escapedText = editor
+      editor.insert(3, "X").delete({ from: 0, to: 1 }).replace({ from: 2, to: 3 }, "Y")
+    }).build()
+    assert.deepEqual(
+      textChange.encode(),
+      Uint8Array.from([2, 1, 5, 116, 105, 116, 108, 101, 2, 4, 3, 2, 1, 0, 1, 1, 1, 89]),
+    )
+    assert.throws(
+      () => Change.decode(textChange.encode(), { limits: { maxSequenceLength: 1 } }),
+      error => error instanceof CollaError && error.code === "limit_exceeded",
+    )
+    assert.throws(() => escapedText.insert(0, "late"), error =>
+      error instanceof CollaError && error.code === "invalid_state")
+    const textNext = apply(textBase, textChange)
+    assert.deepEqual(textNext.get(["title"]), text("😀YB"))
+
+    const textRollback = textBase.change()
+    assert.throws(
+      () => textRollback.text(["title"], editor => {
+        editor.insert(4, "temporary").delete({ from: 2, to: 3 })
+      }),
+      error => error instanceof CollaError && error.code === "invalid_utf16_boundary",
+    )
+    textRollback.text(["title"], editor => editor.insert(0, "").delete({ from: 1, to: 1 }))
+    const textRollbackChange = textRollback.build()
+    const textRollbackNext = apply(textBase, textRollbackChange)
+    assert.deepEqual(textRollbackNext.toJS(), textBase.toJS())
 
     const structuredBase = Value.fromJS({
       meta: { status: "draft" },
@@ -218,6 +291,17 @@ try {
       composite,
       firstOrder,
       secondOrder,
+      atomicString,
+      collaborativeText,
+      decodedText,
+      textBase,
+      trustedTextBase,
+      trustedTextChange,
+      trustedTextNext,
+      textChange,
+      textNext,
+      textRollbackChange,
+      textRollbackNext,
       structuredBase,
       structuredChange,
       structuredNext,

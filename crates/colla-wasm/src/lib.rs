@@ -250,6 +250,83 @@ impl BuilderHandle {
         )
     }
 
+    #[wasm_bindgen(js_name = textInsert)]
+    pub fn text_insert(&mut self, path: &str, position: usize, value: &str) -> Result<(), JsValue> {
+        let path = parse_path(path, "text_insert")?;
+        let index = {
+            let text = text_at_path(
+                self.builder_ref("text_insert")?.current(),
+                &path,
+                "text_insert",
+            )?;
+            utf16_to_code_point(text, position, "text_insert")?
+        };
+        self.builder_mut()?
+            .text_insert(&path, index, value)
+            .map(|_| ())
+            .map_err(|error| build_error(error, "text_insert"))
+    }
+
+    #[wasm_bindgen(js_name = textDelete)]
+    pub fn text_delete(&mut self, path: &str, from: usize, to: usize) -> Result<(), JsValue> {
+        let path = parse_path(path, "text_delete")?;
+        let (from, to) = {
+            let text = text_at_path(
+                self.builder_ref("text_delete")?.current(),
+                &path,
+                "text_delete",
+            )?;
+            (
+                utf16_to_code_point(text, from, "text_delete")?,
+                utf16_to_code_point(text, to, "text_delete")?,
+            )
+        };
+        let len = to.checked_sub(from).ok_or_else(|| {
+            wasm_error_details(
+                "invalid_argument",
+                "text_delete",
+                json!({ "argument": "range", "reason": "from must not exceed to" }),
+            )
+        })?;
+        self.builder_mut()?
+            .text_delete(&path, from, len)
+            .map(|_| ())
+            .map_err(|error| build_error(error, "text_delete"))
+    }
+
+    #[wasm_bindgen(js_name = textReplace)]
+    pub fn text_replace(
+        &mut self,
+        path: &str,
+        from: usize,
+        to: usize,
+        value: &str,
+    ) -> Result<(), JsValue> {
+        let path = parse_path(path, "text_replace")?;
+        let (from, to) = {
+            let text = text_at_path(
+                self.builder_ref("text_replace")?.current(),
+                &path,
+                "text_replace",
+            )?;
+            (
+                utf16_to_code_point(text, from, "text_replace")?,
+                utf16_to_code_point(text, to, "text_replace")?,
+            )
+        };
+        let len = to.checked_sub(from).ok_or_else(|| {
+            wasm_error_details(
+                "invalid_argument",
+                "text_replace",
+                json!({ "argument": "range", "reason": "from must not exceed to" }),
+            )
+        })?;
+        self.builder_mut()?
+            .text_replace(&path, from, len, value)
+            .map(|_| ())
+            .map_err(|error| build_error(error, "text_replace"))
+    }
+
     #[wasm_bindgen(js_name = cloneForScope)]
     pub fn clone_for_scope(&self) -> Result<Self, JsValue> {
         let builder = self.builder.as_ref().ok_or_else(|| {
@@ -282,6 +359,12 @@ impl BuilderHandle {
 }
 
 impl BuilderHandle {
+    fn builder_ref(&self, operation: &'static str) -> Result<&ChangeBuilder, JsValue> {
+        self.builder
+            .as_ref()
+            .ok_or_else(|| wasm_error("invalid_state", operation, "builder already consumed"))
+    }
+
     fn builder_mut(&mut self) -> Result<&mut ChangeBuilder, JsValue> {
         self.builder.as_mut().ok_or_else(|| {
             wasm_error(
@@ -298,6 +381,28 @@ pub fn apply_handles(base: &ValueHandle, change: &ChangeHandle) -> Result<ValueH
     apply(&base.value, &change.change)
         .map(|value| ValueHandle { value })
         .map_err(|error| wasm_error("incompatible_change", "apply", error.to_string()))
+}
+
+#[wasm_bindgen(js_name = resolveCodePointPositionHandle)]
+pub fn resolve_code_point_position_handle(
+    value: &ValueHandle,
+    path: &str,
+    position: usize,
+) -> Result<usize, JsValue> {
+    let path = parse_path(path, "resolve_code_point_position")?;
+    let text = text_at_path(&value.value, &path, "resolve_code_point_position")?;
+    utf16_to_code_point(text, position, "resolve_code_point_position")
+}
+
+#[wasm_bindgen(js_name = resolveUtf16PositionHandle)]
+pub fn resolve_utf16_position_handle(
+    value: &ValueHandle,
+    path: &str,
+    position: usize,
+) -> Result<usize, JsValue> {
+    let path = parse_path(path, "resolve_utf16_position")?;
+    let text = text_at_path(&value.value, &path, "resolve_utf16_position")?;
+    code_point_to_utf16(text, position, "resolve_utf16_position")
 }
 
 fn value_kind_name(kind: &ValueKind) -> &'static str {
@@ -530,4 +635,75 @@ fn value_at_path<'a>(
         };
     }
     Ok(current)
+}
+
+fn text_at_path<'a>(
+    root: &'a Value,
+    path: &Path,
+    operation: &'static str,
+) -> Result<&'a str, JsValue> {
+    let value = value_at_path(root, path, operation)?;
+    match value.kind() {
+        ValueKind::Text(text) => Ok(text.as_str()),
+        actual => Err(wasm_error_details(
+            "type_mismatch",
+            operation,
+            json!({ "expected": "text", "actual": value_kind_name(actual) }),
+        )),
+    }
+}
+
+fn utf16_to_code_point(
+    text: &str,
+    position: usize,
+    operation: &'static str,
+) -> Result<usize, JsValue> {
+    let mut utf16 = 0usize;
+    for (code_point, character) in text.chars().enumerate() {
+        if position == utf16 {
+            return Ok(code_point);
+        }
+        let next = utf16 + character.len_utf16();
+        if position < next {
+            return Err(wasm_error_details(
+                "invalid_utf16_boundary",
+                operation,
+                json!({ "position": position }),
+            ));
+        }
+        utf16 = next;
+    }
+    if position == utf16 {
+        Ok(text.chars().count())
+    } else {
+        Err(wasm_error_details(
+            "out_of_bounds",
+            operation,
+            json!({ "target": "text", "length": utf16, "index": position }),
+        ))
+    }
+}
+
+fn code_point_to_utf16(
+    text: &str,
+    position: usize,
+    operation: &'static str,
+) -> Result<usize, JsValue> {
+    let mut utf16 = 0usize;
+    for (code_point, character) in text.chars().enumerate() {
+        if code_point == position {
+            return Ok(utf16);
+        }
+        utf16 += character.len_utf16();
+    }
+    let length = text.chars().count();
+    if position == length {
+        Ok(utf16)
+    } else {
+        Err(wasm_error_details(
+            "out_of_bounds",
+            operation,
+            json!({ "target": "text", "length": length, "index": position }),
+        ))
+    }
 }

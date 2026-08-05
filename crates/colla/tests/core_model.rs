@@ -205,6 +205,35 @@ fn builder_map_list_bytes_match_javascript_golden() {
 }
 
 #[test]
+fn builder_text_replace_uses_scalar_positions_transactionally() {
+    let base = Value::map([("title", Value::text("A😀B"))]).unwrap();
+    let mut builder = base.change();
+    builder
+        .text_insert(&path!["title"], 2, "X")
+        .unwrap()
+        .text_delete(&path!["title"], 0, 1)
+        .unwrap()
+        .text_replace(&path!["title"], 1, 1, "Y")
+        .unwrap();
+    let change = builder.build();
+    assert_eq!(
+        change.encode(),
+        [2, 1, 5, 116, 105, 116, 108, 101, 2, 4, 3, 2, 1, 0, 1, 1, 1, 89]
+    );
+    assert_eq!(
+        change.apply_to(&base).unwrap().get(&path!["title"]),
+        Some(&Value::text("😀YB"))
+    );
+
+    let mut invalid = base.change();
+    let before = invalid.change().clone();
+    assert!(invalid.text_delete(&path!["title"], 3, 1).is_err());
+    assert_eq!(invalid.change(), &before);
+    assert!(invalid.text_insert(&path!["title"], 4, "").is_err());
+    assert_eq!(invalid.change(), &before);
+}
+
+#[test]
 fn rich_text_format_has_explicit_patch_semantics() {
     let attrs = Attrs::from_entries([("color", AttrValue::string("red"))]).unwrap();
     let base = Value::rich_text(RichText::new(vec![RichSpan::text("hi", attrs)]));

@@ -228,11 +228,32 @@ impl ChangeBuilder {
         index: usize,
         value: impl Into<String>,
     ) -> Result<&mut Self, BuildError> {
+        let value = value.into();
+        let target = value_at_path(&self.current, path)?;
+        let ValueKind::Text(text) = target.kind() else {
+            return Err(ApplyError::TypeMismatch {
+                path: path.clone(),
+                expected: ValueType::Text,
+                actual: target.value_type(),
+            }
+            .into());
+        };
+        if index > text.len() {
+            return Err(ApplyError::IndexOutOfBounds {
+                path: path.clone(),
+                index,
+                len: text.len(),
+            }
+            .into());
+        }
+        if value.is_empty() {
+            return Ok(self);
+        }
         self.change_at(
             path,
             Change::text(TextChange::new(vec![
                 TextOp::Retain(index),
-                TextOp::Insert(value.into()),
+                TextOp::Insert(value),
             ])),
         )
     }
@@ -243,11 +264,80 @@ impl ChangeBuilder {
         index: usize,
         len: usize,
     ) -> Result<&mut Self, BuildError> {
+        let target = value_at_path(&self.current, path)?;
+        let ValueKind::Text(text) = target.kind() else {
+            return Err(ApplyError::TypeMismatch {
+                path: path.clone(),
+                expected: ValueType::Text,
+                actual: target.value_type(),
+            }
+            .into());
+        };
+        let end = index
+            .checked_add(len)
+            .ok_or_else(|| ApplyError::IndexOutOfBounds {
+                path: path.clone(),
+                index,
+                len: text.len(),
+            })?;
+        if end > text.len() {
+            return Err(ApplyError::IndexOutOfBounds {
+                path: path.clone(),
+                index: end,
+                len: text.len(),
+            }
+            .into());
+        }
+        if len == 0 {
+            return Ok(self);
+        }
         self.change_at(
             path,
             Change::text(TextChange::new(vec![
                 TextOp::Retain(index),
                 TextOp::Delete(len),
+            ])),
+        )
+    }
+
+    pub fn text_replace(
+        &mut self,
+        path: &Path,
+        index: usize,
+        len: usize,
+        value: impl Into<String>,
+    ) -> Result<&mut Self, BuildError> {
+        let value = value.into();
+        let target = value_at_path(&self.current, path)?;
+        let ValueKind::Text(text) = target.kind() else {
+            return Err(ApplyError::TypeMismatch {
+                path: path.clone(),
+                expected: ValueType::Text,
+                actual: target.value_type(),
+            }
+            .into());
+        };
+        let end = index
+            .checked_add(len)
+            .ok_or_else(|| ApplyError::IndexOutOfBounds {
+                path: path.clone(),
+                index,
+                len: text.len(),
+            })?;
+        if end > text.len() {
+            return Err(ApplyError::IndexOutOfBounds {
+                path: path.clone(),
+                index: end,
+                len: text.len(),
+            }
+            .into());
+        }
+        self.change_at(
+            path,
+            Change::text(TextChange::new(vec![
+                TextOp::Retain(index),
+                TextOp::Delete(len),
+                TextOp::Insert(value),
             ])),
         )
     }
