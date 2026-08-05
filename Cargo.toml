@@ -1,37 +1,12 @@
-[package]
-name = "colla"
+[workspace]
+resolver = "2"
+members = ["crates/colla", "crates/colla-wasm"]
+default-members = ["crates/colla"]
+
+[workspace.package]
 version = "0.1.0"
 edition = "2021"
-description = "Operational Transformation library for nested documents with text and rich-text"
 license = "MIT"
 
-[lib]
-name = "colla"
-path = "src/lib.rs"
-
-[[example]]
-name = "basic_edit"
-path = "examples/basic_edit.rs"
-
-[[example]]
-name = "collab_demo"
-path = "examples/collab_demo.rs"
-
-[[example]]
-name = "binary_roundtrip"
-path = "examples/binary_roundtrip.rs"
-
-[[bench]]
-name = "ot_bench"
-harness = false
-
-[dependencies]
-thiserror = "2"
-
-[dev-dependencies]
-proptest = "1"
-criterion = "0.5"
-
-[features]
-default = []
-json = []
+[workspace.dependencies]
+colla = { path = "crates/colla", version = "0.1.0" }
