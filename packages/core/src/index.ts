@@ -3,6 +3,7 @@ import {
   BuilderHandle,
   ChangeHandle,
   composeHandles,
+  inspectChangeHandle,
   invertHandle,
   resolveCodePointPositionHandle,
   resolveUtf16PositionHandle,
@@ -935,6 +936,32 @@ export interface Range {
   readonly to: number
 }
 
+interface ChangeViewEntryBase {
+  readonly path: Path
+}
+
+export type AttrPatchView = Readonly<Record<string,
+  | { readonly type: "set"; readonly value: AttrValueData }
+  | { readonly type: "remove" }
+>>
+
+export type ChangeViewEntry =
+  | (ChangeViewEntryBase & { readonly type: "value.replace"; readonly value: ValueData })
+  | (ChangeViewEntryBase & { readonly type: "int.add"; readonly delta: bigint })
+  | (ChangeViewEntryBase & { readonly type: "map.set"; readonly key: string; readonly value: ValueData })
+  | (ChangeViewEntryBase & { readonly type: "map.delete"; readonly key: string })
+  | (ChangeViewEntryBase & { readonly type: "list.insert"; readonly index: number; readonly values: readonly ValueData[] })
+  | (ChangeViewEntryBase & { readonly type: "list.set"; readonly index: number; readonly value: ValueData })
+  | (ChangeViewEntryBase & { readonly type: "list.delete"; readonly range: Range })
+  | (ChangeViewEntryBase & { readonly type: "text.insert"; readonly at: number; readonly text: string })
+  | (ChangeViewEntryBase & { readonly type: "text.delete"; readonly range: Range })
+  | (ChangeViewEntryBase & { readonly type: "richText.insertText"; readonly at: number; readonly text: string; readonly attrs?: AttrsData })
+  | (ChangeViewEntryBase & { readonly type: "richText.insertEmbed"; readonly at: number; readonly embed: ValueData; readonly attrs?: AttrsData })
+  | (ChangeViewEntryBase & { readonly type: "richText.delete"; readonly range: Range })
+  | (ChangeViewEntryBase & { readonly type: "richText.format"; readonly range: Range; readonly patch: AttrPatchView })
+
+export type ChangeView = readonly ChangeViewEntry[]
+
 export interface MapChangeBuilder {
   set(key: string, value: ValueInput): this
   delete(key: string): this
@@ -1470,6 +1497,110 @@ export function transformPair(
     } finally {
       pair.free()
     }
+  } catch (error) {
+    throw fromWasmError(error, operation)
+  }
+}
+
+type RawChangeViewEntry = {
+  type: ChangeViewEntry["type"]
+  path: (string | number)[]
+  key?: string
+  index?: number
+  at?: number
+  from?: number
+  to?: number
+  text?: string
+  delta?: string
+  valueBytes?: number[]
+  embedBytes?: number[]
+  valuesBytes?: number[][]
+  attrs?: AttrEntry[]
+  patch?: ({ key: string; action: "remove" } | ({ action: "set" } & AttrEntry))[]
+}
+
+function viewValue(bytes: number[] | undefined): ValueData {
+  return decodeValueData(Uint8Array.from(bytes ?? []), "inspect_change")
+}
+
+function viewRange(entry: RawChangeViewEntry): Range {
+  return Object.freeze({ from: entry.from ?? 0, to: entry.to ?? 0 })
+}
+
+function viewAttrs(entries: AttrEntry[] | undefined): AttrsData | undefined {
+  return attrsData(entries ?? [])
+}
+
+function viewPatch(entries: RawChangeViewEntry["patch"]): AttrPatchView {
+  const patch = Object.create(null) as Record<string,
+    | { readonly type: "set"; readonly value: AttrValueData }
+    | { readonly type: "remove" }
+  >
+  for (const entry of entries ?? []) {
+    patch[entry.key] = entry.action === "remove"
+      ? Object.freeze({ type: "remove" as const })
+      : Object.freeze({
+          type: "set" as const,
+          value: entry.kind === "int" ? BigInt(entry.value) : entry.value,
+        })
+  }
+  return Object.freeze(patch)
+}
+
+export function inspectChange(change: Change, base: Value): ChangeView {
+  const operation = "inspect_change"
+  try {
+    const raw = JSON.parse(inspectChangeHandle(
+      Change._handle(change, operation),
+      Value._handle(base, operation),
+    )) as RawChangeViewEntry[]
+    const view = raw.map((entry): ChangeViewEntry => {
+      const path = Object.freeze([...entry.path])
+      switch (entry.type) {
+        case "value.replace": return Object.freeze({ type: entry.type, path, value: viewValue(entry.valueBytes) })
+        case "int.add": return Object.freeze({ type: entry.type, path, delta: BigInt(entry.delta ?? "0") })
+        case "map.set": return Object.freeze({ type: entry.type, path, key: entry.key ?? "", value: viewValue(entry.valueBytes) })
+        case "map.delete": return Object.freeze({ type: entry.type, path, key: entry.key ?? "" })
+        case "list.insert": return Object.freeze({
+          type: entry.type,
+          path,
+          index: entry.index ?? 0,
+          values: Object.freeze((entry.valuesBytes ?? []).map(viewValue)),
+        })
+        case "list.set": return Object.freeze({ type: entry.type, path, index: entry.index ?? 0, value: viewValue(entry.valueBytes) })
+        case "list.delete": return Object.freeze({ type: entry.type, path, range: viewRange(entry) })
+        case "text.insert": return Object.freeze({ type: entry.type, path, at: entry.at ?? 0, text: entry.text ?? "" })
+        case "text.delete": return Object.freeze({ type: entry.type, path, range: viewRange(entry) })
+        case "richText.insertText": {
+          const attrs = viewAttrs(entry.attrs)
+          return Object.freeze({
+            type: entry.type,
+            path,
+            at: entry.at ?? 0,
+            text: entry.text ?? "",
+            ...(attrs === undefined ? {} : { attrs }),
+          })
+        }
+        case "richText.insertEmbed": {
+          const attrs = viewAttrs(entry.attrs)
+          return Object.freeze({
+            type: entry.type,
+            path,
+            at: entry.at ?? 0,
+            embed: viewValue(entry.embedBytes),
+            ...(attrs === undefined ? {} : { attrs }),
+          })
+        }
+        case "richText.delete": return Object.freeze({ type: entry.type, path, range: viewRange(entry) })
+        case "richText.format": return Object.freeze({
+          type: entry.type,
+          path,
+          range: viewRange(entry),
+          patch: viewPatch(entry.patch),
+        })
+      }
+    })
+    return Object.freeze(view)
   } catch (error) {
     throw fromWasmError(error, operation)
   }

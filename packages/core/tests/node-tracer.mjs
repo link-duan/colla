@@ -29,6 +29,7 @@ try {
       compose,
       DEFAULT_INPUT_LIMITS,
       int,
+      inspectChange,
       invert,
       richText,
       resolveCodePointPosition,
@@ -487,6 +488,101 @@ try {
     const largeCombined = compose(largeDelete, largeDelete)
     assert.ok(largeCombined.encode().length < 16)
 
+    const inspectBase = Value.fromJS({
+      count: 5n,
+      meta: { status: "draft", remove: "x" },
+      items: ["a", "b", "c"],
+      title: text("A😀B"),
+      rich: richText([
+        { type: "text", text: "A😀", attrs: { bold: true } },
+        { type: "embed", value: { id: "old" } },
+        { type: "text", text: "B" },
+      ]),
+      replace: "old",
+    })
+    const inspectedChange = inspectBase.change()
+      .int(["count"], value => value.add(2n))
+      .map(["meta"], value => value.set("status", "new").delete("remove"))
+      .list(["items"], value => value
+        .insert(1, ["x"])
+        .set(2, "B")
+        .delete({ from: 3, to: 4 }))
+      .text(["title"], value => value.replace({ from: 1, to: 3 }, "X"))
+      .richText(["rich"], value => value
+        .insertEmbed(3, { id: "new" }, { kind: "chip" })
+        .delete({ from: 1, to: 3 })
+        .format({ from: 0, to: 2 }, patch => patch
+          .remove("bold")
+          .set("count", 2n)
+          .set("opacity", 0.5)
+          .set("label", "red")))
+      .replace(["replace"], "new")
+      .build()
+    const view = inspectChange(inspectedChange, inspectBase)
+    assert.ok(Object.isFrozen(view))
+    assert.deepEqual(view.map(entry => entry.type), [
+      "int.add",
+      "list.insert",
+      "list.set",
+      "list.delete",
+      "map.delete",
+      "map.set",
+      "map.set",
+      "richText.format",
+      "richText.insertEmbed",
+      "richText.delete",
+      "text.insert",
+      "text.delete",
+    ])
+    assert.deepEqual(view[1], {
+      type: "list.insert",
+      path: ["items"],
+      index: 1,
+      values: ["x"],
+    })
+    assert.equal(view[2].index, 1)
+    assert.deepEqual(view[3].range, { from: 2, to: 3 })
+    assert.deepEqual(view[9].range, { from: 1, to: 3 })
+    assert.equal(view[10].at, 1)
+    assert.deepEqual(view[11].range, { from: 1, to: 3 })
+    assert.deepEqual(Object.keys(view[7].patch), ["bold", "count", "label", "opacity"])
+    assert.deepEqual(view[7].patch.bold, { type: "remove" })
+    assert.deepEqual(view[7].patch.count, { type: "set", value: 2n })
+    assert.equal(view[8].attrs.kind, "chip")
+    assert.equal(view[8].attrs.count, 2n)
+    assert.ok(Object.isFrozen(view[7].path))
+    assert.ok(Object.isFrozen(view[7].range))
+    assert.ok(Object.isFrozen(view[7].patch))
+    assert.ok(Object.isFrozen(view[7].patch.count))
+    assert.ok(Object.isFrozen(view[8].embed))
+    assert.ok(Object.isFrozen(view[8].attrs))
+
+    const rootReplace = inspectBase.change().replace([], { fresh: true }).build()
+    const rootReplaceView = inspectChange(rootReplace, inspectBase)
+    assert.deepEqual(rootReplaceView, [{
+      type: "value.replace",
+      path: [],
+      value: Object.assign(Object.create(null), { fresh: true }),
+    }])
+    const richPositionChange = inspectBase.change().richText(["rich"], value => value
+      .insertText(3, "X")
+      .delete({ from: 4, to: 5 }))
+      .build()
+    const richPositionView = inspectChange(richPositionChange, inspectBase)
+    assert.equal(richPositionView[0].type, "richText.insertText")
+    assert.equal(richPositionView[0].at, 3)
+    assert.equal(richPositionView[0].attrs, undefined)
+    assert.deepEqual(richPositionView[1].range, { from: 3, to: 4 })
+    const noopChange = inspectBase.change().build()
+    const noopView = inspectChange(noopChange, inspectBase)
+    assert.deepEqual(noopView, [])
+    assert.ok(Object.isFrozen(noopView))
+    assert.throws(() => inspectChange(inspectedChange, incompatibleBase), error =>
+      error instanceof CollaError && error.code === "type_mismatch" &&
+      error.operation === "inspect_change")
+    assert.throws(() => Change.decode(view), error =>
+      error instanceof CollaError && error.code === "invalid_argument")
+
     const structuredBase = Value.fromJS({
       meta: { status: "draft" },
       items: ["a", "b"],
@@ -651,6 +747,11 @@ try {
       oneDelta,
       largeDelete,
       largeCombined,
+      inspectBase,
+      inspectedChange,
+      rootReplace,
+      richPositionChange,
+      noopChange,
       structuredBase,
       structuredChange,
       structuredNext,

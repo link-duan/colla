@@ -5,8 +5,9 @@
 
 use colla::{
     apply, compose, invert, transform_pair, ApplyError, AttrChange, AttrPatch, AttrValue, Attrs,
-    BuildError, Change, ChangeBuilder, CodecError, ComposeError, InputLimits, InvertError, Path,
-    PathSeg, RichInsert, RichText, TieBreak, TransformError, Value, ValueKind, ValueType,
+    BuildError, Change, ChangeBuilder, ChangeKind, CodecError, ComposeError, InputLimits,
+    IntChange, InvertError, ListOp, MapEntryChange, Path, PathSeg, RichInsert, RichText,
+    RichTextOp, TextOp, TieBreak, TransformError, Value, ValueKind, ValueType,
 };
 use serde_json::{json, Value as JsonValue};
 use wasm_bindgen::prelude::*;
@@ -558,6 +559,204 @@ pub fn transform_pair_handles(
         .map_err(|error| transform_error(error, "transform_pair"))
 }
 
+#[wasm_bindgen(js_name = inspectChangeHandle)]
+pub fn inspect_change_handle(change: &ChangeHandle, base: &ValueHandle) -> Result<String, JsValue> {
+    apply(&base.value, &change.change).map_err(|error| apply_error(error, "inspect_change"))?;
+    let mut entries = Vec::new();
+    let mut path = Path::new();
+    inspect_change_at(&change.change, &base.value, &mut path, &mut entries)?;
+    serde_json::to_string(&entries)
+        .map_err(|error| wasm_error("invalid_value", "inspect_change", error.to_string()))
+}
+
+fn inspect_change_at(
+    change: &Change,
+    base: &Value,
+    path: &mut Path,
+    entries: &mut Vec<JsonValue>,
+) -> Result<(), JsValue> {
+    match change.kind() {
+        ChangeKind::Noop => {}
+        ChangeKind::Replace(value) => entries.push(json!({
+            "type": "value.replace",
+            "path": path_json_value(path),
+            "valueBytes": value.encode(),
+        })),
+        ChangeKind::Int(IntChange::Add(delta)) => entries.push(json!({
+            "type": "int.add",
+            "path": path_json_value(path),
+            "delta": delta.to_string(),
+        })),
+        ChangeKind::Map(change) => {
+            let ValueKind::Map(base) = base.kind() else {
+                return Err(inspect_type_error(path, ValueType::Map, base));
+            };
+            for (key, entry) in change.iter() {
+                match entry {
+                    MapEntryChange::Insert(value) => entries.push(json!({
+                        "type": "map.set",
+                        "path": path_json_value(path),
+                        "key": key,
+                        "valueBytes": value.encode(),
+                    })),
+                    MapEntryChange::Delete => entries.push(json!({
+                        "type": "map.delete",
+                        "path": path_json_value(path),
+                        "key": key,
+                    })),
+                    MapEntryChange::Modify(child) => {
+                        let child_base = base.get(key).ok_or_else(|| {
+                            wasm_error_details(
+                                "missing_key",
+                                "inspect_change",
+                                json!({ "key": key }),
+                            )
+                        })?;
+                        if let ChangeKind::Replace(value) = child.kind() {
+                            entries.push(json!({
+                                "type": "map.set",
+                                "path": path_json_value(path),
+                                "key": key,
+                                "valueBytes": value.encode(),
+                            }));
+                        } else {
+                            path.push(PathSeg::Key(key.clone()));
+                            inspect_change_at(child, child_base, path, entries)?;
+                            path.pop();
+                        }
+                    }
+                }
+            }
+        }
+        ChangeKind::List(change) => {
+            let ValueKind::List(base) = base.kind() else {
+                return Err(inspect_type_error(path, ValueType::List, base));
+            };
+            let mut index = 0usize;
+            for op in change.ops() {
+                match op {
+                    ListOp::Retain(len) => index += len,
+                    ListOp::Insert(values) => entries.push(json!({
+                        "type": "list.insert",
+                        "path": path_json_value(path),
+                        "index": index,
+                        "valuesBytes": values.iter().map(Value::encode).collect::<Vec<_>>(),
+                    })),
+                    ListOp::Delete(len) => {
+                        let end = index + len;
+                        entries.push(json!({
+                            "type": "list.delete",
+                            "path": path_json_value(path),
+                            "from": index,
+                            "to": end,
+                        }));
+                        index = end;
+                    }
+                    ListOp::Modify(child) => {
+                        let child_base = base.get(index).ok_or_else(|| {
+                            wasm_error_details(
+                                "out_of_bounds",
+                                "inspect_change",
+                                json!({ "target": "list", "length": base.len(), "index": index }),
+                            )
+                        })?;
+                        if let ChangeKind::Replace(value) = child.kind() {
+                            entries.push(json!({
+                                "type": "list.set",
+                                "path": path_json_value(path),
+                                "index": index,
+                                "valueBytes": value.encode(),
+                            }));
+                        } else {
+                            path.push(PathSeg::Index(index));
+                            inspect_change_at(child, child_base, path, entries)?;
+                            path.pop();
+                        }
+                        index += 1;
+                    }
+                }
+            }
+        }
+        ChangeKind::Text(change) => {
+            let ValueKind::Text(base) = base.kind() else {
+                return Err(inspect_type_error(path, ValueType::Text, base));
+            };
+            let mut index = 0usize;
+            for op in change.ops() {
+                match op {
+                    TextOp::Retain(len) => index += len,
+                    TextOp::Insert(text) => entries.push(json!({
+                        "type": "text.insert",
+                        "path": path_json_value(path),
+                        "at": text_utf16_prefix(base.as_str(), index),
+                        "text": text,
+                    })),
+                    TextOp::Delete(len) => {
+                        let end = index + len;
+                        entries.push(json!({
+                            "type": "text.delete",
+                            "path": path_json_value(path),
+                            "from": text_utf16_prefix(base.as_str(), index),
+                            "to": text_utf16_prefix(base.as_str(), end),
+                        }));
+                        index = end;
+                    }
+                }
+            }
+        }
+        ChangeKind::RichText(change) => {
+            let ValueKind::RichText(base) = base.kind() else {
+                return Err(inspect_type_error(path, ValueType::RichText, base));
+            };
+            let mut index = 0usize;
+            for op in change.ops() {
+                match op {
+                    RichTextOp::Retain { len, attrs } => {
+                        let end = index + len;
+                        if !attrs.is_empty() {
+                            entries.push(json!({
+                                "type": "richText.format",
+                                "path": path_json_value(path),
+                                "from": rich_utf16_prefix(base, index),
+                                "to": rich_utf16_prefix(base, end),
+                                "patch": attr_patch_json(attrs),
+                            }));
+                        }
+                        index = end;
+                    }
+                    RichTextOp::Insert { content, attrs } => match content {
+                        RichInsert::Text(text) => entries.push(json!({
+                            "type": "richText.insertText",
+                            "path": path_json_value(path),
+                            "at": rich_utf16_prefix(base, index),
+                            "text": text.as_ref(),
+                            "attrs": attrs_json(attrs),
+                        })),
+                        RichInsert::Embed(value) => entries.push(json!({
+                            "type": "richText.insertEmbed",
+                            "path": path_json_value(path),
+                            "at": rich_utf16_prefix(base, index),
+                            "embedBytes": value.encode(),
+                            "attrs": attrs_json(attrs),
+                        })),
+                    },
+                    RichTextOp::Delete(len) => {
+                        let end = index + len;
+                        entries.push(json!({
+                            "type": "richText.delete",
+                            "path": path_json_value(path),
+                            "from": rich_utf16_prefix(base, index),
+                            "to": rich_utf16_prefix(base, end),
+                        }));
+                        index = end;
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 #[wasm_bindgen(js_name = resolveCodePointPositionHandle)]
 pub fn resolve_code_point_position_handle(
     value: &ValueHandle,
@@ -616,6 +815,99 @@ fn value_kind_name(kind: &ValueKind) -> &'static str {
         ValueKind::List(_) => "list",
         ValueKind::Map(_) => "map",
     }
+}
+
+fn path_json_value(path: &Path) -> JsonValue {
+    JsonValue::Array(
+        path.segments()
+            .iter()
+            .map(|segment| match segment {
+                PathSeg::Key(key) => json!(key),
+                PathSeg::Index(index) => json!(index),
+            })
+            .collect(),
+    )
+}
+
+fn inspect_type_error(path: &Path, expected: ValueType, actual: &Value) -> JsValue {
+    wasm_error_details(
+        "type_mismatch",
+        "inspect_change",
+        json!({
+            "expected": value_type_name(expected),
+            "actual": value_type_name(actual.value_type()),
+            "path": path_json_value(path),
+        }),
+    )
+}
+
+fn text_utf16_prefix(text: &str, index: usize) -> usize {
+    text.chars().take(index).map(char::len_utf16).sum()
+}
+
+fn rich_utf16_prefix(rich: &RichText, index: usize) -> usize {
+    let mut remaining = index;
+    let mut utf16 = 0usize;
+    for span in rich.spans() {
+        match &span.content {
+            RichInsert::Text(text) => {
+                for character in text.chars() {
+                    if remaining == 0 {
+                        return utf16;
+                    }
+                    utf16 += character.len_utf16();
+                    remaining -= 1;
+                }
+            }
+            RichInsert::Embed(_) => {
+                if remaining == 0 {
+                    return utf16;
+                }
+                utf16 += 1;
+                remaining -= 1;
+            }
+        }
+    }
+    utf16
+}
+
+fn attr_value_json(value: &AttrValue) -> JsonValue {
+    match value {
+        AttrValue::Bool(value) => json!({ "kind": "bool", "value": value }),
+        AttrValue::Int(value) => json!({ "kind": "int", "value": value.to_string() }),
+        AttrValue::Float(value) => json!({ "kind": "float", "value": value.get() }),
+        AttrValue::String(value) => json!({ "kind": "string", "value": value.as_ref() }),
+    }
+}
+
+fn attrs_json(attrs: &Attrs) -> JsonValue {
+    JsonValue::Array(
+        attrs
+            .iter()
+            .map(|(key, value)| {
+                let mut entry = attr_value_json(value);
+                entry["key"] = json!(key);
+                entry
+            })
+            .collect(),
+    )
+}
+
+fn attr_patch_json(patch: &AttrPatch) -> JsonValue {
+    JsonValue::Array(
+        patch
+            .iter()
+            .map(|(key, change)| match change {
+                AttrChange::Set(value) => {
+                    let mut entry = attr_value_json(value);
+                    entry["key"] = json!(key);
+                    entry["action"] = json!("set");
+                    entry
+                }
+                AttrChange::Remove => json!({ "key": key, "action": "remove" }),
+            })
+            .collect(),
+    )
 }
 
 fn type_error(expected: &'static str, actual: &ValueKind) -> JsValue {
