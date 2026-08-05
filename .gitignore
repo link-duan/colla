@@ -1,2 +1,5 @@
 /target
 node_modules/
+packages/core/dist/
+packages/core/src/internal/
+packages/core/*.tgz

@@ -3,6 +3,8 @@
   "private": true,
   "packageManager": "pnpm@11.12.0",
   "scripts": {
-    "check": "pnpm -r check"
+    "build": "pnpm -r build",
+    "check": "pnpm -r check",
+    "test:js": "pnpm --filter @colla/core test"
   }
 }

@@ -3,12 +3,30 @@
   "version": "0.1.0",
   "description": "JavaScript and WebAssembly bindings for Colla",
   "type": "module",
-  "exports": "./src/index.js",
+  "exports": {
+    ".": {
+      "types": "./dist/node.d.ts",
+      "node": "./dist/node.js",
+      "import": "./dist/node.js",
+      "default": "./dist/node.js"
+    }
+  },
   "files": [
-    "src"
+    "dist"
   ],
+  "sideEffects": true,
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
-    "check": "node --check src/index.js"
+    "build": "node scripts/build.mjs",
+    "check": "pnpm build && pnpm exec tsc -p tsconfig.json --noEmit",
+    "test": "node tests/node-tracer.mjs",
+    "prepack": "pnpm build"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.2"
   },
   "license": "MIT"
 }

@@ -134,6 +134,8 @@ name = "colla-wasm"
 version = "0.1.0"
 dependencies = [
  "colla",
+ "serde_json",
+ "wasm-bindgen",
 ]
 
 [[package]]
