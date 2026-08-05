@@ -1,6 +1,7 @@
 use colla::{
-    path, AttrChange, AttrPatch, AttrValue, Attrs, Change, ListChange, ListOp, MapChange,
-    MapEntryChange, RichSpan, RichText, RichTextChange, RichTextOp, TextChange, TextOp, Value,
+    path, transform_pair, AttrChange, AttrPatch, AttrValue, Attrs, Change, ListChange, ListOp,
+    MapChange, MapEntryChange, RichSpan, RichText, RichTextChange, RichTextOp, TextChange, TextOp,
+    TieBreak, Value,
 };
 
 #[test]
@@ -306,6 +307,138 @@ fn builder_rich_text_treats_embeds_as_atomic_units() {
             .filter(|span| matches!(span.content, colla::RichInsert::Embed(_)))
             .count(),
         2
+    );
+}
+
+#[test]
+fn algebra_bytes_match_javascript_golden_across_all_change_kinds() {
+    let base = Value::map([
+        ("count", Value::int(5)),
+        (
+            "meta",
+            Value::map([("status", Value::string("draft"))]).unwrap(),
+        ),
+        (
+            "items",
+            Value::list([Value::string("a"), Value::string("b")]),
+        ),
+        ("title", Value::text("ab")),
+        (
+            "rich",
+            Value::rich_text(RichText::new(vec![RichSpan::text("ab", Attrs::new())])),
+        ),
+        ("replace", Value::string("old")),
+    ])
+    .unwrap();
+
+    let mut first_builder = base.change();
+    first_builder
+        .int_add(&path!["count"], 2)
+        .unwrap()
+        .map_set(&path!["meta"], "owner", Value::string("team"))
+        .unwrap()
+        .list_insert(&path!["items"], 1, [Value::string("x")])
+        .unwrap()
+        .text_insert(&path!["title"], 1, "X")
+        .unwrap()
+        .rich_text_insert_text(
+            &path!["rich"],
+            1,
+            "X",
+            Attrs::from_entries([("bold", AttrValue::Bool(true))]).unwrap(),
+        )
+        .unwrap()
+        .replace(&path!["replace"], Value::string("middle"))
+        .unwrap();
+    let first = first_builder.build();
+    let middle = first.apply_to(&base).unwrap();
+
+    let mut second_builder = middle.change();
+    second_builder
+        .int_add(&path!["count"], 3)
+        .unwrap()
+        .map_set(&path!["meta"], "status", Value::string("published"))
+        .unwrap()
+        .list_delete(&path!["items"], 0, 1)
+        .unwrap()
+        .text_delete(&path!["title"], 0, 1)
+        .unwrap()
+        .rich_text_format(
+            &path!["rich"],
+            0,
+            2,
+            AttrPatch::from_entries([("color", AttrChange::Set(AttrValue::string("red")))])
+                .unwrap(),
+        )
+        .unwrap()
+        .replace(&path!["replace"], Value::string("final"))
+        .unwrap();
+    let second = second_builder.build();
+    let combined = first.compose(&second).unwrap();
+    assert_eq!(
+        combined.encode(),
+        [
+            2, 6, 5, 99, 111, 117, 110, 116, 2, 6, 10, 5, 105, 116, 101, 109, 115, 2, 3, 2, 1, 1,
+            5, 1, 120, 2, 1, 4, 109, 101, 116, 97, 2, 2, 2, 5, 111, 119, 110, 101, 114, 0, 5, 4,
+            116, 101, 97, 109, 6, 115, 116, 97, 116, 117, 115, 2, 1, 5, 9, 112, 117, 98, 108, 105,
+            115, 104, 101, 100, 7, 114, 101, 112, 108, 97, 99, 101, 2, 1, 5, 5, 102, 105, 110, 97,
+            108, 4, 114, 105, 99, 104, 2, 5, 2, 0, 1, 1, 5, 99, 111, 108, 111, 114, 0, 4, 3, 114,
+            101, 100, 1, 0, 1, 88, 2, 4, 98, 111, 108, 100, 1, 5, 99, 111, 108, 111, 114, 4, 3,
+            114, 101, 100, 5, 116, 105, 116, 108, 101, 2, 4, 2, 1, 1, 88, 2, 1,
+        ]
+    );
+
+    let inverse = combined.invert(&base).unwrap();
+    assert_eq!(
+        inverse.encode(),
+        [
+            2, 6, 5, 99, 111, 117, 110, 116, 2, 6, 9, 5, 105, 116, 101, 109, 115, 2, 3, 2, 1, 1, 5,
+            1, 97, 2, 1, 4, 109, 101, 116, 97, 2, 2, 2, 5, 111, 119, 110, 101, 114, 1, 6, 115, 116,
+            97, 116, 117, 115, 2, 1, 5, 5, 100, 114, 97, 102, 116, 7, 114, 101, 112, 108, 97, 99,
+            101, 2, 1, 5, 3, 111, 108, 100, 4, 114, 105, 99, 104, 2, 5, 2, 0, 1, 1, 5, 99, 111,
+            108, 111, 114, 1, 2, 1, 5, 116, 105, 116, 108, 101, 2, 4, 2, 1, 1, 97, 2, 1,
+        ]
+    );
+
+    let mut right_builder = base.change();
+    right_builder
+        .int_add(&path!["count"], 4)
+        .unwrap()
+        .map_set(&path!["meta"], "reviewer", Value::string("qa"))
+        .unwrap()
+        .list_insert(&path!["items"], 1, [Value::string("y")])
+        .unwrap()
+        .text_insert(&path!["title"], 1, "Y")
+        .unwrap()
+        .rich_text_insert_text(
+            &path!["rich"],
+            1,
+            "Y",
+            Attrs::from_entries([("italic", AttrValue::Bool(true))]).unwrap(),
+        )
+        .unwrap()
+        .replace(&path!["replace"], Value::string("right"))
+        .unwrap();
+    let right = right_builder.build();
+    let (left_prime, right_prime) = transform_pair(&first, &right, TieBreak::LeftFirst).unwrap();
+    assert_eq!(
+        left_prime.encode(),
+        [
+            2, 6, 5, 99, 111, 117, 110, 116, 2, 6, 4, 5, 105, 116, 101, 109, 115, 2, 3, 2, 0, 1, 1,
+            1, 5, 1, 120, 4, 109, 101, 116, 97, 2, 2, 1, 5, 111, 119, 110, 101, 114, 0, 5, 4, 116,
+            101, 97, 109, 7, 114, 101, 112, 108, 97, 99, 101, 2, 1, 5, 6, 109, 105, 100, 100, 108,
+            101, 4, 114, 105, 99, 104, 2, 5, 2, 0, 1, 0, 1, 0, 1, 88, 1, 4, 98, 111, 108, 100, 1,
+            5, 116, 105, 116, 108, 101, 2, 4, 2, 0, 1, 1, 1, 88,
+        ]
+    );
+    assert_eq!(
+        right_prime.encode(),
+        [
+            2, 5, 5, 99, 111, 117, 110, 116, 2, 6, 8, 5, 105, 116, 101, 109, 115, 2, 3, 2, 0, 2, 1,
+            1, 5, 1, 121, 4, 109, 101, 116, 97, 2, 2, 1, 8, 114, 101, 118, 105, 101, 119, 101, 114,
+            0, 5, 2, 113, 97, 4, 114, 105, 99, 104, 2, 5, 2, 0, 2, 0, 1, 0, 1, 89, 1, 6, 105, 116,
+            97, 108, 105, 99, 1, 5, 116, 105, 116, 108, 101, 2, 4, 2, 0, 2, 1, 1, 89,
+        ]
     );
 }
 

@@ -26,12 +26,15 @@ try {
       apply,
       Change,
       CollaError,
+      compose,
       DEFAULT_INPUT_LIMITS,
       int,
+      invert,
       richText,
       resolveCodePointPosition,
       resolveUtf16Position,
       text,
+      transformPair,
       Value,
     } from "@colla/core"
 
@@ -323,6 +326,167 @@ try {
     assert.equal(trustedRichNext.toJS().spans[0].text, "a larger")
     assert.deepEqual(trustedRichNext.toJS().spans[1].value.nested, ["larger"])
 
+    const algebraBase = Value.fromJS({
+      count: 5n,
+      meta: { status: "draft" },
+      items: ["a", "b"],
+      title: text("ab"),
+      rich: richText([{ type: "text", text: "ab" }]),
+      replace: "old",
+    })
+    let escapedInt
+    const algebraFirst = algebraBase.change()
+      .int(["count"], value => {
+        escapedInt = value
+        value.add(2n)
+      })
+      .map(["meta"], value => value.set("owner", "team"))
+      .list(["items"], value => value.insert(1, ["x"]))
+      .text(["title"], value => value.insert(1, "X"))
+      .richText(["rich"], value => value.insertText(1, "X", { bold: true }))
+      .replace(["replace"], "middle")
+      .build()
+    const algebraFirstBytes = algebraFirst.encode()
+    assert.throws(() => escapedInt.add(1n), error =>
+      error instanceof CollaError && error.code === "invalid_state")
+    const algebraMiddle = apply(algebraBase, algebraFirst)
+    const algebraSecond = algebraMiddle.change()
+      .int(["count"], value => value.add(3n))
+      .map(["meta"], value => value.set("status", "published"))
+      .list(["items"], value => value.delete({ from: 0, to: 1 }))
+      .text(["title"], value => value.delete({ from: 0, to: 1 }))
+      .richText(["rich"], value => value.format(
+        { from: 0, to: 2 },
+        patch => patch.set("color", "red"),
+      ))
+      .replace(["replace"], "final")
+      .build()
+    const algebraCombined = compose(algebraFirst, algebraSecond)
+    assert.deepEqual(algebraCombined.encode(), Uint8Array.from([
+      2, 6, 5, 99, 111, 117, 110, 116, 2, 6, 10, 5, 105, 116, 101, 109, 115, 2,
+      3, 2, 1, 1, 5, 1, 120, 2, 1, 4, 109, 101, 116, 97, 2, 2, 2, 5, 111, 119,
+      110, 101, 114, 0, 5, 4, 116, 101, 97, 109, 6, 115, 116, 97, 116, 117, 115,
+      2, 1, 5, 9, 112, 117, 98, 108, 105, 115, 104, 101, 100, 7, 114, 101, 112,
+      108, 97, 99, 101, 2, 1, 5, 5, 102, 105, 110, 97, 108, 4, 114, 105, 99, 104,
+      2, 5, 2, 0, 1, 1, 5, 99, 111, 108, 111, 114, 0, 4, 3, 114, 101, 100, 1, 0,
+      1, 88, 2, 4, 98, 111, 108, 100, 1, 5, 99, 111, 108, 111, 114, 4, 3, 114,
+      101, 100, 5, 116, 105, 116, 108, 101, 2, 4, 2, 1, 1, 88, 2, 1,
+    ]))
+    const algebraFinal = apply(algebraBase, algebraCombined)
+    const algebraSequential = apply(algebraMiddle, algebraSecond)
+    assert.deepEqual(algebraFinal.toJS(), algebraSequential.toJS())
+    const algebraInverse = invert(algebraCombined, algebraBase)
+    assert.deepEqual(algebraInverse.encode(), Uint8Array.from([
+      2, 6, 5, 99, 111, 117, 110, 116, 2, 6, 9, 5, 105, 116, 101, 109, 115, 2,
+      3, 2, 1, 1, 5, 1, 97, 2, 1, 4, 109, 101, 116, 97, 2, 2, 2, 5, 111, 119,
+      110, 101, 114, 1, 6, 115, 116, 97, 116, 117, 115, 2, 1, 5, 5, 100, 114,
+      97, 102, 116, 7, 114, 101, 112, 108, 97, 99, 101, 2, 1, 5, 3, 111, 108, 100,
+      4, 114, 105, 99, 104, 2, 5, 2, 0, 1, 1, 5, 99, 111, 108, 111, 114, 1, 2,
+      1, 5, 116, 105, 116, 108, 101, 2, 4, 2, 1, 1, 97, 2, 1,
+    ]))
+    const algebraRestored = apply(algebraFinal, algebraInverse)
+    assert.deepEqual(algebraRestored.toJS(), algebraBase.toJS())
+
+    const algebraRight = algebraBase.change()
+      .int(["count"], value => value.add(4n))
+      .map(["meta"], value => value.set("reviewer", "qa"))
+      .list(["items"], value => value.insert(1, ["y"]))
+      .text(["title"], value => value.insert(1, "Y"))
+      .richText(["rich"], value => value.insertText(1, "Y", { italic: true }))
+      .replace(["replace"], "right")
+      .build()
+    const algebraRightBytes = algebraRight.encode()
+    const algebraPair = transformPair(algebraFirst, algebraRight, { order: "left-first" })
+    assert.ok(Object.isFrozen(algebraPair))
+    assert.deepEqual(algebraPair[0].encode(), Uint8Array.from([
+      2, 6, 5, 99, 111, 117, 110, 116, 2, 6, 4, 5, 105, 116, 101, 109, 115, 2,
+      3, 2, 0, 1, 1, 1, 5, 1, 120, 4, 109, 101, 116, 97, 2, 2, 1, 5, 111, 119,
+      110, 101, 114, 0, 5, 4, 116, 101, 97, 109, 7, 114, 101, 112, 108, 97, 99,
+      101, 2, 1, 5, 6, 109, 105, 100, 100, 108, 101, 4, 114, 105, 99, 104, 2, 5,
+      2, 0, 1, 0, 1, 0, 1, 88, 1, 4, 98, 111, 108, 100, 1, 5, 116, 105, 116,
+      108, 101, 2, 4, 2, 0, 1, 1, 1, 88,
+    ]))
+    assert.deepEqual(algebraPair[1].encode(), Uint8Array.from([
+      2, 5, 5, 99, 111, 117, 110, 116, 2, 6, 8, 5, 105, 116, 101, 109, 115, 2,
+      3, 2, 0, 2, 1, 1, 5, 1, 121, 4, 109, 101, 116, 97, 2, 2, 1, 8, 114, 101,
+      118, 105, 101, 119, 101, 114, 0, 5, 2, 113, 97, 4, 114, 105, 99, 104, 2, 5,
+      2, 0, 2, 0, 1, 0, 1, 89, 1, 6, 105, 116, 97, 108, 105, 99, 1, 5, 116,
+      105, 116, 108, 101, 2, 4, 2, 0, 2, 1, 1, 89,
+    ]))
+    const algebraAfterFirst = apply(algebraBase, algebraFirst)
+    const algebraAfterRight = apply(algebraBase, algebraRight)
+    const algebraLeftThen = apply(algebraAfterFirst, algebraPair[1])
+    const algebraRightThen = apply(algebraAfterRight, algebraPair[0])
+    assert.deepEqual(algebraLeftThen.toJS(), algebraRightThen.toJS())
+    const algebraRightFirstPair = transformPair(
+      algebraFirst,
+      algebraRight,
+      { order: "right-first" },
+    )
+    const algebraRightFirstAfterFirst = apply(algebraBase, algebraFirst)
+    const algebraRightFirstAfterRight = apply(algebraBase, algebraRight)
+    const algebraRightFirstLeftThen = apply(
+      algebraRightFirstAfterFirst,
+      algebraRightFirstPair[1],
+    )
+    const algebraRightFirstRightThen = apply(
+      algebraRightFirstAfterRight,
+      algebraRightFirstPair[0],
+    )
+    assert.deepEqual(algebraRightFirstLeftThen.toJS(), algebraRightFirstRightThen.toJS())
+    assert.equal(algebraRightFirstLeftThen.get(["replace"]), "right")
+    assert.deepEqual(algebraFirst.encode(), algebraFirstBytes)
+    assert.deepEqual(algebraRight.encode(), algebraRightBytes)
+
+    assert.throws(() => transformPair(algebraFirst, algebraRight, {}), error =>
+      error instanceof CollaError && error.code === "invalid_argument")
+    assert.throws(() => transformPair(algebraFirst, algebraRight, { order: "unknown" }), error =>
+      error instanceof CollaError && error.code === "invalid_argument")
+    const incompatibleText = Value.fromJS(text("a")).change()
+      .text([], value => value.insert(1, "b"))
+      .build()
+    assert.throws(() => compose(algebraFirst, incompatibleText), error =>
+      error instanceof CollaError && error.code === "incompatible_change" &&
+      error.details.reason === "kind_mismatch")
+    assert.throws(() => transformPair(algebraFirst, incompatibleText, { order: "left-first" }), error =>
+      error instanceof CollaError && error.code === "incompatible_change" &&
+      error.details.reason === "kind_mismatch")
+    const incompatibleBase = Value.fromJS(null)
+    assert.throws(() => invert(algebraFirst, incompatibleBase), error =>
+      error instanceof CollaError && error.code === "type_mismatch")
+
+    const maxInt = Value.fromJS((1n << 63n) - 1n)
+    const overflowBuilder = maxInt.change()
+    assert.throws(() => overflowBuilder.int([], value => value.add(1n)), error =>
+      error instanceof CollaError && error.code === "integer_overflow")
+    assert.throws(() => overflowBuilder.int([], value => value.add(1)), error =>
+      error instanceof CollaError && error.code === "invalid_argument")
+    const overflowNoop = overflowBuilder.int([], value => value.add(0n)).build()
+    const overflowSame = apply(maxInt, overflowNoop)
+    assert.deepEqual(overflowSame.toJS(), maxInt.toJS())
+    const deltaBase = Value.fromJS(0n)
+    const maxDelta = deltaBase.change().int([], value => value.add((1n << 63n) - 1n)).build()
+    const oneDelta = deltaBase.change().int([], value => value.add(1n)).build()
+    assert.throws(() => compose(maxDelta, oneDelta), error =>
+      error instanceof CollaError && error.code === "integer_overflow")
+
+    const encodeVarint = value => {
+      const bytes = []
+      while (value >= 0x80n) {
+        bytes.push(Number(value & 0x7fn) | 0x80)
+        value >>= 7n
+      }
+      bytes.push(Number(value))
+      return bytes
+    }
+    const logicalLength = 10_000_000n
+    const largeDelete = Change.decode(
+      Uint8Array.from([4, 1, 2, ...encodeVarint(logicalLength)]),
+      { limits: { maxSequenceLength: Number(logicalLength) } },
+    )
+    const largeCombined = compose(largeDelete, largeDelete)
+    assert.ok(largeCombined.encode().length < 16)
+
     const structuredBase = Value.fromJS({
       meta: { status: "draft" },
       items: ["a", "b"],
@@ -457,6 +621,36 @@ try {
       trustedRichBase,
       trustedRichChange,
       trustedRichNext,
+      algebraBase,
+      algebraFirst,
+      algebraMiddle,
+      algebraSecond,
+      algebraCombined,
+      algebraFinal,
+      algebraSequential,
+      algebraInverse,
+      algebraRestored,
+      algebraRight,
+      ...algebraPair,
+      ...algebraRightFirstPair,
+      algebraAfterFirst,
+      algebraAfterRight,
+      algebraLeftThen,
+      algebraRightThen,
+      algebraRightFirstAfterFirst,
+      algebraRightFirstAfterRight,
+      algebraRightFirstLeftThen,
+      algebraRightFirstRightThen,
+      incompatibleText,
+      incompatibleBase,
+      maxInt,
+      overflowNoop,
+      overflowSame,
+      deltaBase,
+      maxDelta,
+      oneDelta,
+      largeDelete,
+      largeCombined,
       structuredBase,
       structuredChange,
       structuredNext,

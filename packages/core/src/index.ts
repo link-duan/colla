@@ -2,8 +2,11 @@ import {
   applyHandles,
   BuilderHandle,
   ChangeHandle,
+  composeHandles,
+  invertHandle,
   resolveCodePointPositionHandle,
   resolveUtf16PositionHandle,
+  transformPairHandles,
   ValueHandle,
 } from "./internal/colla_wasm.js"
 
@@ -961,6 +964,10 @@ export interface AttrPatchBuilder {
   remove(key: string): this
 }
 
+export interface IntChangeBuilder {
+  add(delta: bigint): this
+}
+
 function indexArgument(value: unknown, operation: string, argument: string): number {
   if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
     throw invalidArgument(operation, argument, "expected a non-negative safe integer")
@@ -1235,6 +1242,25 @@ class RichTextScope extends ScopedBuilder implements RichTextChangeBuilder {
   }
 }
 
+class IntScope extends ScopedBuilder implements IntChangeBuilder {
+  add(delta: bigint): this {
+    const operation = "int_add"
+    this.assertActive(operation)
+    if (typeof delta !== "bigint") {
+      throw invalidArgument(operation, "delta", "expected a bigint")
+    }
+    if (delta < I64_MIN || delta > I64_MAX) {
+      throw invalidArgument(operation, "delta", "outside the signed 64-bit range")
+    }
+    try {
+      this.handle.intAdd(this.pathData, delta)
+      return this
+    } catch (error) {
+      throw fromWasmError(error, operation, this.path)
+    }
+  }
+}
+
 export class ChangeBuilder {
   #handle: BuilderHandle | undefined
   #consumed = false
@@ -1276,6 +1302,11 @@ export class ChangeBuilder {
   richText(path: Path, edit: (richText: RichTextChangeBuilder) => unknown): this {
     return this.#scope<RichTextScope>(path, edit, "richText", (handle, scopePath, pathData) =>
       new RichTextScope(handle, scopePath, pathData))
+  }
+
+  int(path: Path, edit: (int: IntChangeBuilder) => unknown): this {
+    return this.#scope<IntScope>(path, edit, "int", (handle, scopePath, pathData) =>
+      new IntScope(handle, scopePath, pathData))
   }
 
   build(): Change {
@@ -1320,7 +1351,7 @@ export class ChangeBuilder {
   #scope<T extends ScopedBuilder>(
     path: Path,
     edit: (scope: T) => unknown,
-    expected: "map" | "list" | "text" | "richText",
+    expected: "map" | "list" | "text" | "richText" | "int",
     create: (handle: BuilderHandle, path: Path, pathData: string) => T,
   ): this {
     const operation = `builder_${expected}`
@@ -1381,6 +1412,66 @@ export function apply(base: Value, change: Change): Value {
     )
   } catch (error) {
     throw fromWasmError(error, "apply")
+  }
+}
+
+export function compose(first: Change, second: Change): Change {
+  try {
+    return Change._fromHandle(composeHandles(
+      Change._handle(first, "compose"),
+      Change._handle(second, "compose"),
+    ))
+  } catch (error) {
+    throw fromWasmError(error, "compose")
+  }
+}
+
+export function invert(change: Change, base: Value): Change {
+  try {
+    return Change._fromHandle(invertHandle(
+      Change._handle(change, "invert"),
+      Value._handle(base, "invert"),
+    ))
+  } catch (error) {
+    throw fromWasmError(error, "invert")
+  }
+}
+
+export interface TransformPairOptions {
+  readonly order: "left-first" | "right-first"
+}
+
+export function transformPair(
+  left: Change,
+  right: Change,
+  options: TransformPairOptions,
+): readonly [Change, Change] {
+  const operation = "transform_pair"
+  if (!isRecord(options)) throw invalidArgument(operation, "options", "expected a plain record")
+  const entries = ownDataEntries(options, operation)
+  if (entries.length !== 1 || entries[0][0] !== "order") {
+    throw invalidArgument(operation, "options", "expected only the order field")
+  }
+  const order = entries[0][1]
+  if (order !== "left-first" && order !== "right-first") {
+    throw invalidArgument(operation, "options.order", "expected left-first or right-first")
+  }
+  try {
+    const pair = transformPairHandles(
+      Change._handle(left, operation),
+      Change._handle(right, operation),
+      order === "left-first",
+    )
+    try {
+      return Object.freeze([
+        Change._fromHandle(pair.leftHandle()),
+        Change._fromHandle(pair.rightHandle()),
+      ])
+    } finally {
+      pair.free()
+    }
+  } catch (error) {
+    throw fromWasmError(error, operation)
   }
 }
 

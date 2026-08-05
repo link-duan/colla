@@ -4,9 +4,9 @@
 //! detail of the handwritten `@colla/core` facade.
 
 use colla::{
-    apply, ApplyError, AttrChange, AttrPatch, AttrValue, Attrs, BuildError, Change, ChangeBuilder,
-    CodecError, ComposeError, InputLimits, Path, PathSeg, RichInsert, RichText, Value, ValueKind,
-    ValueType,
+    apply, compose, invert, transform_pair, ApplyError, AttrChange, AttrPatch, AttrValue, Attrs,
+    BuildError, Change, ChangeBuilder, CodecError, ComposeError, InputLimits, InvertError, Path,
+    PathSeg, RichInsert, RichText, TieBreak, TransformError, Value, ValueKind, ValueType,
 };
 use serde_json::{json, Value as JsonValue};
 use wasm_bindgen::prelude::*;
@@ -437,6 +437,15 @@ impl BuilderHandle {
             .map_err(|error| build_error(error, "rich_text_format"))
     }
 
+    #[wasm_bindgen(js_name = intAdd)]
+    pub fn int_add(&mut self, path: &str, delta: i64) -> Result<(), JsValue> {
+        let path = parse_path(path, "int_add")?;
+        self.builder_mut()?
+            .int_add(&path, delta)
+            .map(|_| ())
+            .map_err(|error| build_error(error, "int_add"))
+    }
+
     #[wasm_bindgen(js_name = cloneForScope)]
     pub fn clone_for_scope(&self) -> Result<Self, JsValue> {
         let builder = self.builder.as_ref().ok_or_else(|| {
@@ -490,7 +499,63 @@ impl BuilderHandle {
 pub fn apply_handles(base: &ValueHandle, change: &ChangeHandle) -> Result<ValueHandle, JsValue> {
     apply(&base.value, &change.change)
         .map(|value| ValueHandle { value })
-        .map_err(|error| wasm_error("incompatible_change", "apply", error.to_string()))
+        .map_err(|error| apply_error(error, "apply"))
+}
+
+#[wasm_bindgen(js_name = composeHandles)]
+pub fn compose_handles(
+    first: &ChangeHandle,
+    second: &ChangeHandle,
+) -> Result<ChangeHandle, JsValue> {
+    compose(&first.change, &second.change)
+        .map(|change| ChangeHandle { change })
+        .map_err(|error| compose_error(error, "compose"))
+}
+
+#[wasm_bindgen(js_name = invertHandle)]
+pub fn invert_handle(change: &ChangeHandle, base: &ValueHandle) -> Result<ChangeHandle, JsValue> {
+    invert(&change.change, &base.value)
+        .map(|change| ChangeHandle { change })
+        .map_err(|error| invert_error(error, "invert"))
+}
+
+#[wasm_bindgen]
+pub struct TransformPairHandle {
+    left: Change,
+    right: Change,
+}
+
+#[wasm_bindgen]
+impl TransformPairHandle {
+    #[wasm_bindgen(js_name = leftHandle)]
+    pub fn left_handle(&self) -> ChangeHandle {
+        ChangeHandle {
+            change: self.left.clone(),
+        }
+    }
+
+    #[wasm_bindgen(js_name = rightHandle)]
+    pub fn right_handle(&self) -> ChangeHandle {
+        ChangeHandle {
+            change: self.right.clone(),
+        }
+    }
+}
+
+#[wasm_bindgen(js_name = transformPairHandles)]
+pub fn transform_pair_handles(
+    left: &ChangeHandle,
+    right: &ChangeHandle,
+    left_first: bool,
+) -> Result<TransformPairHandle, JsValue> {
+    let order = if left_first {
+        TieBreak::LeftFirst
+    } else {
+        TieBreak::RightFirst
+    };
+    transform_pair(&left.change, &right.change, order)
+        .map(|(left, right)| TransformPairHandle { left, right })
+        .map_err(|error| transform_error(error, "transform_pair"))
 }
 
 #[wasm_bindgen(js_name = resolveCodePointPositionHandle)]
@@ -618,6 +683,46 @@ fn build_error(error: BuildError, operation: &'static str) -> JsValue {
             json!({ "reason": error.to_string() }),
         ),
         _ => wasm_error("invalid_argument", operation, error.to_string()),
+    }
+}
+
+fn compose_error(error: ComposeError, operation: &'static str) -> JsValue {
+    match error {
+        ComposeError::Apply(error) => apply_error(error, operation),
+        ComposeError::IncompatibleKinds { left, right } => wasm_error_details(
+            "incompatible_change",
+            operation,
+            json!({ "reason": "kind_mismatch", "left": left, "right": right }),
+        ),
+        ComposeError::IncompatibleMapEntry(key) => wasm_error_details(
+            "incompatible_change",
+            operation,
+            json!({ "reason": "map_entry_conflict", "key": key }),
+        ),
+        _ => wasm_error("incompatible_change", operation, error.to_string()),
+    }
+}
+
+fn transform_error(error: TransformError, operation: &'static str) -> JsValue {
+    match error {
+        TransformError::IncompatibleKinds { left, right } => wasm_error_details(
+            "incompatible_change",
+            operation,
+            json!({ "reason": "kind_mismatch", "left": left, "right": right }),
+        ),
+        TransformError::IncompatibleMapEntry(key) => wasm_error_details(
+            "incompatible_change",
+            operation,
+            json!({ "reason": "map_entry_conflict", "key": key }),
+        ),
+        _ => wasm_error("incompatible_change", operation, error.to_string()),
+    }
+}
+
+fn invert_error(error: InvertError, operation: &'static str) -> JsValue {
+    match error {
+        InvertError::Apply(error) => apply_error(error, operation),
+        _ => wasm_error("incompatible_change", operation, error.to_string()),
     }
 }
 
