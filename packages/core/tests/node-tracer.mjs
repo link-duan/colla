@@ -262,6 +262,16 @@ try {
     assert.equal(richData.spans[0].attrs.opacity, 0.5)
     assert.equal(richData.spans[1].value.id, "one")
     assert.ok(Object.isFrozen(richData.spans[1].value))
+    const richValueGolden = Uint8Array.from([
+      7, 3, 0, 6, 65, 240, 159, 152, 128, 66, 4, 4, 98, 111, 108, 100, 1, 5, 99,
+      111, 117, 110, 116, 2, 4, 5, 108, 97, 98, 101, 108, 4, 4, 98, 97, 115, 101,
+      7, 111, 112, 97, 99, 105, 116, 121, 3, 0, 0, 0, 0, 0, 0, 224, 63, 1, 9, 1,
+      2, 105, 100, 5, 3, 111, 110, 101, 2, 4, 98, 111, 108, 100, 1, 4, 107, 105,
+      110, 100, 4, 7, 109, 101, 110, 116, 105, 111, 110, 0, 1, 67, 0,
+    ])
+    assert.deepEqual(richBase.encode(), richValueGolden)
+    const rustRichBase = Value.decode(richValueGolden)
+    assert.deepEqual(rustRichBase.toJS(), richBase.toJS())
     assert.equal(resolveCodePointPosition(richBase, [], 4), 3)
     assert.equal(resolveCodePointPosition(richBase, [], 5), 4)
     assert.equal(resolveUtf16Position(richBase, [], 4), 5)
@@ -363,7 +373,7 @@ try {
       .replace(["replace"], "final")
       .build()
     const algebraCombined = compose(algebraFirst, algebraSecond)
-    assert.deepEqual(algebraCombined.encode(), Uint8Array.from([
+    const combinedGolden = Uint8Array.from([
       2, 6, 5, 99, 111, 117, 110, 116, 2, 6, 10, 5, 105, 116, 101, 109, 115, 2,
       3, 2, 1, 1, 5, 1, 120, 2, 1, 4, 109, 101, 116, 97, 2, 2, 2, 5, 111, 119,
       110, 101, 114, 0, 5, 4, 116, 101, 97, 109, 6, 115, 116, 97, 116, 117, 115,
@@ -372,8 +382,13 @@ try {
       2, 5, 2, 0, 1, 1, 5, 99, 111, 108, 111, 114, 0, 4, 3, 114, 101, 100, 1, 0,
       1, 88, 2, 4, 98, 111, 108, 100, 1, 5, 99, 111, 108, 111, 114, 4, 3, 114,
       101, 100, 5, 116, 105, 116, 108, 101, 2, 4, 2, 1, 1, 88, 2, 1,
-    ]))
+    ])
+    assert.deepEqual(algebraCombined.encode(), combinedGolden)
+    const rustCombined = Change.decode(combinedGolden)
+    assert.deepEqual(rustCombined.encode(), algebraCombined.encode())
     const algebraFinal = apply(algebraBase, algebraCombined)
+    const rustCombinedFinal = apply(algebraBase, rustCombined)
+    assert.deepEqual(rustCombinedFinal.toJS(), algebraFinal.toJS())
     const algebraSequential = apply(algebraMiddle, algebraSecond)
     assert.deepEqual(algebraFinal.toJS(), algebraSequential.toJS())
     const algebraInverse = invert(algebraCombined, algebraBase)
@@ -684,6 +699,10 @@ try {
     const next = apply(clone, decodedChange)
     assert.equal(next.toJS(), "published value larger than receiver input policy")
     assert.equal(clone.toJS(), "draft")
+    const independentChangeClone = decodedChange.clone()
+    decodedChange.dispose()
+    const cloneNext = apply(clone, independentChangeClone)
+    assert.equal(cloneNext.toJS(), "published value larger than receiver input policy")
 
     assert.throws(
       () => Change.decode(changeBytes, { limits: { maxChangeNodes: 0 } }),
@@ -693,6 +712,20 @@ try {
     assert.throws(() => Change.decode(Uint8Array.of(255)), error =>
       error instanceof CollaError && error.code === "invalid_encoding" &&
       error.operation === "change_decode" && Object.isFrozen(error.details))
+    for (const malformed of [
+      Uint8Array.of(255),
+      Uint8Array.of(5, 1, 255),
+      Uint8Array.of(0, 0),
+      Uint8Array.of(8, 128, 0),
+      Uint8Array.of(4, 0, 0, 0, 0, 0, 0, 0, 128),
+    ]) {
+      assert.throws(() => Value.decode(malformed), error =>
+        error instanceof CollaError && error.code === "invalid_encoding" &&
+        error.operation === "value_decode")
+    }
+    assert.throws(() => Change.decode(Uint8Array.of(4, 2, 0, 1, 0, 2)), error =>
+      error instanceof CollaError && error.code === "invalid_encoding" &&
+      error.operation === "change_decode")
 
     for (const handle of [
       composite,
@@ -710,6 +743,7 @@ try {
       textRollbackChange,
       textRollbackNext,
       richBase,
+      rustRichBase,
       richChange,
       richNext,
       richRollbackChange,
@@ -722,7 +756,9 @@ try {
       algebraMiddle,
       algebraSecond,
       algebraCombined,
+      rustCombined,
       algebraFinal,
+      rustCombinedFinal,
       algebraSequential,
       algebraInverse,
       algebraRestored,
@@ -767,6 +803,8 @@ try {
       decodedBase,
       change,
       decodedChange,
+      independentChangeClone,
+      cloneNext,
       next,
     ]) {
       handle.dispose()

@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy,rustfmt
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --workspace
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: RUSTDOCFLAGS='-D warnings' cargo doc --workspace --no-deps
+      - run: cargo fmt --all --check
+
+  javascript:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [20, 24]
+        bundlers:
+          - name: minimum
+            vite: 5.0.0
+            rollup: 4.0.0
+            node_resolve: 16.0.0
+          - name: latest
+            vite: latest
+            rollup: latest
+            node_resolve: latest
+    name: JavaScript (Node ${{ matrix.node }}, ${{ matrix.bundlers.name }})
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.12.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo install wasm-pack --version 0.14.0 --locked
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm check
+      - run: pnpm test:js
+        env:
+          COLLA_VITE_VERSION: ${{ matrix.bundlers.vite }}
+          COLLA_ROLLUP_VERSION: ${{ matrix.bundlers.rollup }}
+          COLLA_NODE_RESOLVE_VERSION: ${{ matrix.bundlers.node_resolve }}

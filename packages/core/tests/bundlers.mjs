@@ -1,12 +1,10 @@
 import assert from "node:assert/strict"
 import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join, resolve } from "node:path"
+import { dirname, join, resolve } from "node:path"
 import { pathToFileURL, fileURLToPath } from "node:url"
 import { execFileSync } from "node:child_process"
-import { nodeResolve } from "@rollup/plugin-node-resolve"
-import { rollup } from "rollup"
-import { build as viteBuild, createServer } from "vite"
+import { createRequire } from "node:module"
 
 const packageDir = resolve(fileURLToPath(new URL("..", import.meta.url)))
 const fixtureDir = await mkdtemp(join(tmpdir(), "colla-bundlers-"))
@@ -37,6 +35,28 @@ try {
     cwd: fixtureDir,
     stdio: "inherit",
   })
+  execFileSync("npm", [
+    "install",
+    "--no-save",
+    `vite@${process.env.COLLA_VITE_VERSION ?? "5.4.19"}`,
+    `rollup@${process.env.COLLA_ROLLUP_VERSION ?? "4.46.2"}`,
+    `@rollup/plugin-node-resolve@${process.env.COLLA_NODE_RESOLVE_VERSION ?? "16.0.1"}`,
+  ], {
+    cwd: fixtureDir,
+    stdio: "inherit",
+  })
+  const fixtureRequire = createRequire(join(fixtureDir, "package.json"))
+  const vitePackageDir = dirname(fixtureRequire.resolve("vite/package.json"))
+  const vite = await import(pathToFileURL(join(vitePackageDir, "dist/node/index.js")))
+  const rollupModule = await import(pathToFileURL(fixtureRequire.resolve("rollup")))
+  const resolveModule = await import(pathToFileURL(
+    fixtureRequire.resolve("@rollup/plugin-node-resolve"),
+  ))
+  const viteApi = vite
+  const rollupApi = rollupModule.rollup === undefined ? rollupModule.default : rollupModule
+  const { build: viteBuild, createServer } = viteApi
+  const { rollup } = rollupApi
+  const nodeResolve = resolveModule.nodeResolve ?? resolveModule.default
 
   await writeFixture("main.js")
   await writeFixture("ssr.js")
@@ -56,7 +76,11 @@ try {
     const ssr = await server.ssrLoadModule("/ssr.js")
     assert.equal(ssr.result, "after")
   } finally {
-    await server.close()
+    server.httpServer?.closeAllConnections?.()
+    await Promise.race([
+      server.close(),
+      new Promise(resolveClose => setTimeout(resolveClose, 100)),
+    ])
   }
 
   const viteOut = join(fixtureDir, "vite-dist")
@@ -82,6 +106,8 @@ try {
     await bundle.close()
     const module = await import(`${pathToFileURL(output)}?v=${Date.now()}`)
     assert.equal(module.result, "after")
+    if (entry === "dedicated-worker.js") assert.equal(globalThis.workerResult, "after")
+    if (entry === "shared-worker.js") assert.equal(globalThis.sharedWorkerResult, "after")
   }
 
   const installedPackage = JSON.parse(
