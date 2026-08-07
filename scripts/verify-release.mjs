@@ -76,11 +76,35 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
   })
 }
 
+function resolveNpmVersion(name, requested) {
+  const output = execFileSync("npm", ["view", `${name}@${requested}`, "version", "--json"], {
+    encoding: "utf8",
+  })
+  const resolved = JSON.parse(output)
+  assert.equal(typeof resolved, "string", `${name}@${requested} did not resolve exactly`)
+  assert.match(resolved, semverPattern, `${name}@${requested} resolved to invalid SemVer`)
+  return resolved
+}
+
 function runJavaScriptConsumers(version) {
+  const dependencies = {
+    vite: resolveNpmVersion("vite", process.env.COLLA_VITE_VERSION ?? "5.4.19"),
+    rollup: resolveNpmVersion("rollup", process.env.COLLA_ROLLUP_VERSION ?? "4.46.2"),
+    nodeResolve: resolveNpmVersion(
+      "@rollup/plugin-node-resolve",
+      process.env.COLLA_NODE_RESOLVE_VERSION ?? "16.0.1",
+    ),
+  }
+  const browserContexts = process.env.COLLA_RUN_BROWSER === "1"
+    ? ["main", "dedicated-worker", "shared-worker"]
+    : []
   const environment = {
     ...process.env,
     COLLA_PACKAGE_SPEC: `@colla/core@${version}`,
     COLLA_EXPECTED_PACKAGE_VERSION: version,
+    COLLA_VITE_VERSION: dependencies.vite,
+    COLLA_ROLLUP_VERSION: dependencies.rollup,
+    COLLA_NODE_RESOLVE_VERSION: dependencies.nodeResolve,
   }
   for (const test of ["node-tracer.mjs", "bundlers.mjs"]) {
     execFileSync(process.execPath, [resolve(workspaceDir, "packages/core/tests", test)], {
@@ -96,6 +120,7 @@ function runJavaScriptConsumers(version) {
       stdio: "inherit",
     })
   }
+  return { dependencies, browserContexts }
 }
 
 const { version, output } = readArguments(process.argv.slice(2))
@@ -112,7 +137,7 @@ try {
   assert.ok(npmMetadata.dist?.integrity, "npm integrity is missing")
 
   await runRustConsumer(version, fixtureDir)
-  runJavaScriptConsumers(version)
+  const javaScript = runJavaScriptConsumers(version)
 
   const evidence = {
     version,
@@ -133,6 +158,7 @@ try {
       integrity: npmMetadata.dist.integrity,
       tarball: npmMetadata.dist.tarball,
     },
+    javaScript,
   }
   const serialized = `${JSON.stringify(evidence, null, 2)}\n`
   if (output !== undefined) {
