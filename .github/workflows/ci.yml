@@ -9,6 +9,14 @@ permissions:
   contents: read
 
 jobs:
+  rust-msrv:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.81.0
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo check -p colla --lib --locked
+
   rust:
     runs-on: ubuntu-latest
     steps:
@@ -28,7 +36,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: [20, 24]
+        node: [22, 24]
         bundlers:
           - name: minimum
             vite: 5.0.0

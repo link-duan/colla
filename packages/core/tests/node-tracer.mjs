@@ -1,24 +1,35 @@
 import assert from "node:assert/strict"
 import { execFileSync } from "node:child_process"
-import { mkdtemp, rm, writeFile } from "node:fs/promises"
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 const packageDir = resolve(fileURLToPath(new URL("..", import.meta.url)))
 const fixtureDir = await mkdtemp(join(tmpdir(), "colla-node-tracer-"))
+const packageSpec = process.env.COLLA_PACKAGE_SPEC
 
 try {
-  execFileSync("pnpm", ["pack", "--pack-destination", fixtureDir], {
-    cwd: packageDir,
-    stdio: "inherit",
-  })
-  const tarball = join(fixtureDir, "colla-core-0.1.0.tgz")
+  let installSpec = packageSpec
+  if (installSpec === undefined) {
+    execFileSync("pnpm", ["pack", "--pack-destination", fixtureDir], {
+      cwd: packageDir,
+      stdio: "inherit",
+    })
+    installSpec = join(fixtureDir, "colla-core-0.1.0.tgz")
+  }
   await writeFile(join(fixtureDir, "package.json"), JSON.stringify({ type: "module" }))
-  execFileSync("npm", ["install", "--ignore-scripts", tarball], {
+  execFileSync("npm", ["install", "--ignore-scripts", "--save-exact", installSpec], {
     cwd: fixtureDir,
     stdio: "inherit",
   })
+  const installedPackage = JSON.parse(await readFile(
+    join(fixtureDir, "node_modules/@colla/core/package.json"),
+    "utf8",
+  ))
+  if (process.env.COLLA_EXPECTED_PACKAGE_VERSION !== undefined) {
+    assert.equal(installedPackage.version, process.env.COLLA_EXPECTED_PACKAGE_VERSION)
+  }
 
   const fixture = `
     import assert from "node:assert/strict"

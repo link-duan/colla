@@ -1,27 +1,39 @@
 name: Release
 
 on:
+  push:
+    tags:
+      - "v*"
   workflow_dispatch:
     inputs:
-      version:
-        description: Exact coordinated SemVer to release
+      tag:
+        description: Existing release tag to resume
         required: true
         type: string
-      publish:
-        description: Publish after every preflight succeeds
-        required: true
-        default: false
-        type: boolean
 
 permissions:
-  contents: read
+  contents: write
   id-token: write
+
+env:
+  RELEASE_TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
+
+concurrency:
+  group: release-${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
+  cancel-in-progress: false
 
 jobs:
   preflight:
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      crate_published: ${{ steps.registry.outputs.crate_published }}
+      npm_published: ${{ steps.registry.outputs.npm_published }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+          fetch-depth: 0
       - uses: pnpm/action-setup@v4
         with:
           version: 10.34.5
@@ -34,50 +46,174 @@ jobs:
         with:
           components: clippy,rustfmt
           targets: wasm32-unknown-unknown
+      - run: rustup toolchain install 1.81.0 --profile minimal
       - uses: Swatinem/rust-cache@v2
       - run: cargo install wasm-pack --version 0.14.0 --locked
       - run: pnpm install --frozen-lockfile
+      - id: version
+        name: Validate release tag and version
+        run: |
+          version="${RELEASE_TAG#v}"
+          test "$RELEASE_TAG" = "v$version"
+          test "$(node -p "require('./packages/core/package.json').version")" = "$version"
+          git cat-file -e "refs/tags/$RELEASE_TAG^{tag}"
+          test "$(git rev-list -n 1 "$RELEASE_TAG")" = "$(git rev-parse HEAD)"
+          grep -F "## [$version] - " CHANGELOG.md
+          ! grep -F "## [$version] - Unreleased" CHANGELOG.md
+          echo "version=$version" >> "$GITHUB_OUTPUT"
       - run: pnpm check:versions
-      - name: Check requested version
-        run: test "$(node -p "require('./packages/core/package.json').version")" = "${{ inputs.version }}"
+      - run: cargo +1.81.0 check -p colla --lib --locked
       - run: cargo test --workspace
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: RUSTDOCFLAGS='-D warnings' cargo doc --workspace --no-deps
       - run: cargo fmt --all --check
       - run: pnpm check
       - run: pnpm test:js
-      - run: pnpm release:preflight
+      - run: cargo publish -p colla --registry crates-io --dry-run
+      - run: pnpm --filter @colla/core exec npm publish --dry-run --registry https://registry.npmjs.org
+      - name: Build release candidates
+        run: |
+          mkdir -p artifacts
+          cargo package -p colla --locked
+          cp "target/package/colla-${{ steps.version.outputs.version }}.crate" artifacts/
+          pnpm --filter @colla/core pack --pack-destination "$GITHUB_WORKSPACE/artifacts"
+          node scripts/prepare-release.mjs \
+            --tag "$RELEASE_TAG" \
+            --crate "artifacts/colla-${{ steps.version.outputs.version }}.crate" \
+            --npm "artifacts/colla-core-${{ steps.version.outputs.version }}.tgz" \
+            --output artifacts/release-candidate.json
+      - id: registry
+        name: Inspect registries
+        run: node scripts/check-release-state.mjs --manifest artifacts/release-candidate.json --output artifacts/registry-before.json
       - run: pnpm --filter @colla/core measure --output "$GITHUB_WORKSPACE/artifacts/quality-baseline.json"
       - uses: actions/upload-artifact@v4
         with:
-          name: release-candidate-${{ inputs.version }}
-          path: artifacts/quality-baseline.json
+          name: release-candidate-${{ steps.version.outputs.version }}
+          path: artifacts
+
+  draft-release:
+    needs: preflight
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-candidate-${{ needs.preflight.outputs.version }}
+          path: artifacts
+      - name: Create or reuse draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            test "$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft)" = "true"
+          else
+            gh release create "$RELEASE_TAG" \
+              --draft \
+              --verify-tag \
+              --title "Colla Core ${{ needs.preflight.outputs.version }}" \
+              --notes-file CHANGELOG.md
+          fi
+          gh release upload "$RELEASE_TAG" artifacts/release-candidate.json --clobber
 
   publish:
-    if: ${{ inputs.publish }}
-    needs: preflight
+    needs: [preflight, draft-release]
     runs-on: ubuntu-latest
     environment: release
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-candidate-${{ needs.preflight.outputs.version }}
+          path: artifacts
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - uses: dtolnay/rust-toolchain@stable
+      - id: registry
+        run: node scripts/check-release-state.mjs --manifest artifacts/release-candidate.json
+      - name: Publish Rust crate
+        if: steps.registry.outputs.crate_published != 'true'
+        run: cargo publish -p colla --registry crates-io --token "$CARGO_REGISTRY_TOKEN"
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+      - name: Wait for crates.io
+        run: node scripts/check-release-state.mjs --manifest artifacts/release-candidate.json --require crate --attempts 12
+      - name: Publish npm package
+        if: steps.registry.outputs.npm_published != 'true'
+        run: npm publish "artifacts/colla-core-${{ needs.preflight.outputs.version }}.tgz" --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Wait for both registries
+        run: node scripts/check-release-state.mjs --manifest artifacts/release-candidate.json --require all --attempts 12 --output artifacts/registry-after.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: registry-state-${{ needs.preflight.outputs.version }}
+          path: artifacts/registry-after.json
+
+  verify-public:
+    needs: [preflight, publish]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [22, 24]
+        bundlers:
+          - name: minimum
+            vite: 5.0.0
+            rollup: 4.0.0
+            node_resolve: 16.0.0
+          - name: latest
+            vite: latest
+            rollup: latest
+            node_resolve: latest
+    name: Verify public (Node ${{ matrix.node }}, ${{ matrix.bundlers.name }})
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
       - uses: pnpm/action-setup@v4
         with:
           version: 10.34.5
       - uses: actions/setup-node@v4
         with:
-          node-version: 24
-          cache: pnpm
-          registry-url: https://registry.npmjs.org
+          node-version: ${{ matrix.node }}
       - uses: dtolnay/rust-toolchain@stable
+      - name: Verify exact public artifacts
+        run: |
+          node scripts/verify-release.mjs \
+            --version "${{ needs.preflight.outputs.version }}" \
+            --output "artifacts/release-${{ needs.preflight.outputs.version }}-node-${{ matrix.node }}-${{ matrix.bundlers.name }}.json"
+        env:
+          COLLA_VITE_VERSION: ${{ matrix.bundlers.vite }}
+          COLLA_ROLLUP_VERSION: ${{ matrix.bundlers.rollup }}
+          COLLA_NODE_RESOLVE_VERSION: ${{ matrix.bundlers.node_resolve }}
+      - uses: actions/upload-artifact@v4
         with:
-          targets: wasm32-unknown-unknown
-      - run: cargo install wasm-pack --version 0.14.0 --locked
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm check:versions
-      - run: cargo publish -p colla --registry crates-io --token "$CARGO_REGISTRY_TOKEN"
+          name: public-evidence-node-${{ matrix.node }}-${{ matrix.bundlers.name }}
+          path: artifacts/*.json
+
+  promote-release:
+    needs: [preflight, verify-public]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: public-evidence-*
+          path: evidence
+          merge-multiple: true
+      - name: Upload evidence and publish GitHub Release
         env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-      - run: npm publish --access public --provenance
-        working-directory: packages/core
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "$RELEASE_TAG" evidence/*.json --clobber --repo "$GITHUB_REPOSITORY"
+          gh release edit "$RELEASE_TAG" --draft=false --repo "$GITHUB_REPOSITORY"
+          gh issue comment 14 \
+            --repo "$GITHUB_REPOSITORY" \
+            --body "Release $RELEASE_TAG published and publicly verified: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"

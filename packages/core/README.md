@@ -14,6 +14,11 @@ Node.js 22 or newer is supported through ESM. Vite and Rollup can consume the
 same package with ordinary module resolution; no Wasm, top-level-await or asset
 copy plugin is required.
 
+The Rust crate and npm package share one version. Patch releases in the 0.1
+line preserve public API and wire compatibility; a later pre-1.0 minor may make
+documented breaking changes. See the repository changelog and release runbook
+for the complete policy and supported release procedure.
+
 ## Values and changes
 
 ```ts

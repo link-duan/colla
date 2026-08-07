@@ -8,6 +8,7 @@ import { createRequire } from "node:module"
 
 const packageDir = resolve(fileURLToPath(new URL("..", import.meta.url)))
 const fixtureDir = await mkdtemp(join(tmpdir(), "colla-bundlers-"))
+const packageSpec = process.env.COLLA_PACKAGE_SPEC
 
 async function writeFixture(name, extra = "") {
   await writeFile(join(fixtureDir, name), `
@@ -25,13 +26,16 @@ async function writeFixture(name, extra = "") {
 }
 
 try {
-  execFileSync("pnpm", ["pack", "--pack-destination", fixtureDir], {
-    cwd: packageDir,
-    stdio: "inherit",
-  })
-  const tarball = join(fixtureDir, "colla-core-0.1.0.tgz")
+  let installSpec = packageSpec
+  if (installSpec === undefined) {
+    execFileSync("pnpm", ["pack", "--pack-destination", fixtureDir], {
+      cwd: packageDir,
+      stdio: "inherit",
+    })
+    installSpec = join(fixtureDir, "colla-core-0.1.0.tgz")
+  }
   await writeFile(join(fixtureDir, "package.json"), JSON.stringify({ type: "module" }))
-  execFileSync("npm", ["install", "--ignore-scripts", tarball], {
+  execFileSync("npm", ["install", "--ignore-scripts", "--save-exact", installSpec], {
     cwd: fixtureDir,
     stdio: "inherit",
   })
@@ -116,6 +120,9 @@ try {
       "utf8",
     ),
   )
+  if (process.env.COLLA_EXPECTED_PACKAGE_VERSION !== undefined) {
+    assert.equal(installedPackage.version, process.env.COLLA_EXPECTED_PACKAGE_VERSION)
+  }
   assert.deepEqual(Object.keys(installedPackage.exports), ["."])
   const installedDist = join(fixtureDir, "node_modules/@colla/core/dist")
   assert.ok((await readdir(installedDist)).includes("browser.js"))
