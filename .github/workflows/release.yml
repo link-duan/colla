@@ -28,8 +28,6 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
-      crate_published: ${{ steps.registry.outputs.crate_published }}
-      npm_published: ${{ steps.registry.outputs.npm_published }}
     steps:
       - uses: actions/checkout@v4
         with:
