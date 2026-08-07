@@ -2,6 +2,9 @@
 
 Rust-native Operational Transformation primitives for immutable nested values.
 
+The published `colla` library supports Rust 1.81 or newer. Coordinated
+JavaScript releases support Node.js 22+, Vite 5+ and Rollup 4+.
+
 The core model is a closed `Value` tree and one recursive, canonical `Change`.
 It provides functional Apply, sequential Compose, pairwise Transform (TP1),
 Invert, snapshot-aware `ChangeBuilder`, and a strict canonical binary body codec.

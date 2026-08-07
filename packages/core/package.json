@@ -29,11 +29,13 @@
     "check": "pnpm build && pnpm exec tsc -p tsconfig.json --noEmit",
     "measure": "node scripts/measure.mjs",
     "test": "node tests/node-tracer.mjs && node tests/bundlers.mjs",
+    "test:e2e": "node e2e/run.mjs",
     "prepack": "pnpm build"
   },
   "devDependencies": {
-    "@types/node": "^24.0.0",
+    "@playwright/test": "1.54.2",
     "@rollup/plugin-node-resolve": "^16.0.1",
+    "@types/node": "^24.0.0",
     "rollup": "^4.46.2",
     "typescript": "^5.9.2",
     "vite": "^5.4.19"

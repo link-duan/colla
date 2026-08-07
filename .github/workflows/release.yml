@@ -14,6 +14,7 @@ on:
 permissions:
   contents: write
   id-token: write
+  issues: write
 
 env:
   RELEASE_TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
@@ -185,6 +186,12 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
       - uses: dtolnay/rust-toolchain@stable
+      - name: Install workspace dependencies for browser smoke tests
+        if: matrix.node == 24 && matrix.bundlers.name == 'latest'
+        run: pnpm install --frozen-lockfile
+      - name: Install Chromium for browser smoke tests
+        if: matrix.node == 24 && matrix.bundlers.name == 'latest'
+        run: pnpm --filter @colla/core exec playwright install --with-deps chromium
       - name: Verify exact public artifacts
         run: |
           node scripts/verify-release.mjs \
@@ -194,6 +201,7 @@ jobs:
           COLLA_VITE_VERSION: ${{ matrix.bundlers.vite }}
           COLLA_ROLLUP_VERSION: ${{ matrix.bundlers.rollup }}
           COLLA_NODE_RESOLVE_VERSION: ${{ matrix.bundlers.node_resolve }}
+          COLLA_RUN_BROWSER: ${{ matrix.node == 24 && matrix.bundlers.name == 'latest' && '1' || '0' }}
       - uses: actions/upload-artifact@v4
         with:
           name: public-evidence-node-${{ matrix.node }}-${{ matrix.bundlers.name }}
@@ -213,7 +221,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release upload "$RELEASE_TAG" evidence/*.json --clobber --repo "$GITHUB_REPOSITORY"
-          gh release edit "$RELEASE_TAG" --draft=false --repo "$GITHUB_REPOSITORY"
           gh issue comment 14 \
             --repo "$GITHUB_REPOSITORY" \
-            --body "Release $RELEASE_TAG published and publicly verified: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            --body "Public artifacts for $RELEASE_TAG verified; promoting the GitHub Release: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          gh release edit "$RELEASE_TAG" --draft=false --repo "$GITHUB_REPOSITORY"

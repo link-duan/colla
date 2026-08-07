@@ -10,9 +10,10 @@ used by Rust and JavaScript.
 pnpm add @colla/core
 ```
 
-Node.js 22 or newer is supported through ESM. Vite and Rollup can consume the
-same package with ordinary module resolution; no Wasm, top-level-await or asset
-copy plugin is required.
+Node.js 22 or newer is supported through ESM. Vite 5 or newer and Rollup 4 or
+newer can consume the same package with ordinary module resolution; no Wasm,
+top-level-await or asset copy plugin is required. The corresponding Rust crate
+supports Rust 1.81 or newer.
 
 The Rust crate and npm package share one version. Patch releases in the 0.1
 line preserve public API and wire compatibility; a later pre-1.0 minor may make

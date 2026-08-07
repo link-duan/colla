@@ -89,6 +89,13 @@ function runJavaScriptConsumers(version) {
       stdio: "inherit",
     })
   }
+  if (process.env.COLLA_RUN_BROWSER === "1") {
+    execFileSync("pnpm", ["--filter", "@colla/core", "test:e2e"], {
+      cwd: workspaceDir,
+      env: environment,
+      stdio: "inherit",
+    })
+  }
 }
 
 const { version, output } = readArguments(process.argv.slice(2))

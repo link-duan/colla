@@ -28,6 +28,7 @@ cargo +1.81.0 check -p colla --lib --locked
 pnpm install --frozen-lockfile
 pnpm check
 pnpm test:js
+pnpm test:e2e
 pnpm release:preflight
 ```
 
