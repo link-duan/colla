@@ -5,6 +5,11 @@ Colla 定义不可变嵌套文档及其 Operational Transformation 领域语言�
 
 ## Language
 
+**Colla Core**:
+定义 Core Value、Change、Builder、OT 代数和规范 codec 的基础能力边界；它不拥有
+Document、Session、历史、同步协议、网络传输或其他应用层协作状态。
+_Avoid_: Collaboration runtime, document framework
+
 **Core Value**:
 Colla 支持的不可变、封闭值树；它不等同于任意 JavaScript value。
 _Avoid_: Document, JSON value
@@ -32,6 +37,16 @@ _Avoid_: Timestamp, operation identity
 **Canonical form**:
 同一 Colla 语义唯一合法的结构与编码表示。
 _Avoid_: Normal-looking form
+
+**Wire compatibility**:
+不同 Colla 版本能否直接交换或读取规范二进制 body；它独立于单一版本内的
+Canonical form，不因编码唯一就自动成立。
+_Avoid_: Canonical encoding
+
+**Conformance corpus**:
+版本化的规范输入、输出、规范字节和错误 fixtures，用于验证不同 Colla 实现遵守
+同一数据模型与 OT 语义。
+_Avoid_: Unit test snapshots
 
 **String**:
 只能整体替换的原子字符串，不参与字符级 Operational Transformation。

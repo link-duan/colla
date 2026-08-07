@@ -12,7 +12,7 @@ Value、Change、ChangeBuilder、Apply、Compose、TransformPair、Invert、规�
 
 支持下限：
 
-- Node.js 20+ ESM。
+- Node.js 22+ ESM。
 - Vite 5+。
 - Rollup 4+ 和常规 node_modules resolver，不要求 Wasm 插件。
 - Browser main thread、Dedicated Worker 和 Shared Worker。

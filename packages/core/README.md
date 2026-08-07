@@ -10,7 +10,7 @@ used by Rust and JavaScript.
 pnpm add @colla/core
 ```
 
-Node.js 20 or newer is supported through ESM. Vite and Rollup can consume the
+Node.js 22 or newer is supported through ESM. Vite and Rollup can consume the
 same package with ordinary module resolution; no Wasm, top-level-await or asset
 copy plugin is required.
 

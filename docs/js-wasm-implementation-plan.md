@@ -135,7 +135,7 @@ packaging tests 必须先 `pnpm pack`/`npm pack`，然后在 workspace 之外的
 
 矩阵：
 
-- Node.js 20+ ESM。
+- Node.js 22+ ESM。
 - Vite 5 最低版本与当前最新稳定版：dev + build + SSR。
 - Rollup 4 最低版本与当前最新稳定版。
 - Browser main thread、Dedicated Worker、Shared Worker。

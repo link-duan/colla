@@ -31,7 +31,7 @@ top-level await、Wasm plugin、资源复制配置或公开初始化步骤。
 2. As a JavaScript application developer, I want the npm package to reuse the Rust core, so that JavaScript and Rust do not drift into different OT semantics.
 3. As a Vite user, I want the package to work without a Wasm plugin, so that adopting Colla does not require custom bundler configuration.
 4. As a Rollup user, I want the package to work with only normal node module resolution, so that I do not need resource-copy or top-level-await plugins.
-5. As a Node.js ESM user, I want synchronous imports and operations on Node.js 20+, so that Colla fits ordinary server code.
+5. As a Node.js ESM user, I want synchronous imports and operations on Node.js 22+, so that Colla fits ordinary server code.
 6. As a browser developer, I want the same public imports in browser and Node.js, so that environment packaging details stay internal.
 7. As a web worker developer, I want the browser entry to avoid DOM dependencies, so that I can use Colla in Dedicated and Shared Workers.
 8. As a library consumer, I want Wasm initialization to be hidden, so that I do not need to call `init()` or await a factory.
@@ -110,7 +110,7 @@ top-level await、Wasm plugin、资源复制配置或公开初始化步骤。
 - One CollaError class exposes stable reason-oriented lower_snake_case codes, a separate lower_snake_case operation, optional Path and code-specific frozen details. Message text and Rust enum names are not contractual.
 - Value, Change and root Builder provide idempotent dispose and Symbol.dispose. FinalizationRegistry is only a nondeterministic fallback. Value and Change provide cheap independent clones; Builder does not.
 - `DEFAULT_INPUT_LIMITS` is exported as a frozen value. `InputOptions` can provide partial overrides only to `Value.fromJS()` and Value/Change decode, are read synchronously and are not retained. Builder ValueInput remains semantically validated but is trusted for size; operations and results never read InputLimits.
-- The supported baseline is Node.js 20+, Vite 5+ and Rollup 4+. Browser support covers main thread, Dedicated Worker and Shared Worker. CommonJS, Deno, Bun, Service Worker and edge workers are not v1 commitments.
+- The supported baseline is Node.js 22+, Vite 5+ and Rollup 4+. Browser support covers main thread, Dedicated Worker and Shared Worker. CommonJS, Deno, Bun, Service Worker and edge workers are not v1 commitments.
 - The first implementation records size and performance baselines. Absolute budgets and regression thresholds are set only after repeatable measurements exist.
 
 ## Testing Decisions
@@ -122,7 +122,7 @@ top-level await、Wasm plugin、资源复制配置或公开初始化步骤。
 - Cross-language tests cover UTF-16/code point conversion, surrogate rejection, RichText Embed length and half-open ranges.
 - Both runtimes must consistently reject non-canonical varints, invalid UTF-8, unknown tags, trailing bytes, non-canonical operations and InputLimits violations at explicit input boundaries.
 - Packaging fixtures install the packed npm artifact outside the pnpm workspace. They execute real Value construction, Builder, Apply, codec and disposal operations.
-- Compatibility fixtures cover the minimum and latest stable Vite versions in development, build and SSR modes; the minimum and latest stable Rollup versions; and Node.js 20+ ESM.
+- Compatibility fixtures cover the minimum and latest stable Vite versions in development, build and SSR modes; the minimum and latest stable Rollup versions; and Node.js 22+ ESM.
 - Rollup fixtures may use ordinary node module resolution but cannot use Wasm, asset-copy or top-level-await plugins.
 - Browser tests cover main thread, Dedicated Worker and Shared Worker without DOM-dependent initialization.
 - Lifecycle tests cover idempotent disposal, use-after-dispose, clone independence, Builder consumption, scoped Builder escape, Builder independence from the original Value, and failure without partial transform outputs.
