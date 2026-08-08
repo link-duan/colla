@@ -86,7 +86,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo install wasm-pack --version 0.14.0 --locked
       - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter @colla/core exec playwright install --with-deps chromium
+      - run: pnpm --filter colla-ot exec playwright install --with-deps chromium
       - run: pnpm test:e2e
 
   quality-baseline:
@@ -107,7 +107,7 @@ jobs:
       - run: cargo install wasm-pack --version 0.14.0 --locked
       - run: pnpm install --frozen-lockfile
       - run: pnpm check:versions
-      - run: pnpm --filter @colla/core measure --output "$GITHUB_WORKSPACE/artifacts/quality-baseline.json"
+      - run: pnpm --filter colla-ot measure --output "$GITHUB_WORKSPACE/artifacts/quality-baseline.json"
       - run: |
           echo '## Quality baseline' >> "$GITHUB_STEP_SUMMARY"
           echo '```json' >> "$GITHUB_STEP_SUMMARY"

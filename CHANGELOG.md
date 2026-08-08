@@ -1,6 +1,6 @@
 # Changelog
 
-All notable public changes to the Rust `colla` crate and the `@colla/core`
+All notable public changes to the Rust `colla` crate and the `colla-ot`
 package are recorded here. Both artifacts always use the same version.
 
 ## [0.1.0] - Unreleased

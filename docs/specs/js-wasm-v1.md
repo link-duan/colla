@@ -12,7 +12,7 @@ bundler target 差异。Colla 需要一个稳定的 npm package，复用 Rust co
 
 ## Solution
 
-发布与 Rust crate 同版本的 `@colla/core` ESM package。package 使用单一 Rust/Wasm binary
+发布与 Rust crate 同版本的 `colla-ot` ESM package。package 使用单一 Rust/Wasm binary
 复用 Colla core，在其上提供手写 TypeScript facade。facade 公开不可变的 Value/Change
 handles、从 Snapshot 开始的 fluent ChangeBuilder、包级 OT 代数函数、规范 codec、
 ChangeView 检查和明确的 UTF-16/code point 坐标工具。
@@ -27,7 +27,7 @@ top-level await、Wasm plugin、资源复制配置或公开初始化步骤。
 
 ## User Stories
 
-1. As a TypeScript application developer, I want to install one `@colla/core` package, so that I can use Colla without building Rust locally.
+1. As a TypeScript application developer, I want to install one `colla-ot` package, so that I can use Colla without building Rust locally.
 2. As a JavaScript application developer, I want the npm package to reuse the Rust core, so that JavaScript and Rust do not drift into different OT semantics.
 3. As a Vite user, I want the package to work without a Wasm plugin, so that adopting Colla does not require custom bundler configuration.
 4. As a Rollup user, I want the package to work with only normal node module resolution, so that I do not need resource-copy or top-level-await plugins.
@@ -91,7 +91,7 @@ top-level await、Wasm plugin、资源复制配置或公开初始化步骤。
 - The repository will become a dual Cargo and pnpm workspace. The publishable Rust core, private Wasm wrapper and publishable npm facade are separate modules with explicit dependency direction.
 - The Rust core remains free of wasm-bindgen dependencies. A private Wasm crate depends on the Rust core, and the TypeScript facade depends on generated private bindings.
 - Rust and JavaScript use package-level Apply, Compose, Invert and TransformPair functions with aligned argument order; neither side introduces a separate operation facade object.
-- The npm package name is `@colla/core`. Versioning is aligned exactly with the Rust crate, and the two artifacts are released atomically.
+- The npm package name is `colla-ot`. Versioning is aligned exactly with the Rust crate, and both artifacts are coordinated from the same immutable tag.
 - The package is ESM-only in v1 and only exposes its root export. Browser, Node, Wasm and internal subpaths are not public.
 - Browser/default ESM embeds the Wasm binary as base64 and initializes synchronously during module evaluation. Node.js ESM reads the same binary from a package-relative asset and initializes synchronously.
 - The package does not use top-level await or synchronous XHR and does not expose public Wasm initialization. The root module is explicitly side-effectful.
@@ -115,7 +115,7 @@ top-level await、Wasm plugin、资源复制配置或公开初始化步骤。
 
 ## Testing Decisions
 
-- The primary acceptance seam is the release-artifact boundary: the publishable Rust crate and `@colla/core` installed from a real npm tarball at the same version. Tests should prefer this seam over generated binding or facade internals.
+- The primary acceptance seam is the release-artifact boundary: the publishable Rust crate and `colla-ot` installed from a real npm tarball at the same version. Tests should prefer this seam over generated binding or facade internals.
 - A good acceptance test observes public behavior: canonical bytes, ValueData, ChangeView, CollaError fields, OT results, resource lifecycle and consumer bundling. Tests must not assert wasm-bindgen names, private pointer values or generated directory layout.
 - Existing Rust codec, algebra, core-model and property tests remain the lower-level prior art. New function-facade, type-codec and scoped Builder tests extend these seams rather than replacing them.
 - Cross-language golden tests are a release gate. They cover Rust encode to JavaScript decode, JavaScript encode to Rust decode, byte-for-byte Value/Change equality, and identical Apply/Compose/TransformPair/Invert results.

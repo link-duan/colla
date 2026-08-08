@@ -17,7 +17,7 @@ const fixtureDir = await mkdtemp(join(temporaryRoot, "colla-browser-e2e-"))
 const packageSpec = process.env.COLLA_PACKAGE_SPEC
 
 const tracer = `
-import { apply, Value } from "@colla/core"
+import { apply, Value } from "colla-ot"
 
 export function trace() {
   const base = Value.fromJS("before")
@@ -76,7 +76,7 @@ try {
   )
 
   const installedPackage = JSON.parse(await readFile(
-    join(fixtureDir, "node_modules/@colla/core/package.json"),
+    join(fixtureDir, "node_modules/colla-ot/package.json"),
     "utf8",
   ))
   if (process.env.COLLA_EXPECTED_PACKAGE_VERSION !== undefined) {

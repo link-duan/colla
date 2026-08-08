@@ -1,7 +1,7 @@
 # Coordinated release runbook
 
 Colla publishes one version as two artifacts: the Rust `colla` crate and the
-`@colla/core` npm package. The registries do not provide a cross-registry
+`colla-ot` npm package. The registries do not provide a cross-registry
 transaction. The release workflow therefore coordinates preflight, publishes
 only missing artifacts, verifies both public artifacts, and promotes a draft
 GitHub Release only after verification succeeds.

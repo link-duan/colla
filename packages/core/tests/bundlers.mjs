@@ -12,7 +12,7 @@ const packageSpec = process.env.COLLA_PACKAGE_SPEC
 
 async function writeFixture(name, extra = "") {
   await writeFile(join(fixtureDir, name), `
-    import { apply, Value } from "@colla/core"
+    import { apply, Value } from "colla-ot"
     const base = Value.fromJS("before")
     const change = base.change().replace([], "after").build()
     const next = apply(base, change)
@@ -32,7 +32,7 @@ try {
       cwd: packageDir,
       stdio: "inherit",
     })
-    installSpec = join(fixtureDir, "colla-core-0.1.0.tgz")
+    installSpec = join(fixtureDir, "colla-ot-0.1.0.tgz")
   }
   await writeFile(join(fixtureDir, "package.json"), JSON.stringify({ type: "module" }))
   execFileSync("npm", ["install", "--ignore-scripts", "--save-exact", installSpec], {
@@ -76,7 +76,7 @@ try {
     await server.listen()
     const response = await fetch(`${server.resolvedUrls.local[0]}main.js`)
     assert.equal(response.ok, true)
-    assert.match(await response.text(), /@colla\/core|\.vite\/deps/)
+    assert.match(await response.text(), /colla-ot|\.vite\/deps/)
     const ssr = await server.ssrLoadModule("/ssr.js")
     assert.equal(ssr.result, "after")
   } finally {
@@ -116,7 +116,7 @@ try {
 
   const installedPackage = JSON.parse(
     await readFile(
-      join(fixtureDir, "node_modules/@colla/core/package.json"),
+      join(fixtureDir, "node_modules/colla-ot/package.json"),
       "utf8",
     ),
   )
@@ -124,7 +124,7 @@ try {
     assert.equal(installedPackage.version, process.env.COLLA_EXPECTED_PACKAGE_VERSION)
   }
   assert.deepEqual(Object.keys(installedPackage.exports), ["."])
-  const installedDist = join(fixtureDir, "node_modules/@colla/core/dist")
+  const installedDist = join(fixtureDir, "node_modules/colla-ot/dist")
   assert.ok((await readdir(installedDist)).includes("browser.js"))
   const wasmBytes = await readFile(join(installedDist, "internal/colla_wasm_bg.wasm"))
   const base64Module = await import(

@@ -23,7 +23,7 @@ async function registryState(candidate) {
     fetch(`https://crates.io/api/v1/crates/colla/${encodeURIComponent(candidate.version)}`, {
       headers,
     }),
-    fetch(`https://registry.npmjs.org/@colla%2Fcore/${encodeURIComponent(candidate.version)}`, {
+    fetch(`https://registry.npmjs.org/colla-ot/${encodeURIComponent(candidate.version)}`, {
       headers,
     }),
   ])

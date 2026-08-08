@@ -1,4 +1,4 @@
-# @colla/core JavaScript/Wasm v1 实施计划
+# colla-ot JavaScript/Wasm v1 实施计划
 
 本计划以 [JavaScript/Wasm v1 API](./js-wasm-api.md) 和 ADR-0001—0008 为边界。
 实施应按阶段小步提交，每个阶段保持 Rust tests 可运行，不在一个变更中
@@ -38,7 +38,7 @@ colla/
 - 根 Cargo manifest 改为 workspace，`default-members = ["crates/colla"]`。
 - 建立 private 根 `package.json`、精确锁定 pnpm version，workspace 只包含
   `packages/*`。
-- 创建 `colla-wasm` 和 `@colla/core` 空骨架，暂不导出功能。
+- 创建 `colla-wasm` 和 `colla-ot` 空骨架，暂不导出功能。
 - 不引入 Turborepo/Nx。
 
 退出条件：根目录执行 Rust tests 与 pnpm workspace 基础命令成功，规范二进制
@@ -167,8 +167,8 @@ dispose。Rollup 除常规 node resolver 外不使用 Wasm、资源复制或 top
   benchmark。
 - 首个可重复基线建立后再设置回归门禁与绝对预算。
 - 编写 npm README、lifecycle 指南、Vite/Rollup/Node examples 和迁移示例。
-- 校验 Rust crate、`@colla/core`、Cargo.lock 与 package lock 的版本一致。
-- 以相同 SemVer 原子发布 crates.io 与 npm；任一 registry 预检失败则不开始发布。
+- 校验 Rust crate、`colla-ot`、Cargo.lock 与 package lock 的版本一致。
+- 以相同 SemVer 和不可变 tag 协调发布 crates.io 与 npm；任一 registry 预检失败则不开始发布。
 
 退出条件：所有发布门禁通过，版本一致，实际 tarball 文档与行为匹配。
 
@@ -182,6 +182,6 @@ dispose。Rollup 除常规 node resolver 外不使用 Wasm、资源复制或 top
 6. `feat(js): add algebra inspection and errors`
 7. `build(js): add browser and node wasm entries`
 8. `test(js): add packaging and cross-language fixtures`
-9. `docs(js): document @colla/core`
+9. `docs(js): document colla-ot`
 
 实际 commit subject 应继续遵守仓库 Conventional Commits 约定。

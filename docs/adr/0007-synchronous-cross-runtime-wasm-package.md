@@ -1,6 +1,6 @@
 # 单一 Wasm 产物提供同步跨运行时入口
 
-`@colla/core` v1 只公开 ESM package 根入口且导入后同步可用，不提供公开 init、TLA、
+`colla-ot` v1 只公开 ESM package 根入口且导入后同步可用，不提供公开 init、TLA、
 slim 或内部 subpath。Browser/default entry 将最终 Wasm 内嵌为 base64，Node entry 通过
 `import.meta.url` 同步读取独立 `.wasm`；两者必须执行相同 hash 的单一 binary。
 

@@ -1,5 +1,5 @@
 {
-  "name": "@colla/core",
+  "name": "colla-ot",
   "version": "0.1.0",
   "description": "JavaScript and WebAssembly bindings for Colla",
   "repository": {

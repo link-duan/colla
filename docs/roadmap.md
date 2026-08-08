@@ -6,7 +6,7 @@ milestone。路线只承诺 Rust 与 JavaScript 两个官方公共实现。
 
 ## Milestone 1：Colla Core 0.1 Release
 
-目标：公开发布并证明 `colla` 与 `@colla/core` 0.1.0 可以从真实 registry 重复消费。
+目标：公开发布并证明 `colla` 与 `colla-ot` 0.1.0 可以从真实 registry 重复消费。
 
 范围：
 

@@ -100,7 +100,7 @@ function runJavaScriptConsumers(version) {
     : []
   const environment = {
     ...process.env,
-    COLLA_PACKAGE_SPEC: `@colla/core@${version}`,
+    COLLA_PACKAGE_SPEC: `colla-ot@${version}`,
     COLLA_EXPECTED_PACKAGE_VERSION: version,
     COLLA_VITE_VERSION: dependencies.vite,
     COLLA_ROLLUP_VERSION: dependencies.rollup,
@@ -114,7 +114,7 @@ function runJavaScriptConsumers(version) {
     })
   }
   if (process.env.COLLA_RUN_BROWSER === "1") {
-    execFileSync("pnpm", ["--filter", "@colla/core", "test:e2e"], {
+    execFileSync("pnpm", ["--filter", "colla-ot", "test:e2e"], {
       cwd: workspaceDir,
       env: environment,
       stdio: "inherit",
@@ -129,7 +129,7 @@ const fixtureDir = await mkdtemp(join(tmpdir(), "colla-release-verifier-"))
 try {
   const [crateMetadata, npmMetadata] = await Promise.all([
     fetchJson(`https://crates.io/api/v1/crates/colla/${encodeURIComponent(version)}`),
-    fetchJson(`https://registry.npmjs.org/@colla%2Fcore/${encodeURIComponent(version)}`),
+    fetchJson(`https://registry.npmjs.org/colla-ot/${encodeURIComponent(version)}`),
   ])
   assert.equal(crateMetadata.version.num, version)
   assert.equal(npmMetadata.version, version)

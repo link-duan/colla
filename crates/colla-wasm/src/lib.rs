@@ -1,7 +1,7 @@
 //! Private WebAssembly bindings for `colla`.
 //!
 //! Generated names and error payloads in this crate are an implementation
-//! detail of the handwritten `@colla/core` facade.
+//! detail of the handwritten `colla-ot` facade.
 
 use colla::{
     apply, compose, invert, transform_pair, ApplyError, AttrChange, AttrPatch, AttrValue, Attrs,

@@ -26,7 +26,7 @@ Design specifications:
 - [`Core roadmap`](docs/roadmap.md)
 - [`Release runbook`](docs/releasing.md)
 - [`Changelog`](CHANGELOG.md)
-- [`@colla/core` JavaScript package](packages/core/README.md)
+- [`colla-ot` JavaScript package](packages/core/README.md)
 
 Run Rust tests with `cargo test --workspace` and JavaScript artifact tests with
 `pnpm test:js`.

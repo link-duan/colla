@@ -49,7 +49,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo install wasm-pack --version 0.14.0 --locked
       - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter @colla/core exec playwright install --with-deps chromium
+      - run: pnpm --filter colla-ot exec playwright install --with-deps chromium
       - id: version
         name: Validate release tag and version
         run: |
@@ -71,22 +71,22 @@ jobs:
       - run: pnpm test:js
       - run: pnpm test:e2e
       - run: cargo publish -p colla --registry crates-io --dry-run
-      - run: pnpm --filter @colla/core exec npm publish --dry-run --registry https://registry.npmjs.org
+      - run: pnpm --filter colla-ot exec npm publish --dry-run --registry https://registry.npmjs.org
       - name: Build release candidates
         run: |
           mkdir -p artifacts
           cargo package -p colla --locked
           cp "target/package/colla-${{ steps.version.outputs.version }}.crate" artifacts/
-          pnpm --filter @colla/core pack --pack-destination "$GITHUB_WORKSPACE/artifacts"
+          pnpm --filter colla-ot pack --pack-destination "$GITHUB_WORKSPACE/artifacts"
           node scripts/prepare-release.mjs \
             --tag "$RELEASE_TAG" \
             --crate "artifacts/colla-${{ steps.version.outputs.version }}.crate" \
-            --npm "artifacts/colla-core-${{ steps.version.outputs.version }}.tgz" \
+            --npm "artifacts/colla-ot-${{ steps.version.outputs.version }}.tgz" \
             --output artifacts/release-candidate.json
       - id: registry
         name: Inspect registries
         run: node scripts/check-release-state.mjs --manifest artifacts/release-candidate.json --output artifacts/registry-before.json
-      - run: pnpm --filter @colla/core measure --output "$GITHUB_WORKSPACE/artifacts/quality-baseline.json"
+      - run: pnpm --filter colla-ot measure --output "$GITHUB_WORKSPACE/artifacts/quality-baseline.json"
       - uses: actions/upload-artifact@v4
         with:
           name: release-candidate-${{ steps.version.outputs.version }}
@@ -148,7 +148,7 @@ jobs:
         run: node scripts/check-release-state.mjs --manifest artifacts/release-candidate.json --require crate --attempts 12
       - name: Publish npm package
         if: steps.registry.outputs.npm_published != 'true'
-        run: npm publish "artifacts/colla-core-${{ needs.preflight.outputs.version }}.tgz" --access public --provenance
+        run: npm publish "artifacts/colla-ot-${{ needs.preflight.outputs.version }}.tgz" --access public --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       - name: Wait for both registries
@@ -191,7 +191,7 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Install Chromium for browser smoke tests
         if: matrix.node == 24 && matrix.bundlers.name == 'latest'
-        run: pnpm --filter @colla/core exec playwright install --with-deps chromium
+        run: pnpm --filter colla-ot exec playwright install --with-deps chromium
       - name: Verify exact public artifacts
         run: |
           node scripts/verify-release.mjs \

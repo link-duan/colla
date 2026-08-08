@@ -16,7 +16,7 @@ try {
       cwd: packageDir,
       stdio: "inherit",
     })
-    installSpec = join(fixtureDir, "colla-core-0.1.0.tgz")
+    installSpec = join(fixtureDir, "colla-ot-0.1.0.tgz")
   }
   await writeFile(join(fixtureDir, "package.json"), JSON.stringify({ type: "module" }))
   execFileSync("npm", ["install", "--ignore-scripts", "--save-exact", installSpec], {
@@ -24,7 +24,7 @@ try {
     stdio: "inherit",
   })
   const installedPackage = JSON.parse(await readFile(
-    join(fixtureDir, "node_modules/@colla/core/package.json"),
+    join(fixtureDir, "node_modules/colla-ot/package.json"),
     "utf8",
   ))
   if (process.env.COLLA_EXPECTED_PACKAGE_VERSION !== undefined) {
@@ -48,7 +48,7 @@ try {
       text,
       transformPair,
       Value,
-    } from "@colla/core"
+    } from "colla-ot"
 
     const nullPrototype = Object.create(null)
     nullPrototype.__proto__ = "data"

@@ -1,11 +1,11 @@
-# @colla/core JavaScript/Wasm v1 API
+# colla-ot JavaScript/Wasm v1 API
 
 状态：已冻结的架构规范。具体 error details 的可选字段、生成脚本参数和
 benchmark 阈值在实施阶段补充，不得改变本文的公共边界。
 
 ## 1. 范围与运行时
 
-`@colla/core` 是 Rust `colla` OT core 的 TypeScript facade 和 Wasm wrapper。v1 只提供
+`colla-ot` 是 Rust `colla` OT core 的 TypeScript facade 和 Wasm wrapper。v1 只提供
 Value、Change、ChangeBuilder、Apply、Compose、TransformPair、Invert、规范 codec
 和只读检查，不提供 Document、Session、client ID、版本向量、网络队列或
 编辑器格式。
@@ -19,7 +19,7 @@ Value、Change、ChangeBuilder、Apply、Compose、TransformPair、Invert、规�
 
 v1 不承诺 CommonJS、Deno、Bun、Service Worker 或 edge worker runtime。
 
-package 只公开 `@colla/core` 根入口，使用 Value/Change 类型入口、从 Snapshot
+package 只公开 `colla-ot` 根入口，使用 Value/Change 类型入口、从 Snapshot
 创建的 Builder 和包级代数函数；所有 API 在 package 导入后同步可用。
 
 ## 2. 使用轮廓
@@ -34,7 +34,7 @@ import {
   invert,
   transformPair,
   inspectChange,
-} from "@colla/core"
+} from "colla-ot"
 
 using base = Value.fromJS({
   title: text("Draft"),
@@ -645,7 +645,7 @@ InputLimits 检查产生，不属于 Builder、代数、坐标转换或 ChangeVi
 - package 显式声明 `sideEffects: true`；任何根入口 import 都可以初始化 Wasm。
 - wasm-bindgen 生成 class、glue 和文件布局是私有 ABI。
 
-Rust crate 与 `@colla/core` 始终使用相同 SemVer 并原子发布。
+Rust crate 与 `colla-ot` 始终使用相同 SemVer，并从同一不可变 tag 协调发布。
 
 ## 15. Rust API 对齐
 

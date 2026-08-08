@@ -8,10 +8,10 @@
     "check:registries": "node scripts/check-registries.mjs",
     "check:release": "node --check scripts/check-registries.mjs && node --check scripts/check-release-state.mjs && node --check scripts/check-versions.mjs && node --check scripts/prepare-release.mjs && node --check scripts/verify-release.mjs",
     "check:versions": "node scripts/check-versions.mjs",
-    "measure": "pnpm --filter @colla/core measure",
-    "release:preflight": "pnpm check:versions && pnpm check:registries && cargo publish -p colla --registry crates-io --dry-run && pnpm --filter @colla/core exec npm publish --dry-run --registry https://registry.npmjs.org",
+    "measure": "pnpm --filter colla-ot measure",
+    "release:preflight": "pnpm check:versions && pnpm check:registries && cargo publish -p colla --registry crates-io --dry-run && pnpm --filter colla-ot exec npm publish --dry-run --registry https://registry.npmjs.org",
     "release:verify": "node scripts/verify-release.mjs",
-    "test:js": "pnpm --filter @colla/core test",
-    "test:e2e": "pnpm --filter @colla/core test:e2e"
+    "test:js": "pnpm --filter colla-ot test",
+    "test:e2e": "pnpm --filter colla-ot test:e2e"
   }
 }

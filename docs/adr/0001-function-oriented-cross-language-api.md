@@ -1,6 +1,6 @@
 # Rust 与 JavaScript 使用函数式公共 API
 
-Rust 与 `@colla/core` 使用相同的函数式公共概念。Apply、Compose、Invert 和
+Rust 与 `colla-ot` 使用相同的函数式公共概念。Apply、Compose、Invert 和
 TransformPair 使用包级函数；Value 与 Change 通过类型方法 decode、通过实例方法
 encode，Builder 从 Snapshot 的 `change()` 创建。Rust 可以保留等价的 inherent 和
 codec 底层入口，但不会保留无语义的兼容参数。

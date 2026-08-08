@@ -1,4 +1,4 @@
-# @colla/core
+# colla-ot
 
 Synchronous JavaScript bindings for Colla's immutable nested values and
 Operational Transformation algebra. The same canonical codec and OT logic are
@@ -7,7 +7,7 @@ used by Rust and JavaScript.
 ## Install
 
 ```sh
-pnpm add @colla/core
+pnpm add colla-ot
 ```
 
 Node.js 22 or newer is supported through ESM. Vite 5 or newer and Rollup 4 or
@@ -23,7 +23,7 @@ for the complete policy and supported release procedure.
 ## Values and changes
 
 ```ts
-import { Value, apply, richText, text } from "@colla/core"
+import { Value, apply, richText, text } from "colla-ot"
 
 const before = Value.fromJS({
   count: 1n,
@@ -66,7 +66,7 @@ import {
   inspectChange,
   invert,
   transformPair,
-} from "@colla/core"
+} from "colla-ot"
 
 const value = Value.decode(valueBytes)
 const first = Change.decode(firstBytes)
@@ -114,7 +114,7 @@ Failures throw `CollaError`. Use stable `code`, `operation`, optional `path` and
 frozen `details` fields rather than matching message text.
 
 ```ts
-import { CollaError, Value } from "@colla/core"
+import { CollaError, Value } from "colla-ot"
 
 try {
   Value.decode(bytes)
@@ -130,7 +130,7 @@ try {
 Node.js uses the normal package import:
 
 ```ts
-import { Value } from "@colla/core"
+import { Value } from "colla-ot"
 ```
 
 Vite and Rollup use the same source import. Keep their standard ESM and module
@@ -140,7 +140,7 @@ step is needed.
 Dedicated and Shared Worker modules can import the package directly:
 
 ```ts
-import { Value } from "@colla/core"
+import { Value } from "colla-ot"
 
 const value = Value.fromJS({ worker: true })
 const result = value.toJS()

@@ -21,7 +21,7 @@ assert.match(
 assert.equal(
   npmPackage.version,
   workspaceVersion,
-  `Version mismatch: colla=${workspaceVersion}, @colla/core=${npmPackage.version}`,
+  `Version mismatch: colla=${workspaceVersion}, colla-ot=${npmPackage.version}`,
 )
 
 for (const crate of ["colla", "colla-wasm"]) {
