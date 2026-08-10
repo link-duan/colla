@@ -14,8 +14,12 @@ GitHub Release only after verification succeeds.
   Unreleased.
 - The target version is absent from both registries for a new release, or an
   existing artifact belongs to the exact same tag during recovery.
-- GitHub environment approval and the crates.io/npm publishing credentials are
-  available.
+- The GitHub `release` environment is configured and its
+  `CARGO_REGISTRY_TOKEN` secret is available.
+- The npm `colla-ot` package trusts GitHub Actions from repository
+  `link-duan/colla`, workflow `release.yml`, and environment `release`.
+- npm publishing uses GitHub OIDC trusted publishing. Do not add an npm token
+  to the workflow or the `release` environment.
 
 Run the local gates from a clean checkout:
 
@@ -48,9 +52,10 @@ Pushing the tag starts the Release workflow. The workflow:
 2. runs all release gates before either registry publish starts;
 3. creates or reuses a draft GitHub Release for the tag;
 4. inspects both registries and publishes only artifacts that are absent;
-5. installs the exact public versions from crates.io and npm;
-6. records registry checksum/integrity evidence;
-7. promotes the GitHub Release only after public verification passes.
+5. exchanges the GitHub Actions OIDC identity for npm publishing access;
+6. installs the exact public versions from crates.io and npm;
+7. records registry checksum/integrity evidence;
+8. promotes the GitHub Release only after public verification passes.
 
 Do not move or recreate a release tag after publishing starts.
 

@@ -136,6 +136,8 @@ jobs:
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
+      - name: Install npm with trusted publishing support
+        run: npm install --global npm@11.19.0
       - uses: dtolnay/rust-toolchain@stable
       - id: registry
         run: node scripts/check-release-state.mjs --manifest artifacts/release-candidate.json
@@ -149,8 +151,6 @@ jobs:
       - name: Publish npm package
         if: steps.registry.outputs.npm_published != 'true'
         run: npm publish "./artifacts/colla-ot-${{ needs.preflight.outputs.version }}.tgz" --access public --provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       - name: Wait for both registries
         run: node scripts/check-release-state.mjs --manifest artifacts/release-candidate.json --require all --attempts 12 --output artifacts/registry-after.json
       - uses: actions/upload-artifact@v4
