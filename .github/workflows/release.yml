@@ -148,7 +148,7 @@ jobs:
         run: node scripts/check-release-state.mjs --manifest artifacts/release-candidate.json --require crate --attempts 12
       - name: Publish npm package
         if: steps.registry.outputs.npm_published != 'true'
-        run: npm publish "artifacts/colla-ot-${{ needs.preflight.outputs.version }}.tgz" --access public --provenance
+        run: npm publish "./artifacts/colla-ot-${{ needs.preflight.outputs.version }}.tgz" --access public --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       - name: Wait for both registries
