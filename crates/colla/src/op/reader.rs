@@ -1,6 +1,6 @@
 use crate::attrs::{AttrPatch, Attrs};
 use crate::change::{Change, ListOp, RichTextOp, TextOp};
-use crate::richtext::RichInsert;
+use crate::richtext::{char_prefix_bytes, RichContent};
 use crate::Value;
 
 #[derive(Clone, Copy)]
@@ -141,40 +141,24 @@ impl<'a> ListOpReader<'a> {
 }
 
 #[derive(Clone, Copy)]
-pub(super) enum RichInsertRef<'a> {
-    Text { text: &'a str, len: usize },
-    Embed(&'a Value),
+pub(super) enum RichContentRef {
+    Text { len: usize },
+    Embed,
 }
 
-impl RichInsertRef<'_> {
+impl RichContentRef {
     pub(super) fn len(self) -> usize {
         match self {
-            Self::Text { len, .. } => len,
-            Self::Embed(_) => 1,
-        }
-    }
-
-    pub(super) fn prefix(self, len: usize) -> RichInsert {
-        match self {
-            Self::Text { text, .. } => RichInsert::text(&text[..char_prefix_bytes(text, len)]),
-            Self::Embed(value) => {
-                assert_eq!(len, 1);
-                RichInsert::embed(value.clone())
-            }
+            Self::Text { len } => len,
+            Self::Embed => 1,
         }
     }
 }
 
 #[derive(Clone, Copy)]
 pub(super) enum RichTextOpRef<'a> {
-    Retain {
-        len: usize,
-        attrs: &'a AttrPatch,
-    },
-    Insert {
-        content: RichInsertRef<'a>,
-        attrs: &'a Attrs,
-    },
+    Retain { len: usize, attrs: &'a AttrPatch },
+    Insert { content: RichContentRef },
     Delete(usize),
 }
 
@@ -206,21 +190,18 @@ impl<'a> RichTextOpReader<'a> {
                 attrs,
             }),
             RichTextOp::Insert {
-                content: RichInsert::Text(text),
-                attrs,
+                content: RichContent::Text(_),
+                attrs: _,
             } => Some(RichTextOpRef::Insert {
-                content: RichInsertRef::Text {
-                    text: &text[self.byte_offset..],
+                content: RichContentRef::Text {
                     len: self.remaining,
                 },
-                attrs,
             }),
             RichTextOp::Insert {
-                content: RichInsert::Embed(value),
-                attrs,
+                content: RichContent::Embed(_),
+                attrs: _,
             } => Some(RichTextOpRef::Insert {
-                content: RichInsertRef::Embed(value),
-                attrs,
+                content: RichContentRef::Embed,
             }),
             RichTextOp::Delete(_) => Some(RichTextOpRef::Delete(self.remaining)),
         }
@@ -229,24 +210,71 @@ impl<'a> RichTextOpReader<'a> {
     pub(super) fn consume(&mut self, len: usize) {
         assert!(len > 0 && len <= self.remaining);
         if len == self.remaining {
-            self.index += 1;
-            self.offset = 0;
-            self.byte_offset = 0;
-            self.remaining = 0;
-            self.load();
+            self.finish_current();
             return;
         }
         match self.ops.get(self.index) {
             Some(RichTextOp::Insert {
-                content: RichInsert::Text(text),
+                content: RichContent::Text(text),
                 ..
             }) => {
-                let rest = &text[self.byte_offset..];
-                self.byte_offset += char_prefix_bytes(rest, len);
+                let next_byte_offset = text.byte_offset_after(self.byte_offset, len);
+                self.advance_partial_insert(len, next_byte_offset);
             }
-            _ => self.offset += len,
+            _ => {
+                self.offset += len;
+                self.remaining -= len;
+            }
         }
-        self.remaining -= len;
+    }
+
+    pub(super) fn take_insert(&mut self, len: usize) -> Option<(RichContent, Attrs)> {
+        assert!(len > 0 && len <= self.remaining);
+        let op = self.ops.get(self.index)?;
+        match op {
+            RichTextOp::Insert {
+                content: RichContent::Text(text),
+                attrs,
+            } => {
+                let slice = text.slice_prefix_from(self.byte_offset, len);
+                let next_byte_offset = slice.next_byte_offset();
+                let result = (RichContent::Text(slice.into_chunk()), attrs.clone());
+                if len == self.remaining {
+                    self.finish_current();
+                } else {
+                    self.advance_partial_insert(len, next_byte_offset);
+                }
+                Some(result)
+            }
+            RichTextOp::Insert {
+                content: RichContent::Embed(value),
+                attrs,
+            } => {
+                assert_eq!(len, 1);
+                let result = (RichContent::embed(value.clone()), attrs.clone());
+                self.finish_current();
+                Some(result)
+            }
+            _ => None,
+        }
+    }
+
+    fn advance_partial_insert(&mut self, scalar_len: usize, next_byte_offset: usize) {
+        debug_assert!(scalar_len < self.remaining);
+        self.byte_offset = next_byte_offset;
+        self.remaining -= scalar_len;
+    }
+
+    fn finish_current(&mut self) {
+        self.index += 1;
+        self.reset_current();
+        self.load();
+    }
+
+    fn reset_current(&mut self) {
+        self.offset = 0;
+        self.byte_offset = 0;
+        self.remaining = 0;
     }
 
     fn load(&mut self) {
@@ -256,11 +284,11 @@ impl<'a> RichTextOpReader<'a> {
                     len.saturating_sub(self.offset)
                 }
                 RichTextOp::Insert {
-                    content: RichInsert::Text(text),
+                    content: RichContent::Text(text),
                     ..
-                } => text[self.byte_offset..].chars().count(),
+                } => text.len(),
                 RichTextOp::Insert {
-                    content: RichInsert::Embed(_),
+                    content: RichContent::Embed(_),
                     ..
                 } => 1usize.saturating_sub(self.offset),
             };
@@ -268,21 +296,11 @@ impl<'a> RichTextOpReader<'a> {
                 break;
             }
             self.index += 1;
-            self.offset = 0;
-            self.byte_offset = 0;
+            self.reset_current();
         }
     }
 }
 
 pub(super) fn text_prefix(text: &str, len: usize) -> &str {
     &text[..char_prefix_bytes(text, len)]
-}
-
-fn char_prefix_bytes(text: &str, len: usize) -> usize {
-    if len == 0 {
-        return 0;
-    }
-    text.char_indices()
-        .nth(len)
-        .map_or(text.len(), |(index, _)| index)
 }

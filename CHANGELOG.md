@@ -3,6 +3,30 @@
 All notable public changes to the Rust `colla` crate and the `colla-ot`
 package are recorded here. Both artifacts always use the same version.
 
+## [Unreleased]
+
+### Changed
+
+- Renamed Rust `RichInsert` to `RichContent`; no compatibility alias is kept.
+- Made `RichSpan` fields private and replaced `RichText::spans()` with
+  `iter_spans()` and `span_count()` so the physical storage is not public API.
+- Added cached RichText scalar lengths, cumulative span lookup,
+  fallible `RichText::from_spans` and `RichTextChange::try_new`; removed the
+  infallible `RichText::new` constructor.
+- Added indexed RichText Unicode scalar/UTF-16 coordinate conversion while
+  keeping UTF-16 lengths and indexes as non-canonical runtime caches.
+- Apply and invert now operate on span ranges without expanding RichText into
+  one allocation per character; complete spans advance in O(1) and partial
+  spans reuse one set of calculated text metrics.
+- RichText compose and transform now slice inserted text with one UTF-8 boundary
+  scan per consumed prefix.
+- RichText decoding now enforces snapshot and explicit Change input/output
+  logical lengths. Snapshot decoding accepts empty or mergeable text spans and
+  normalizes them in memory, while encoding preserves the existing canonical
+  wire bytes.
+- RichText transform now reports `TransformError::LengthOverflow` instead of
+  panicking when a transformed Change length cannot be represented.
+
 ## [0.1.0] - 2026-08-08
 
 ### Added

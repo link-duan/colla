@@ -45,6 +45,11 @@ RichText 是核心类型，因为字符、embed、格式属性和 span 规范化
 embed 是原子值，只能插入、删除或整体替换；需要独立协同的数据应放在
 文档其他位置，embed 保存稳定引用。
 
+Text/Embed span 共享的内容类型称为 `RichContent`。缓存 Unicode scalar/UTF-16 长度、
+累计 span 位置或其他查找索引只属于内存表示，不参与相等性、Canonical form 或 wire encoding。
+Rust OT 坐标仍是 Unicode scalar；UTF-16 索引只用于 Rust/Wasm 边界转换。
+Rust API 通过 `iter_spans()` 观察规范 spans，不承诺底层使用连续数组。
+
 快照规范：
 
 - 禁止空文本 span。
@@ -103,7 +108,7 @@ ListChange：Retain、Insert(Vec<Value>)、Delete、Modify(Change)。Modify
 RichTextChange：
 
     Retain { len, attrs: AttrPatch }
-    Insert { content: RichInsert, attrs: Attrs }
+    Insert { content: RichContent, attrs: Attrs }
     Delete(len)
 
 `Retain { attrs }` 表示保留覆盖范围内的内容，同时把 AttrPatch 应用于每个
@@ -120,7 +125,7 @@ List 元素的 Modify。并发 RichText 属性修改中，不同 key 合并；�
 ## 7. 规范形式
 
 公共 Value/Change 始终规范，字段私有，只能通过构造器、Builder、代数操作
-或严格 decoder 产生。主要规则：
+或 decoder 产生。主要规则：
 
 - Retain/Delete 长度必须大于零，Insert 内容不能为空。
 - 相邻同类 Retain/Delete/Insert 必须合并。
@@ -128,7 +133,9 @@ List 元素的 Modify。并发 RichText 属性修改中，不同 key 合并；�
 - Text/RichText 相邻且属性兼容的文本 Insert 必须合并。
 - Map/Attrs key 严格递增且唯一。
 - 空类型化 Change、Modify(Noop)、Add(0) 必须折叠为 Noop。
-- decoder 拒绝而不是修复非规范编码。
+- decoder 通常拒绝而不是修复非规范编码。为兼容历史和外部实现，RichText
+  snapshot decoder 允许空 Text span 和相邻可合并 Text spans，并在构造内存值时
+  删除或合并它们；RichText Change 仍要求规范操作序列。
 
 ## 8. API 轮廓
 

@@ -1,7 +1,7 @@
 use crate::change::{Change, ChangeKind, IntChange, ListOp, MapEntryChange, RichTextOp, TextOp};
 use crate::error::ApplyError;
 use crate::path::{Path, PathSeg};
-use crate::richtext::{collapse, flatten, RichAtom, RichInsert};
+use crate::richtext::{RichSpan, RichText};
 use crate::value::{List, Map, Text, Value, ValueKind, ValueType};
 
 impl Change {
@@ -161,52 +161,40 @@ fn apply_at(change: &Change, base: &Value, path: &mut Path) -> Result<Value, App
                 ValueKind::RichText(rich) => rich,
                 _ => return Err(type_mismatch(path, ValueType::RichText, base)),
             };
-            let atoms = flatten(base_rich.spans());
-            let mut out: Vec<RichAtom> = Vec::new();
-            let mut index = 0usize;
+            let mut cursor = base_rich.cursor();
+            let mut out: Vec<RichSpan> = Vec::new();
             for op in change.ops() {
                 match op {
                     RichTextOp::Retain { len, attrs } => {
-                        let end = index.checked_add(*len).ok_or_else(|| {
-                            ApplyError::SequenceOutOfBounds { path: path.clone() }
-                        })?;
-                        if end > atoms.len() {
+                        if *len > cursor.remaining_len() {
                             return Err(ApplyError::SequenceOutOfBounds { path: path.clone() });
                         }
-                        for atom in &atoms[index..end] {
-                            out.push(RichAtom {
-                                content: atom.content.clone(),
-                                attrs: atom.attrs.apply_patch(attrs),
-                            });
+                        let mut remaining = *len;
+                        while remaining > 0 {
+                            let span = cursor.take(remaining).expect("validated RichText range");
+                            remaining -= span.len();
+                            out.push(RichSpan::from_parts(
+                                span.content().clone(),
+                                span.attrs().apply_patch(attrs),
+                            ));
                         }
-                        index = end;
                     }
-                    RichTextOp::Insert { content, attrs } => match content {
-                        RichInsert::Text(text) => {
-                            for ch in text.chars() {
-                                out.push(RichAtom {
-                                    content: RichInsert::text(ch.to_string()),
-                                    attrs: attrs.clone(),
-                                });
-                            }
-                        }
-                        RichInsert::Embed(value) => out.push(RichAtom {
-                            content: RichInsert::Embed(value.clone()),
-                            attrs: attrs.clone(),
-                        }),
-                    },
+                    RichTextOp::Insert { content, attrs } => {
+                        out.push(RichSpan::from_parts(content.clone(), attrs.clone()))
+                    }
                     RichTextOp::Delete(len) => {
-                        index = index.checked_add(*len).ok_or_else(|| {
-                            ApplyError::SequenceOutOfBounds { path: path.clone() }
-                        })?;
-                        if index > atoms.len() {
+                        if !cursor.skip(*len) {
                             return Err(ApplyError::SequenceOutOfBounds { path: path.clone() });
                         }
                     }
                 }
             }
-            out.extend_from_slice(&atoms[index..]);
-            Ok(Value::from_kind(ValueKind::RichText(collapse(out))))
+            while let Some(span) = cursor.take(cursor.remaining_len()) {
+                out.push(span);
+            }
+            let rich = RichText::from_spans(out)
+                .map_err(|_| ApplyError::SequenceLengthOverflow { path: path.clone() })?;
+            Ok(Value::from_kind(ValueKind::RichText(rich)))
         }
     }
 }

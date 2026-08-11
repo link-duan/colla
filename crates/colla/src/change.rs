@@ -5,7 +5,7 @@ use std::sync::Arc;
 use crate::attrs::{AttrPatch, Attrs};
 use crate::error::{CodecError, ValueError};
 use crate::input_limits::InputLimits;
-use crate::richtext::RichInsert;
+use crate::richtext::RichContent;
 use crate::value::Value;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -129,7 +129,7 @@ impl TextChange {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum RichTextOp {
     Retain { len: usize, attrs: AttrPatch },
-    Insert { content: RichInsert, attrs: Attrs },
+    Insert { content: RichContent, attrs: Attrs },
     Delete(usize),
 }
 
@@ -138,7 +138,35 @@ pub struct RichTextChange(Arc<Vec<RichTextOp>>);
 
 impl RichTextChange {
     pub fn new(ops: Vec<RichTextOp>) -> Self {
-        Self(Arc::new(normalize_rich(ops)))
+        Self::try_new(ops).expect("RichTextChange logical length overflow")
+    }
+    pub fn try_new(ops: Vec<RichTextOp>) -> Result<Self, ValueError> {
+        let ops = normalize_rich(ops)?;
+        let mut input_len = 0usize;
+        let mut output_len = 0usize;
+        for op in &ops {
+            match op {
+                RichTextOp::Retain { len, .. } => {
+                    input_len = input_len
+                        .checked_add(*len)
+                        .ok_or(ValueError::SequenceLengthOverflow)?;
+                    output_len = output_len
+                        .checked_add(*len)
+                        .ok_or(ValueError::SequenceLengthOverflow)?;
+                }
+                RichTextOp::Insert { content, .. } => {
+                    output_len = output_len
+                        .checked_add(content.len())
+                        .ok_or(ValueError::SequenceLengthOverflow)?;
+                }
+                RichTextOp::Delete(len) => {
+                    input_len = input_len
+                        .checked_add(*len)
+                        .ok_or(ValueError::SequenceLengthOverflow)?;
+                }
+            }
+        }
+        Ok(Self(Arc::new(ops)))
     }
     pub(crate) fn from_canonical(ops: Vec<RichTextOp>) -> Self {
         Self(Arc::new(ops))
@@ -326,12 +354,14 @@ impl Change {
                                 check_attrs(attrs, limits)?;
                                 output_len = add_len(output_len, content.len(), limits)?;
                                 match content {
-                                    RichInsert::Text(text) => check_limit(
+                                    RichContent::Text(text) => check_limit(
                                         "string bytes",
-                                        text.len(),
+                                        text.as_str().len(),
                                         limits.max_string_bytes,
                                     )?,
-                                    RichInsert::Embed(value) => value.check_input_limits(limits)?,
+                                    RichContent::Embed(value) => {
+                                        value.check_input_limits(limits)?
+                                    }
                                 }
                             }
                             RichTextOp::Delete(len) => {
@@ -455,7 +485,7 @@ fn push_text(out: &mut Vec<TextOp>, op: TextOp) {
     }
 }
 
-fn normalize_rich(ops: Vec<RichTextOp>) -> Vec<RichTextOp> {
+fn normalize_rich(ops: Vec<RichTextOp>) -> Result<Vec<RichTextOp>, ValueError> {
     let mut out = Vec::new();
     for op in ops {
         let op = match op {
@@ -463,42 +493,45 @@ fn normalize_rich(ops: Vec<RichTextOp>) -> Vec<RichTextOp> {
             RichTextOp::Insert { content, .. } if content.is_empty() => continue,
             other => other,
         };
-        push_rich(&mut out, op);
+        push_rich(&mut out, op)?;
     }
     while matches!(out.last(), Some(RichTextOp::Retain { attrs, .. }) if attrs.is_empty()) {
         out.pop();
     }
-    out
+    Ok(out)
 }
 
-fn push_rich(out: &mut Vec<RichTextOp>, op: RichTextOp) {
+fn push_rich(out: &mut Vec<RichTextOp>, op: RichTextOp) -> Result<(), ValueError> {
     if matches!(op, RichTextOp::Insert { .. }) && matches!(out.last(), Some(RichTextOp::Delete(_)))
     {
         let delete = out.pop().unwrap();
-        push_rich(out, op);
-        push_rich(out, delete);
-        return;
+        push_rich(out, op)?;
+        push_rich(out, delete)?;
+        return Ok(());
     }
     match (out.last_mut(), op) {
         (
             Some(RichTextOp::Retain { len: a, attrs: aa }),
             RichTextOp::Retain { len: b, attrs: ba },
-        ) if *aa == ba => *a += b,
-        (Some(RichTextOp::Delete(a)), RichTextOp::Delete(b)) => *a += b,
+        ) if *aa == ba => {
+            *a = a.checked_add(b).ok_or(ValueError::SequenceLengthOverflow)?;
+        }
+        (Some(RichTextOp::Delete(a)), RichTextOp::Delete(b)) => {
+            *a = a.checked_add(b).ok_or(ValueError::SequenceLengthOverflow)?;
+        }
         (
             Some(RichTextOp::Insert {
-                content: RichInsert::Text(a),
+                content: RichContent::Text(a),
                 attrs: aa,
             }),
             RichTextOp::Insert {
-                content: RichInsert::Text(b),
+                content: RichContent::Text(b),
                 attrs: ba,
             },
         ) if *aa == ba => {
-            let mut merged = String::from(a.as_ref());
-            merged.push_str(&b);
-            *a = Arc::from(merged);
+            *a = a.try_concat(&b)?;
         }
         (_, op) => out.push(op),
     }
+    Ok(())
 }

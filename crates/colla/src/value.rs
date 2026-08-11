@@ -316,24 +316,29 @@ impl Value {
                 ValueKind::RichText(rich) => {
                     check_len(
                         "container length",
-                        rich.spans().len(),
+                        rich.span_count(),
                         limits.max_container_len,
                     )?;
-                    for span in rich.spans().iter().rev() {
-                        match &span.content {
-                            crate::richtext::RichInsert::Text(text) => {
-                                check_len("string bytes", text.len(), limits.max_string_bytes)?;
+                    check_len("sequence length", rich.len(), limits.max_sequence_len)?;
+                    for span in rich.iter_spans().rev() {
+                        match span.content() {
+                            crate::richtext::RichContent::Text(text) => {
+                                check_len(
+                                    "string bytes",
+                                    text.as_str().len(),
+                                    limits.max_string_bytes,
+                                )?;
                             }
-                            crate::richtext::RichInsert::Embed(child) => {
+                            crate::richtext::RichContent::Embed(child) => {
                                 stack.push((child, depth + 1));
                             }
                         }
                         check_len(
                             "container length",
-                            span.attrs.len(),
+                            span.attrs().len(),
                             limits.max_container_len,
                         )?;
-                        for (key, value) in span.attrs.iter() {
+                        for (key, value) in span.attrs().iter() {
                             check_len("string bytes", key.len(), limits.max_string_bytes)?;
                             if let crate::AttrValue::String(value) = value {
                                 check_len("string bytes", value.len(), limits.max_string_bytes)?;

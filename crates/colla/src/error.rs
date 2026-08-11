@@ -9,6 +9,19 @@ pub enum ValueError {
     NonFiniteFloat,
     #[error("duplicate key: {0}")]
     DuplicateKey(String),
+    #[error("sequence logical length exceeds the platform limit")]
+    SequenceLengthOverflow,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+#[non_exhaustive]
+pub enum Utf16PositionError {
+    #[error("code point position {position} is out of bounds (len {len})")]
+    CodePointOutOfBounds { position: usize, len: usize },
+    #[error("UTF-16 position {position} is out of bounds (len {len})")]
+    Utf16OutOfBounds { position: usize, len: usize },
+    #[error("UTF-16 position {position} is inside a surrogate pair")]
+    InvalidUtf16Boundary { position: usize },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -34,6 +47,8 @@ pub enum ApplyError {
     SequenceOutOfBounds { path: Path },
     #[error("integer addition overflow at {path}")]
     IntegerOverflow { path: Path },
+    #[error("sequence logical length overflow at {path}")]
+    SequenceLengthOverflow { path: Path },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -60,6 +75,8 @@ pub enum TransformError {
     },
     #[error("map entry changes cannot share one base key: {0}")]
     IncompatibleMapEntry(String),
+    #[error("transformed change length exceeds the platform limit")]
+    LengthOverflow,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]

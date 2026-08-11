@@ -18,10 +18,11 @@ pub use change::{
     RichTextOp, TextChange, TextOp, TieBreak,
 };
 pub use error::{
-    ApplyError, BuildError, CodecError, ComposeError, InvertError, TransformError, ValueError,
+    ApplyError, BuildError, CodecError, ComposeError, InvertError, TransformError,
+    Utf16PositionError, ValueError,
 };
 pub use input_limits::InputLimits;
 pub use op::{apply, compose, invert, transform_pair};
 pub use path::{Path, PathSeg};
-pub use richtext::{RichInsert, RichSpan, RichText};
+pub use richtext::{RichContent, RichSpan, RichText, RichTextChunk};
 pub use value::{FiniteF64, List, Map, Text, Value, ValueKind, ValueType};

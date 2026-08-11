@@ -7,7 +7,7 @@ use crate::change::{
 };
 use crate::error::CodecError;
 use crate::input_limits::InputLimits;
-use crate::richtext::{RichInsert, RichSpan, RichText};
+use crate::richtext::{RichContent, RichSpan, RichText};
 use crate::value::{FiniteF64, Value, ValueKind};
 
 pub fn encode_value(value: &Value) -> Vec<u8> {
@@ -104,10 +104,10 @@ fn encode_value_into(value: &Value, out: &mut Vec<u8>) {
         }
         ValueKind::RichText(value) => {
             out.push(7);
-            put_varint(value.spans().len() as u64, out);
-            for span in value.spans() {
-                encode_rich_insert(&span.content, out);
-                encode_attrs(&span.attrs, out);
+            put_varint(value.span_count() as u64, out);
+            for span in value.iter_spans() {
+                encode_rich_content(span.content(), out);
+                encode_attrs(span.attrs(), out);
             }
         }
         ValueKind::List(value) => {
@@ -153,13 +153,13 @@ fn encode_attr_value(value: &AttrValue, out: &mut Vec<u8>) {
         }
     }
 }
-fn encode_rich_insert(content: &RichInsert, out: &mut Vec<u8>) {
+fn encode_rich_content(content: &RichContent, out: &mut Vec<u8>) {
     match content {
-        RichInsert::Text(text) => {
+        RichContent::Text(text) => {
             out.push(0);
-            put_string(text, out);
+            put_string(text.as_str(), out);
         }
-        RichInsert::Embed(value) => {
+        RichContent::Embed(value) => {
             out.push(1);
             encode_value_into(value, out);
         }
@@ -250,7 +250,7 @@ fn encode_change_into(change: &Change, out: &mut Vec<u8>) {
                     }
                     RichTextOp::Insert { content, attrs } => {
                         out.push(1);
-                        encode_rich_insert(content, out);
+                        encode_rich_content(content, out);
                         encode_attrs(attrs, out);
                     }
                     RichTextOp::Delete(len) => {
@@ -386,6 +386,18 @@ impl<'a> Decoder<'a> {
             Ok(())
         }
     }
+    fn add_sequence_len(
+        &self,
+        current: usize,
+        delta: usize,
+        offset: usize,
+    ) -> Result<usize, CodecError> {
+        let actual = current
+            .checked_add(delta)
+            .ok_or(CodecError::IntegerOutOfRange { offset })?;
+        self.limit("sequence length", actual, self.limits.max_sequence_len)?;
+        Ok(actual)
+    }
     fn depth(&self, depth: usize) -> Result<(), CodecError> {
         self.limit("depth", depth, self.limits.max_depth)
     }
@@ -433,16 +445,17 @@ impl<'a> Decoder<'a> {
             7 => {
                 let count = self.count("container length", self.limits.max_container_len)?;
                 let mut spans = Vec::with_capacity(count);
+                let mut logical_len = 0usize;
                 for _ in 0..count {
-                    let content = self.rich_insert(depth + 1)?;
+                    let span_offset = self.pos;
+                    let content = self.rich_content(depth + 1)?;
+                    logical_len = self.add_sequence_len(logical_len, content.len(), span_offset)?;
                     let attrs = self.attrs()?;
-                    spans.push(RichSpan { content, attrs });
+                    spans.push(RichSpan::from_parts(content, attrs));
                 }
-                let normalized = RichText::new(spans.clone());
-                if normalized.spans() != spans.as_slice() {
-                    return Err(self.noncanonical(offset, "RichText", "non-canonical spans"));
-                }
-                Ok(Value::rich_text(RichText::from_canonical(spans)))
+                RichText::from_spans(spans)
+                    .map(Value::rich_text)
+                    .map_err(CodecError::from)
             }
             8 => {
                 let count = self.count("container length", self.limits.max_container_len)?;
@@ -531,19 +544,12 @@ impl<'a> Decoder<'a> {
         }
         Ok(AttrPatch::from_btree(map))
     }
-    fn rich_insert(&mut self, depth: usize) -> Result<RichInsert, CodecError> {
+    fn rich_content(&mut self, depth: usize) -> Result<RichContent, CodecError> {
         let offset = self.pos;
         match self.byte()? {
-            0 => {
-                let value = self.string()?;
-                if value.is_empty() {
-                    Err(self.noncanonical(offset, "RichInsert", "empty text"))
-                } else {
-                    Ok(RichInsert::text(value))
-                }
-            }
-            1 => Ok(RichInsert::embed(self.value(depth)?)),
-            tag => Err(self.tag_error(offset, tag, "RichInsert")),
+            0 => Ok(RichContent::text(self.string()?)),
+            1 => Ok(RichContent::embed(self.value(depth)?)),
+            tag => Err(self.tag_error(offset, tag, "RichContent")),
         }
     }
 
@@ -721,9 +727,11 @@ impl<'a> Decoder<'a> {
                     return Err(self.noncanonical(offset, "RichTextChange", "empty change"));
                 }
                 let mut ops = Vec::with_capacity(count);
+                let mut input_len = 0usize;
+                let mut output_len = 0usize;
                 for _ in 0..count {
                     let op_offset = self.pos;
-                    ops.push(match self.byte()? {
+                    let op = match self.byte()? {
                         0 => {
                             let n = self.usize()?;
                             if n == 0 {
@@ -739,7 +747,7 @@ impl<'a> Decoder<'a> {
                             }
                         }
                         1 => RichTextOp::Insert {
-                            content: self.rich_insert(depth + 1)?,
+                            content: self.rich_content(depth + 1)?,
                             attrs: self.attrs()?,
                         },
                         2 => {
@@ -754,7 +762,21 @@ impl<'a> Decoder<'a> {
                             RichTextOp::Delete(n)
                         }
                         tag => return Err(self.tag_error(op_offset, tag, "RichTextOp")),
-                    });
+                    };
+                    match &op {
+                        RichTextOp::Retain { len, .. } => {
+                            input_len = self.add_sequence_len(input_len, *len, op_offset)?;
+                            output_len = self.add_sequence_len(output_len, *len, op_offset)?;
+                        }
+                        RichTextOp::Insert { content, .. } => {
+                            output_len =
+                                self.add_sequence_len(output_len, content.len(), op_offset)?;
+                        }
+                        RichTextOp::Delete(len) => {
+                            input_len = self.add_sequence_len(input_len, *len, op_offset)?;
+                        }
+                    }
+                    ops.push(op);
                 }
                 if !is_canonical_rich_text_ops(&ops) {
                     return Err(self.noncanonical(offset, "RichTextChange", "non-canonical ops"));
@@ -800,24 +822,27 @@ fn is_canonical_text_ops(ops: &[TextOp]) -> bool {
 }
 
 fn is_canonical_rich_text_ops(ops: &[RichTextOp]) -> bool {
-    !matches!(
-        ops.last(),
-        Some(RichTextOp::Retain { attrs, .. }) if attrs.is_empty()
-    ) && ops.windows(2).all(|pair| match (&pair[0], &pair[1]) {
-        (RichTextOp::Retain { attrs: left, .. }, RichTextOp::Retain { attrs: right, .. }) => {
-            left != right
-        }
-        (RichTextOp::Delete(_), RichTextOp::Delete(_) | RichTextOp::Insert { .. }) => false,
-        (
-            RichTextOp::Insert {
-                content: RichInsert::Text(_),
-                attrs: left,
-            },
-            RichTextOp::Insert {
-                content: RichInsert::Text(_),
-                attrs: right,
-            },
-        ) => left != right,
-        _ => true,
-    })
+    !ops.iter()
+        .any(|op| matches!(op, RichTextOp::Insert { content, .. } if content.is_empty()))
+        && !matches!(
+            ops.last(),
+            Some(RichTextOp::Retain { attrs, .. }) if attrs.is_empty()
+        )
+        && ops.windows(2).all(|pair| match (&pair[0], &pair[1]) {
+            (RichTextOp::Retain { attrs: left, .. }, RichTextOp::Retain { attrs: right, .. }) => {
+                left != right
+            }
+            (RichTextOp::Delete(_), RichTextOp::Delete(_) | RichTextOp::Insert { .. }) => false,
+            (
+                RichTextOp::Insert {
+                    content: RichContent::Text(_),
+                    attrs: left,
+                },
+                RichTextOp::Insert {
+                    content: RichContent::Text(_),
+                    attrs: right,
+                },
+            ) => left != right,
+            _ => true,
+        })
 }

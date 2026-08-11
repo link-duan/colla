@@ -6,8 +6,8 @@
 use colla::{
     apply, compose, invert, transform_pair, ApplyError, AttrChange, AttrPatch, AttrValue, Attrs,
     BuildError, Change, ChangeBuilder, ChangeKind, CodecError, ComposeError, InputLimits,
-    IntChange, InvertError, ListOp, MapEntryChange, Path, PathSeg, RichInsert, RichText,
-    RichTextOp, TextOp, TieBreak, TransformError, Value, ValueKind, ValueType,
+    IntChange, InvertError, ListOp, MapEntryChange, Path, PathSeg, RichContent, RichText,
+    RichTextOp, TextOp, TieBreak, TransformError, Utf16PositionError, Value, ValueKind, ValueType,
 };
 use serde_json::{json, Value as JsonValue};
 use wasm_bindgen::prelude::*;
@@ -725,14 +725,14 @@ fn inspect_change_at(
                         index = end;
                     }
                     RichTextOp::Insert { content, attrs } => match content {
-                        RichInsert::Text(text) => entries.push(json!({
+                        RichContent::Text(text) => entries.push(json!({
                             "type": "richText.insertText",
                             "path": path_json_value(path),
                             "at": rich_utf16_prefix(base, index),
-                            "text": text.as_ref(),
+                            "text": text.as_str(),
                             "attrs": attrs_json(attrs),
                         })),
-                        RichInsert::Embed(value) => entries.push(json!({
+                        RichContent::Embed(value) => entries.push(json!({
                             "type": "richText.insertEmbed",
                             "path": path_json_value(path),
                             "at": rich_utf16_prefix(base, index),
@@ -846,29 +846,8 @@ fn text_utf16_prefix(text: &str, index: usize) -> usize {
 }
 
 fn rich_utf16_prefix(rich: &RichText, index: usize) -> usize {
-    let mut remaining = index;
-    let mut utf16 = 0usize;
-    for span in rich.spans() {
-        match &span.content {
-            RichInsert::Text(text) => {
-                for character in text.chars() {
-                    if remaining == 0 {
-                        return utf16;
-                    }
-                    utf16 += character.len_utf16();
-                    remaining -= 1;
-                }
-            }
-            RichInsert::Embed(_) => {
-                if remaining == 0 {
-                    return utf16;
-                }
-                utf16 += 1;
-                remaining -= 1;
-            }
-        }
-    }
-    utf16
+    rich.code_point_to_utf16(index)
+        .expect("validated RichText code point position")
 }
 
 fn attr_value_json(value: &AttrValue) -> JsonValue {
@@ -1006,6 +985,11 @@ fn transform_error(error: TransformError, operation: &'static str) -> JsValue {
             "incompatible_change",
             operation,
             json!({ "reason": "map_entry_conflict", "key": key }),
+        ),
+        TransformError::LengthOverflow => wasm_error_details(
+            "incompatible_change",
+            operation,
+            json!({ "reason": "length_overflow" }),
         ),
         _ => wasm_error("incompatible_change", operation, error.to_string()),
     }
@@ -1357,45 +1341,8 @@ fn rich_utf16_to_code_point(
     position: usize,
     operation: &'static str,
 ) -> Result<usize, JsValue> {
-    let mut utf16 = 0usize;
-    let mut code_point = 0usize;
-    for span in rich.spans() {
-        match &span.content {
-            RichInsert::Text(text) => {
-                for character in text.chars() {
-                    if position == utf16 {
-                        return Ok(code_point);
-                    }
-                    let next = utf16 + character.len_utf16();
-                    if position < next {
-                        return Err(wasm_error_details(
-                            "invalid_utf16_boundary",
-                            operation,
-                            json!({ "position": position }),
-                        ));
-                    }
-                    utf16 = next;
-                    code_point += 1;
-                }
-            }
-            RichInsert::Embed(_) => {
-                if position == utf16 {
-                    return Ok(code_point);
-                }
-                utf16 += 1;
-                code_point += 1;
-            }
-        }
-    }
-    if position == utf16 {
-        Ok(code_point)
-    } else {
-        Err(wasm_error_details(
-            "out_of_bounds",
-            operation,
-            json!({ "target": "richText", "length": utf16, "index": position }),
-        ))
-    }
+    rich.utf16_to_code_point(position)
+        .map_err(|error| rich_position_error(error, operation))
 }
 
 fn rich_code_point_to_utf16(
@@ -1403,35 +1350,23 @@ fn rich_code_point_to_utf16(
     position: usize,
     operation: &'static str,
 ) -> Result<usize, JsValue> {
-    let mut utf16 = 0usize;
-    let mut code_point = 0usize;
-    for span in rich.spans() {
-        match &span.content {
-            RichInsert::Text(text) => {
-                for character in text.chars() {
-                    if code_point == position {
-                        return Ok(utf16);
-                    }
-                    utf16 += character.len_utf16();
-                    code_point += 1;
-                }
-            }
-            RichInsert::Embed(_) => {
-                if code_point == position {
-                    return Ok(utf16);
-                }
-                utf16 += 1;
-                code_point += 1;
-            }
-        }
-    }
-    if position == code_point {
-        Ok(utf16)
-    } else {
-        Err(wasm_error_details(
+    rich.code_point_to_utf16(position)
+        .map_err(|error| rich_position_error(error, operation))
+}
+
+fn rich_position_error(error: Utf16PositionError, operation: &'static str) -> JsValue {
+    match error {
+        Utf16PositionError::InvalidUtf16Boundary { position } => wasm_error_details(
+            "invalid_utf16_boundary",
+            operation,
+            json!({ "position": position }),
+        ),
+        Utf16PositionError::CodePointOutOfBounds { position, len }
+        | Utf16PositionError::Utf16OutOfBounds { position, len } => wasm_error_details(
             "out_of_bounds",
             operation,
-            json!({ "target": "richText", "length": code_point, "index": position }),
-        ))
+            json!({ "target": "richText", "length": len, "index": position }),
+        ),
+        other => wasm_error("invalid_argument", operation, other.to_string()),
     }
 }

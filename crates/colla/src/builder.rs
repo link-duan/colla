@@ -5,7 +5,7 @@ use crate::change::{
 };
 use crate::error::{ApplyError, BuildError};
 use crate::path::{Path, PathSeg};
-use crate::richtext::RichInsert;
+use crate::richtext::RichContent;
 use crate::value::{Value, ValueKind, ValueType};
 
 /// Snapshot-aware, sequential construction of one canonical recursive Change.
@@ -373,7 +373,7 @@ impl ChangeBuilder {
                     attrs: AttrPatch::new(),
                 },
                 RichTextOp::Insert {
-                    content: RichInsert::text(value),
+                    content: RichContent::text(value),
                     attrs,
                 },
             ]),
@@ -396,7 +396,7 @@ impl ChangeBuilder {
                     attrs: AttrPatch::new(),
                 },
                 RichTextOp::Insert {
-                    content: RichInsert::embed(value),
+                    content: RichContent::embed(value),
                     attrs,
                 },
             ]),

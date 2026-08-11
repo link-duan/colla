@@ -1,7 +1,7 @@
 use colla::{
     transform_pair, AttrChange, AttrPatch, AttrValue, Attrs, Change, ListChange, ListOp, MapChange,
-    MapEntryChange, RichInsert, RichSpan, RichText, RichTextChange, RichTextOp, TextChange, TextOp,
-    TieBreak, Value,
+    MapEntryChange, RichContent, RichSpan, RichText, RichTextChange, RichTextOp, TextChange,
+    TextOp, TieBreak, TransformError, Value,
 };
 
 fn assert_tp1(base: &Value, a: &Change, b: &Change) {
@@ -125,9 +125,10 @@ fn rich_text_compose_batches_attrs_and_partially_consumes_insert() {
     let bold = Attrs::from_entries([("bold", AttrValue::Bool(true))]).unwrap();
     let red =
         AttrPatch::from_entries([("color", AttrChange::Set(AttrValue::string("red")))]).unwrap();
-    let base = Value::rich_text(RichText::new(vec![RichSpan::text("z", Attrs::new())]));
+    let base =
+        Value::rich_text(RichText::from_spans(vec![RichSpan::text("z", Attrs::new())]).unwrap());
     let first = Change::rich_text(RichTextChange::new(vec![RichTextOp::Insert {
-        content: RichInsert::text("abc"),
+        content: RichContent::text("abc"),
         attrs: bold,
     }]));
     let second = Change::rich_text(RichTextChange::new(vec![
@@ -139,16 +140,50 @@ fn rich_text_compose_batches_attrs_and_partially_consumes_insert() {
     let sequential = second.apply_to(&first.apply_to(&base).unwrap()).unwrap();
 
     let rich = sequential.as_rich_text().unwrap();
+    let first_span = rich.iter_spans().next().unwrap();
     assert_eq!(rich.to_plain_string(), "acz");
+    assert_eq!(first_span.attrs().get("bold"), Some(&AttrValue::Bool(true)));
     assert_eq!(
-        rich.spans()[0].attrs.get("bold"),
-        Some(&AttrValue::Bool(true))
-    );
-    assert_eq!(
-        rich.spans()[0].attrs.get("color"),
+        first_span.attrs().get("color"),
         Some(&AttrValue::string("red"))
     );
     assert_eq!(combined.apply_to(&base).unwrap(), sequential);
+}
+
+#[test]
+fn rich_text_compose_repeatedly_splits_unicode_insert() {
+    let base = Value::rich_text(RichText::default());
+    let source_attrs = Attrs::from_entries([("source", AttrValue::Bool(true))]).unwrap();
+    let first = Change::rich_text(RichTextChange::new(vec![RichTextOp::Insert {
+        content: RichContent::text("A😀BC终"),
+        attrs: source_attrs,
+    }]));
+    let red =
+        AttrPatch::from_entries([("color", AttrChange::Set(AttrValue::string("red")))]).unwrap();
+    let bold = AttrPatch::from_entries([("bold", AttrChange::Set(AttrValue::Bool(true)))]).unwrap();
+    let remove_source = AttrPatch::from_entries([("source", AttrChange::Remove)]).unwrap();
+    let second = Change::rich_text(RichTextChange::new(vec![
+        RichTextOp::Retain { len: 1, attrs: red },
+        RichTextOp::Retain {
+            len: 1,
+            attrs: bold,
+        },
+        RichTextOp::Delete(1),
+        RichTextOp::Retain {
+            len: 1,
+            attrs: remove_source,
+        },
+    ]));
+
+    let combined = first.compose(&second).unwrap();
+    let sequential = second.apply_to(&first.apply_to(&base).unwrap()).unwrap();
+    let actual = combined.apply_to(&base).unwrap();
+
+    assert_eq!(actual, sequential);
+    let rich = actual.as_rich_text().unwrap();
+    assert_eq!(rich.to_plain_string(), "A😀C终");
+    assert_eq!(rich.code_point_to_utf16(2), Ok(3));
+    assert_eq!(rich.utf16_to_code_point(3), Ok(2));
 }
 
 #[test]
@@ -171,5 +206,23 @@ fn large_retain_compose_stays_compact() {
             TextOp::Retain(len),
             TextOp::Insert("yx".into()),
         ]))
+    );
+}
+
+#[test]
+fn rich_text_transform_reports_output_length_overflow() {
+    let left =
+        Change::rich_text(RichTextChange::try_new(vec![RichTextOp::Delete(usize::MAX)]).unwrap());
+    let right = Change::rich_text(
+        RichTextChange::try_new(vec![RichTextOp::Insert {
+            content: RichContent::embed(Value::int(1)),
+            attrs: Attrs::new(),
+        }])
+        .unwrap(),
+    );
+
+    assert_eq!(
+        transform_pair(&left, &right, TieBreak::LeftFirst),
+        Err(TransformError::LengthOverflow)
     );
 }

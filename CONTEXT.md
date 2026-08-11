@@ -73,6 +73,10 @@ _Avoid_: Nested collaborative document
 由规范化 Text span 与 Embed span 构成的序列，内容和格式属性共同参与 OT。
 _Avoid_: Quill Delta, HTML
 
+**RichContent**:
+RichText span 或插入操作承载的 Text/Embed 内容；它描述内容本身，不表示一次插入行为。
+_Avoid_: Insert operation, block node
+
 **Text position**:
 Text 或 RichText 序列中的逻辑位置；Rust 核心按 Unicode scalar value 表示，
 JavaScript facade 按 UTF-16 code unit 表示并在边界处转换。

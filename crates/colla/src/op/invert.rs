@@ -7,7 +7,6 @@ use crate::change::{
 };
 use crate::error::{ApplyError, InvertError};
 use crate::path::Path;
-use crate::richtext::flatten;
 use crate::value::{Value, ValueKind, ValueType};
 
 impl Change {
@@ -104,41 +103,46 @@ fn invert_change(change: &Change, base: &Value) -> Result<Change, InvertError> {
                 ValueKind::RichText(rich) => rich,
                 _ => return Err(type_mismatch(ValueType::RichText, base).into()),
             };
-            let atoms = flatten(rich.spans());
-            let mut index = 0usize;
+            let mut cursor = rich.cursor();
             let mut out = Vec::new();
             for op in rich_change.ops() {
                 match op {
                     RichTextOp::Retain { len, attrs } => {
-                        for atom in &atoms[index..index + len] {
+                        let mut remaining = *len;
+                        while remaining > 0 {
+                            let (span_len, span_attrs) = cursor
+                                .take_attrs(remaining)
+                                .expect("Change validated by apply");
+                            remaining -= span_len;
                             let mut inverse = BTreeMap::new();
                             for (key, _) in attrs.iter() {
                                 inverse.insert(
                                     key.clone(),
-                                    match atom.attrs.get(key) {
+                                    match span_attrs.get(key) {
                                         Some(value) => AttrChange::Set(value.clone()),
                                         None => AttrChange::Remove,
                                     },
                                 );
                             }
                             out.push(RichTextOp::Retain {
-                                len: 1,
+                                len: span_len,
                                 attrs: AttrPatch::from_btree(inverse),
                             });
                         }
-                        index += len;
                     }
                     RichTextOp::Insert { content, .. } => {
                         out.push(RichTextOp::Delete(content.len()))
                     }
                     RichTextOp::Delete(len) => {
-                        for atom in &atoms[index..index + len] {
+                        let mut remaining = *len;
+                        while remaining > 0 {
+                            let span = cursor.take(remaining).expect("Change validated by apply");
+                            remaining -= span.len();
                             out.push(RichTextOp::Insert {
-                                content: atom.content.clone(),
-                                attrs: atom.attrs.clone(),
+                                content: span.content().clone(),
+                                attrs: span.attrs().clone(),
                             });
                         }
-                        index += len;
                     }
                 }
             }

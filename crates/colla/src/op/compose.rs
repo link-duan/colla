@@ -262,13 +262,13 @@ fn compose_rich(left: &RichTextChange, right: &RichTextChange) -> RichTextChange
     let mut b = RichTextOpReader::new(right.ops());
     let mut out = Vec::new();
     loop {
-        if let Some(RichTextOpRef::Insert { content, attrs }) = b.peek() {
+        if let Some(RichTextOpRef::Insert { content, .. }) = b.peek() {
             let len = content.len();
+            let (content, taken_attrs) = b.take_insert(len).expect("peeked RichText insert");
             out.push(RichTextOp::Insert {
-                content: content.prefix(len),
-                attrs: attrs.clone(),
+                content,
+                attrs: taken_attrs,
             });
-            b.consume(len);
             continue;
         }
         if let Some(RichTextOpRef::Delete(len)) = a.peek() {
@@ -296,27 +296,27 @@ fn compose_rich(left: &RichTextChange, right: &RichTextChange) -> RichTextChange
                 });
                 a.consume(len);
             }
-            (Some(RichTextOpRef::Insert { content, attrs }), None) => {
+            (Some(RichTextOpRef::Insert { content, .. }), None) => {
                 let len = content.len();
+                let (content, taken_attrs) = a.take_insert(len).expect("peeked RichText insert");
                 out.push(RichTextOp::Insert {
-                    content: content.prefix(len),
-                    attrs: attrs.clone(),
+                    content,
+                    attrs: taken_attrs,
                 });
-                a.consume(len);
             }
             (
-                Some(RichTextOpRef::Insert { content, attrs }),
+                Some(RichTextOpRef::Insert { content }),
                 Some(RichTextOpRef::Retain {
                     len: right_len,
                     attrs: patch,
                 }),
             ) => {
                 let len = content.len().min(right_len);
+                let (content, attrs) = a.take_insert(len).expect("peeked RichText insert");
                 out.push(RichTextOp::Insert {
-                    content: content.prefix(len),
+                    content,
                     attrs: attrs.apply_patch(patch),
                 });
-                a.consume(len);
                 b.consume(len);
             }
             (

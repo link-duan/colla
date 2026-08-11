@@ -46,7 +46,7 @@ fn transform_change(
             Ok((Change::text(a), Change::text(b)))
         }
         (ChangeKind::RichText(a), ChangeKind::RichText(b)) => {
-            let (a, b) = transform_rich(a, b, tie);
+            let (a, b) = transform_rich(a, b, tie)?;
             Ok((Change::rich_text(a), Change::rich_text(b)))
         }
         _ => Err(TransformError::IncompatibleKinds {
@@ -331,7 +331,7 @@ fn transform_rich(
     left: &RichTextChange,
     right: &RichTextChange,
     tie: TieBreak,
-) -> (RichTextChange, RichTextChange) {
+) -> Result<(RichTextChange, RichTextChange), TransformError> {
     let mut a = RichTextOpReader::new(left.ops());
     let mut b = RichTextOpReader::new(right.ops());
     let mut ao = Vec::new();
@@ -342,31 +342,25 @@ fn transform_rich(
         if matches!(a.peek(), Some(RichTextOpRef::Insert { .. }))
             && (!both_insert || tie == TieBreak::LeftFirst)
         {
-            if let Some(RichTextOpRef::Insert { content, attrs }) = a.peek() {
+            if let Some(RichTextOpRef::Insert { content, .. }) = a.peek() {
                 let len = content.len();
-                ao.push(RichTextOp::Insert {
-                    content: content.prefix(len),
-                    attrs: attrs.clone(),
-                });
+                let (content, attrs) = a.take_insert(len).expect("peeked RichText insert");
+                ao.push(RichTextOp::Insert { content, attrs });
                 bo.push(RichTextOp::Retain {
                     len,
                     attrs: AttrPatch::new(),
                 });
-                a.consume(len);
             }
             continue;
         }
-        if let Some(RichTextOpRef::Insert { content, attrs }) = b.peek() {
+        if let Some(RichTextOpRef::Insert { content, .. }) = b.peek() {
             let len = content.len();
+            let (content, attrs) = b.take_insert(len).expect("peeked RichText insert");
             ao.push(RichTextOp::Retain {
                 len,
                 attrs: AttrPatch::new(),
             });
-            bo.push(RichTextOp::Insert {
-                content: content.prefix(len),
-                attrs: attrs.clone(),
-            });
-            b.consume(len);
+            bo.push(RichTextOp::Insert { content, attrs });
             continue;
         }
         match (a.peek(), b.peek()) {
@@ -436,7 +430,9 @@ fn transform_rich(
             _ => unreachable!(),
         }
     }
-    (RichTextChange::new(ao), RichTextChange::new(bo))
+    let left = RichTextChange::try_new(ao).map_err(|_| TransformError::LengthOverflow)?;
+    let right = RichTextChange::try_new(bo).map_err(|_| TransformError::LengthOverflow)?;
+    Ok((left, right))
 }
 
 fn transform_attr_patch(
