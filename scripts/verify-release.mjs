@@ -48,13 +48,15 @@ colla = "=${version}"
 
 [workspace]
 `)
-    await writeFile(join(rustDir, "src/main.rs"), `use colla::{apply, path, Value};
+    await writeFile(join(rustDir, "src/main.rs"), `use colla::{apply, Change, TextChange, TextOp, Value};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let base = Value::text("Draft");
-    let mut builder = base.change();
-    builder.text_insert(&path!(), 5, " v2")?;
-    let change = builder.build();
+    let change: Change = TextChange::from_ops([
+        TextOp::Retain(5),
+        TextOp::Insert(" v2".into()),
+    ])?
+    .into();
     let next = apply(&base, &change)?;
     assert_eq!(next, Value::text("Draft v2"));
     assert_eq!(Value::decode(&next.encode())?, next);

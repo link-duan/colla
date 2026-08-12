@@ -178,7 +178,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ env.RELEASE_TAG }}
+          # Recovery runs keep the immutable release tag but may use a fixed
+          # verifier from the default branch.
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.repository.default_branch || env.RELEASE_TAG }}
       - uses: pnpm/action-setup@v4
         with:
           version: 10.34.5
