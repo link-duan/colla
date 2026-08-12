@@ -5,6 +5,8 @@ package are recorded here. Both artifacts always use the same version.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-08-12
+
 ### Changed
 
 - Renamed Rust `RichInsert` to `RichContent` without a compatibility alias,
