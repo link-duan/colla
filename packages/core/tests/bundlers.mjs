@@ -7,6 +7,7 @@ import { execFileSync } from "node:child_process"
 import { createRequire } from "node:module"
 
 const packageDir = resolve(fileURLToPath(new URL("..", import.meta.url)))
+const packageJson = JSON.parse(await readFile(join(packageDir, "package.json"), "utf8"))
 const fixtureDir = await mkdtemp(join(tmpdir(), "colla-bundlers-"))
 const packageSpec = process.env.COLLA_PACKAGE_SPEC
 
@@ -32,7 +33,7 @@ try {
       cwd: packageDir,
       stdio: "inherit",
     })
-    installSpec = join(fixtureDir, "colla-ot-0.1.0.tgz")
+    installSpec = join(fixtureDir, `colla-ot-${packageJson.version}.tgz`)
   }
   await writeFile(join(fixtureDir, "package.json"), JSON.stringify({ type: "module" }))
   execFileSync("npm", ["install", "--ignore-scripts", "--save-exact", installSpec], {
