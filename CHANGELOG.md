@@ -7,25 +7,31 @@ package are recorded here. Both artifacts always use the same version.
 
 ### Changed
 
-- Renamed Rust `RichInsert` to `RichContent`; no compatibility alias is kept.
-- Made `RichSpan` fields private and replaced `RichText::spans()` with
-  `iter_spans()` and `span_count()` so the physical storage is not public API.
-- Added cached RichText scalar lengths, cumulative span lookup,
-  fallible `RichText::from_spans` and `RichTextChange::try_new`; removed the
-  infallible `RichText::new` constructor.
-- Added indexed RichText Unicode scalar/UTF-16 coordinate conversion while
-  keeping UTF-16 lengths and indexes as non-canonical runtime caches.
-- Apply and invert now operate on span ranges without expanding RichText into
-  one allocation per character; complete spans advance in O(1) and partial
-  spans reuse one set of calculated text metrics.
-- RichText compose and transform now slice inserted text with one UTF-8 boundary
-  scan per consumed prefix.
-- RichText decoding now enforces snapshot and explicit Change input/output
-  logical lengths. Snapshot decoding accepts empty or mergeable text spans and
-  normalizes them in memory, while encoding preserves the existing canonical
-  wire bytes.
-- RichText transform now reports `TransformError::LengthOverflow` instead of
-  panicking when a transformed Change length cannot be represented.
+- Renamed Rust `RichInsert` to `RichContent` without a compatibility alias,
+  made `RichSpan` construction controlled, and replaced the exposed span slice
+  with `iter_spans()` and `span_count()`.
+- Reworked RichText around canonical spans with cached scalar/UTF-16 metrics and
+  cumulative indexes. Apply and invert now process span ranges without
+  per-character intermediate arrays; compose and transform avoid repeated
+  UTF-8 prefix scans.
+- Replaced Rust Change builders and legacy constructors with fallible typed
+  `MapChange::from_entries` and sequence `from_ops` constructors plus standard
+  `Into<Change>` conversions. Empty typed changes and `IntChange::Add(0)` become
+  Noop.
+- Added checked Change input/output length accumulation and `LengthOverflow`
+  propagation through construction, compose, transform, and invert.
+- Replaced JavaScript `Value.change()` and the Snapshot-aware Wasm Builder with
+  `Change.fromJS(ChangeInput)` and a pure TypeScript `Change.build()` callback
+  builder. Construction is Snapshot-independent and map insert/delete/modify
+  semantics are explicit.
+- Unified Rust and JavaScript Change construction on Unicode scalar sequence
+  lengths. Snapshot-relative Change View and explicit coordinate conversion
+  continue to expose UTF-16 positions for JavaScript consumers.
+- Applied `InputLimits` to raw JavaScript Change input before normalization so
+  empty or mergeable operations cannot bypass resource limits.
+- Kept canonical wire bytes unchanged. RichText Snapshot decoding accepts and
+  normalizes empty or mergeable Text spans for compatibility, while Change
+  decoding remains strict.
 
 ## [0.1.0] - 2026-08-08
 

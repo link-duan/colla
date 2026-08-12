@@ -1,12 +1,17 @@
-use crate::change::{Change, ChangeKind, IntChange, ListOp, MapEntryChange, RichTextOp, TextOp};
+use crate::change::{
+    Change, ChangeKind, IntChange, ListChange, ListOp, MapEntryChange, RichTextOp, TextChange,
+    TextOp,
+};
 use crate::error::ApplyError;
 use crate::path::{Path, PathSeg};
 use crate::richtext::{RichSpan, RichText};
 use crate::value::{List, Map, Text, Value, ValueKind, ValueType};
 
 impl Change {
-    /// Applies this contextual Change to `base`, returning a new immutable
-    /// Value. The input is unchanged on every error path.
+    /// Applies this Change to `base`, returning a new immutable Value.
+    ///
+    /// This is the inherent equivalent of [`crate::apply`]. The input is
+    /// unchanged on every error path.
     pub fn apply_to(&self, base: &Value) -> Result<Value, ApplyError> {
         let mut path = Path::new();
         apply_at(self, base, &mut path)
@@ -79,7 +84,8 @@ fn apply_at(change: &Change, base: &Value, path: &mut Path) -> Result<Value, App
                 ValueKind::List(list) => list,
                 _ => return Err(type_mismatch(path, ValueType::List, base)),
             };
-            let mut out = Vec::new();
+            let capacity = list_output_capacity(change, base_list.len(), path)?;
+            let mut out = Vec::with_capacity(capacity);
             let mut index = 0usize;
             for op in change.ops() {
                 match op {
@@ -128,7 +134,8 @@ fn apply_at(change: &Change, base: &Value, path: &mut Path) -> Result<Value, App
                 _ => return Err(type_mismatch(path, ValueType::Text, base)),
             };
             let chars: Vec<char> = base_text.as_str().chars().collect();
-            let mut out = String::new();
+            let capacity = text_output_capacity(change, &chars, path)?;
+            let mut out = String::with_capacity(capacity);
             let mut index = 0usize;
             for op in change.ops() {
                 match op {
@@ -199,10 +206,112 @@ fn apply_at(change: &Change, base: &Value, path: &mut Path) -> Result<Value, App
     }
 }
 
+fn list_output_capacity(
+    change: &ListChange,
+    base_len: usize,
+    path: &Path,
+) -> Result<usize, ApplyError> {
+    let mut input = 0usize;
+    let mut output = 0usize;
+    for op in change.ops() {
+        match op {
+            ListOp::Retain(len) => {
+                input = checked_input_advance(input, *len, base_len, path)?;
+                output = checked_output_advance(output, *len, path)?;
+            }
+            ListOp::Insert(values) => {
+                output = checked_output_advance(output, values.len(), path)?;
+            }
+            ListOp::Delete(len) => {
+                input = checked_input_advance(input, *len, base_len, path)?;
+            }
+            ListOp::Modify(_) => {
+                input = checked_input_advance(input, 1, base_len, path)?;
+                output = checked_output_advance(output, 1, path)?;
+            }
+        }
+    }
+    output = checked_output_advance(output, base_len - input, path)?;
+    let element_size = std::mem::size_of::<Value>();
+    if element_size != 0 && output > isize::MAX as usize / element_size {
+        return Err(ApplyError::SequenceLengthOverflow { path: path.clone() });
+    }
+    Ok(output)
+}
+
+fn text_output_capacity(
+    change: &TextChange,
+    base: &[char],
+    path: &Path,
+) -> Result<usize, ApplyError> {
+    let mut input = 0usize;
+    let mut bytes = 0usize;
+    for op in change.ops() {
+        match op {
+            TextOp::Retain(len) => {
+                let end = checked_input_advance(input, *len, base.len(), path)?;
+                bytes = add_char_bytes(bytes, &base[input..end], path)?;
+                input = end;
+            }
+            TextOp::Insert(value) => {
+                bytes = checked_output_advance(bytes, value.len(), path)?;
+            }
+            TextOp::Delete(len) => {
+                input = checked_input_advance(input, *len, base.len(), path)?;
+            }
+        }
+    }
+    bytes = add_char_bytes(bytes, &base[input..], path)?;
+    if bytes > isize::MAX as usize {
+        return Err(ApplyError::SequenceLengthOverflow { path: path.clone() });
+    }
+    Ok(bytes)
+}
+
+fn add_char_bytes(current: usize, chars: &[char], path: &Path) -> Result<usize, ApplyError> {
+    chars.iter().try_fold(current, |total, character| {
+        checked_output_advance(total, character.len_utf8(), path)
+    })
+}
+
+fn checked_input_advance(
+    current: usize,
+    amount: usize,
+    len: usize,
+    path: &Path,
+) -> Result<usize, ApplyError> {
+    let next = current
+        .checked_add(amount)
+        .ok_or_else(|| ApplyError::SequenceOutOfBounds { path: path.clone() })?;
+    if next > len {
+        return Err(ApplyError::SequenceOutOfBounds { path: path.clone() });
+    }
+    Ok(next)
+}
+
+fn checked_output_advance(current: usize, amount: usize, path: &Path) -> Result<usize, ApplyError> {
+    current
+        .checked_add(amount)
+        .ok_or_else(|| ApplyError::SequenceLengthOverflow { path: path.clone() })
+}
+
 fn type_mismatch(path: &Path, expected: ValueType, actual: &Value) -> ApplyError {
     ApplyError::TypeMismatch {
         path: path.clone(),
         expected,
         actual: actual.value_type(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn output_capacity_overflow_maps_to_apply_error() {
+        assert_eq!(
+            checked_output_advance(usize::MAX, 1, &Path::new()),
+            Err(ApplyError::SequenceLengthOverflow { path: Path::new() })
+        );
     }
 }

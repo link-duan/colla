@@ -12,9 +12,9 @@ const packageSpec = process.env.COLLA_PACKAGE_SPEC
 
 async function writeFixture(name, extra = "") {
   await writeFile(join(fixtureDir, name), `
-    import { apply, Value } from "colla-ot"
+    import { apply, Change, Value } from "colla-ot"
     const base = Value.fromJS("before")
-    const change = base.change().replace([], "after").build()
+    const change = Change.build(builder => builder.replace("after"))
     const next = apply(base, change)
     if (next.toJS() !== "after") throw new Error("Colla tracer failed")
     base.dispose()

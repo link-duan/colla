@@ -1,19 +1,17 @@
 use colla::{
-    apply, compose, invert, transform_pair, Change, ChangeBuilder, InputLimits, TextChange, TextOp,
-    TieBreak, Value,
+    apply, compose, invert, transform_pair, Change, ChangeKind, InputLimits, IntChange, ListChange,
+    ListOp, MapChange, MapEntryChange, RichTextChange, TextChange, TextOp, TieBreak, Value,
 };
 
 #[test]
 fn package_functions_and_type_entrypoints_form_one_facade() {
     let base = Value::text("ab");
-    let first = Change::text(TextChange::new(vec![
-        TextOp::Retain(1),
-        TextOp::Insert("x".into()),
-    ]));
-    let second = Change::text(TextChange::new(vec![
-        TextOp::Retain(2),
-        TextOp::Insert("y".into()),
-    ]));
+    let first = Change::from(
+        TextChange::from_ops(vec![TextOp::Retain(1), TextOp::Insert("x".into())]).unwrap(),
+    );
+    let second = Change::from(
+        TextChange::from_ops(vec![TextOp::Retain(2), TextOp::Insert("y".into())]).unwrap(),
+    );
 
     let after_first = apply(&base, &first).unwrap();
     let combined = compose(&first, &second).unwrap();
@@ -23,10 +21,9 @@ fn package_functions_and_type_entrypoints_form_one_facade() {
     let inverse = invert(&combined, &base).unwrap();
     assert_eq!(apply(&Value::text("axyb"), &inverse).unwrap(), base);
 
-    let concurrent = Change::text(TextChange::new(vec![
-        TextOp::Retain(1),
-        TextOp::Insert("z".into()),
-    ]));
+    let concurrent = Change::from(
+        TextChange::from_ops(vec![TextOp::Retain(1), TextOp::Insert("z".into())]).unwrap(),
+    );
     let (first_prime, concurrent_prime) =
         transform_pair(&first, &concurrent, TieBreak::LeftFirst).unwrap();
     assert_eq!(
@@ -50,24 +47,44 @@ fn package_functions_and_type_entrypoints_form_one_facade() {
 }
 
 #[test]
-fn builder_has_no_input_limit_policy() {
-    let base = Value::text("a");
-    let mut builder = base.change();
-    builder.text_insert(&colla::Path::new(), 1, "bc").unwrap();
-    let change = builder.build();
-    assert_eq!(apply(&base, &change).unwrap(), Value::text("abc"));
+fn typed_constructors_accept_iterators_and_convert_into_change() {
+    let text: Change = TextChange::from_ops([TextOp::Retain(1), TextOp::Insert("x".into())])
+        .unwrap()
+        .into();
+    assert!(matches!(text.kind(), ChangeKind::Text(_)));
 
-    let direct = ChangeBuilder::new(&base);
-    assert_eq!(direct.current(), &base);
+    let list: Change = ListChange::from_ops(vec![ListOp::Insert(vec![Value::int(1)])])
+        .unwrap()
+        .into();
+    assert!(matches!(list.kind(), ChangeKind::List(_)));
+
+    let map: Change = MapChange::from_entries(
+        [("key", Value::string("value"))]
+            .into_iter()
+            .map(|(key, value)| (key, MapEntryChange::Insert(value))),
+    )
+    .unwrap()
+    .into();
+    assert!(matches!(map.kind(), ChangeKind::Map(_)));
+
+    let rich: Change = RichTextChange::from_ops(std::iter::empty()).unwrap().into();
+    assert!(rich.is_noop());
+    assert!(Change::from(TextChange::from_ops([]).unwrap()).is_noop());
+    assert!(Change::from(ListChange::from_ops([]).unwrap()).is_noop());
+    assert!(Change::from(MapChange::from_entries::<_, String>([]).unwrap()).is_noop());
+    assert!(Change::from(IntChange::Add(0)).is_noop());
+    assert!(matches!(
+        Change::from(IntChange::Add(4)).kind(),
+        ChangeKind::Int(_)
+    ));
 }
 
 #[test]
 fn operation_results_are_independent_of_receiver_input_limits() {
     let base = Value::text("a");
-    let change = Change::text(TextChange::new(vec![
-        TextOp::Retain(1),
-        TextOp::Insert("bc".into()),
-    ]));
+    let change = Change::from(
+        TextChange::from_ops(vec![TextOp::Retain(1), TextOp::Insert("bc".into())]).unwrap(),
+    );
     let result = apply(&base, &change).unwrap();
     let bytes = result.encode();
     let limits = InputLimits {
@@ -81,7 +98,7 @@ fn operation_results_are_independent_of_receiver_input_limits() {
 
 #[test]
 fn huge_logical_changes_transform_without_an_operation_budget() {
-    let huge = Change::text(TextChange::new(vec![TextOp::Delete(usize::MAX)]));
+    let huge = Change::from(TextChange::from_ops(vec![TextOp::Delete(usize::MAX)]).unwrap());
     assert_eq!(
         transform_pair(&huge, &Change::noop(), TieBreak::LeftFirst).unwrap(),
         (huge, Change::noop())

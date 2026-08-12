@@ -1,8 +1,8 @@
 # colla-ot
 
-Synchronous JavaScript bindings for Colla's immutable nested values and
-Operational Transformation algebra. The same canonical codec and OT logic are
-used by Rust and JavaScript.
+`colla-ot` is the synchronous JavaScript facade for Colla's immutable nested
+values, canonical Change format, and Operational Transformation algebra. It
+uses the same Rust core and canonical bytes as the `colla` crate.
 
 ## Install
 
@@ -10,50 +10,125 @@ used by Rust and JavaScript.
 pnpm add colla-ot
 ```
 
-Node.js 22 or newer is supported through ESM. Vite 5 or newer and Rollup 4 or
-newer can consume the same package with ordinary module resolution; no Wasm,
-top-level-await or asset copy plugin is required. The corresponding Rust crate
-supports Rust 1.81 or newer.
+The package is ESM-only and supports Node.js 22+, Vite 5+, and Rollup 4+.
+Browser and Node entry points initialize the same Wasm binary synchronously;
+no public initialization function or Wasm bundler plugin is required.
 
-The Rust crate and npm package share one version. Patch releases in the 0.1
-line preserve public API and wire compatibility; a later pre-1.0 minor may make
-documented breaking changes. See the repository changelog and release runbook
-for the complete policy and supported release procedure.
-
-## Values and changes
+## Values
 
 ```ts
-import { Value, apply, richText, text } from "colla-ot"
+import { Value, richText, text } from "colla-ot"
 
-const before = Value.fromJS({
+using value = Value.fromJS({
   count: 1n,
   title: text("Draft"),
-  body: richText([{ type: "text", text: "Hello" }]),
+  body: richText([
+    { type: "text", text: "Hello", attrs: { bold: true } },
+    { type: "embed", value: { id: "mention-1" } },
+  ]),
 })
 
-const change = before.change()
-  .int(["count"], value => value.add(1n))
-  .text(["title"], value => value.insert(5, " v2"))
-  .richText(["body"], value => value
-    .insertText(5, " world", { bold: true }))
-  .build()
-
-const after = apply(before, change)
-console.log(after.toJS())
-
-before.dispose()
-change.dispose()
-after.dispose()
+console.log(value.toJS())
 ```
 
 `ValueInput` accepts null, booleans, signed 64-bit `bigint`, finite numbers,
-strings, arrays, plain records, `text()` and `richText()`. Output from `toJS()`
-and `inspectChange()` is recursively frozen.
+strings, arrays, plain records, `text()` markers, and `richText()` markers.
+`ValueData` returned by `get()` and `toJS()` is recursively frozen; map output
+uses null-prototype records.
 
-Builders are sequential and transactional. Scoped callbacks must be
-synchronous and cannot escape. RichText exposes typed text/embed insertion,
-half-open deletion and explicit attribute formatting; embeds are atomic.
-Text and RichText Builder coordinates use JavaScript UTF-16 code units.
+Ordinary strings are atomic. Use `text()` when character-level OT is required.
+RichText embeds are atomic Core Values and count as one sequence unit.
+
+## Typed Change construction
+
+`Change.fromJS()` is the low-level, Snapshot-independent construction API.
+Map entries remain an array so duplicate keys can be rejected, while sequence
+changes use ordered operation streams.
+
+```ts
+import { Change } from "colla-ot"
+
+using change = Change.fromJS({
+  type: "map",
+  entries: [{
+    key: "title",
+    type: "modify",
+    change: {
+      type: "text",
+      ops: [
+        { type: "retain", length: 5 },
+        { type: "insert", text: " v2" },
+      ],
+    },
+  }],
+})
+```
+
+Construction does not inspect a Snapshot. Key existence, target types, and
+sequence bounds are checked when the Change is applied.
+
+## TypeScript Builder
+
+`Change.build()` is a pure TypeScript convenience layer over the same typed
+input. It does not own a Wasm handle, apply or compose intermediate changes,
+parse paths, perform map upserts, or convert coordinates.
+
+```ts
+import { Change, Value, apply, text } from "colla-ot"
+
+using before = Value.fromJS({
+  count: 1n,
+  title: text("Draft"),
+})
+
+using change = Change.build(change => {
+  change.map(map => {
+    map.modify("count", count => count.intAdd(1n))
+    map.modify("title", title => {
+      title.text(text => text.retain(5).insert(" v2"))
+    })
+  })
+})
+
+using after = apply(before, change)
+```
+
+Each root or nested Change callback must select exactly one Change kind.
+Scoped builders are synchronous and close when their callback returns or
+throws; they cannot be retained for later mutation. Map operations explicitly
+choose `insert`, `delete`, or `modify`.
+
+Raw operation streams may contain zero-length operations, empty inserts,
+adjacent operations, or trailing retains. Rust typed constructors perform the
+canonical normalization and checked length accumulation.
+
+## Text coordinates
+
+Text and RichText `retain` and `delete` lengths use Unicode scalar values, not
+JavaScript UTF-16 code units. RichText embeds count as one in both coordinate
+systems.
+
+```ts
+import {
+  Change,
+  Value,
+  resolveCodePointPosition,
+  resolveUtf16Position,
+  text,
+} from "colla-ot"
+
+using value = Value.fromJS(text("A😀B"))
+
+resolveCodePointPosition(value, [], 3) // 2
+resolveUtf16Position(value, [], 2)     // 3
+
+using change = Change.build(change => {
+  change.text(text => text.retain(2).insert("X"))
+})
+```
+
+UTF-16 positions inside a surrogate pair are rejected. `inspectChange()` uses
+Snapshot-relative UTF-16 positions for JavaScript-facing views.
 
 ## Codec and algebra
 
@@ -68,50 +143,44 @@ import {
   transformPair,
 } from "colla-ot"
 
-const value = Value.decode(valueBytes)
-const first = Change.decode(firstBytes)
-const second = Change.decode(secondBytes)
-const concurrent = Change.decode(concurrentBytes)
+using value = Value.decode(valueBytes)
+using first = Change.decode(firstBytes)
+using second = Change.decode(secondBytes)
+using concurrent = Change.decode(concurrentBytes)
 
-const combined = compose(first, second)
-const inverse = invert(combined, value)
+using combined = compose(first, second)
+using inverse = invert(combined, value)
+using next = apply(value, combined)
 const [leftPrime, rightPrime] = transformPair(first, concurrent, {
   order: "left-first",
 })
 const view = inspectChange(combined, value)
-const next = apply(value, combined)
 
-for (const handle of [
-  value,
-  first,
-  second,
-  concurrent,
-  combined,
-  inverse,
-  leftPrime,
-  rightPrime,
-  next,
-]) handle.dispose()
+leftPrime.dispose()
+rightPrime.dispose()
 ```
 
-`encode()` returns canonical bytes owned by JavaScript. Algebra never consumes
-its inputs and every returned `Value` or `Change` has independent disposal
-ownership. `ChangeView` is for inspection only; it is not a Change construction
-or persistence format.
+`encode()` returns fresh JavaScript-owned canonical bytes. Algebra never
+consumes its inputs. `ChangeView` is a read-only projection for inspection; it
+is neither Change construction data nor a persistence format.
 
 ## Input limits and errors
 
-`InputLimits` apply only at untrusted input boundaries:
+`InputOptions` may override `DEFAULT_INPUT_LIMITS` at untrusted input
+boundaries:
 
 - `Value.fromJS(input, { limits })`
 - `Value.decode(bytes, { limits })`
+- `Change.fromJS(input, { limits })`
+- `Change.build(edit, { limits })`
 - `Change.decode(bytes, { limits })`
 
-Builder inputs are validated for Core semantics but trusted for size. Builders,
-algebra, coordinate conversion and Change inspection do not apply limits.
+Change construction limits are counted against raw input before normalization,
+so empty operations cannot bypass resource policy. Algebra, coordinate
+conversion, and Change inspection do not apply input limits.
 
-Failures throw `CollaError`. Use stable `code`, `operation`, optional `path` and
-frozen `details` fields rather than matching message text.
+Failures throw `CollaError`. Match its stable `code`, `operation`, optional
+`path`, and frozen `details` fields rather than message text.
 
 ```ts
 import { CollaError, Value } from "colla-ot"
@@ -125,32 +194,19 @@ try {
 }
 ```
 
-## Node.js, Vite, Rollup and workers
-
-Node.js uses the normal package import:
-
-```ts
-import { Value } from "colla-ot"
-```
-
-Vite and Rollup use the same source import. Keep their standard ESM and module
-resolution settings; no package-specific plugin or asynchronous initialization
-step is needed.
-
-Dedicated and Shared Worker modules can import the package directly:
-
-```ts
-import { Value } from "colla-ot"
-
-const value = Value.fromJS({ worker: true })
-const result = value.toJS()
-value.dispose()
-```
-
-Initialization does not depend on `document`, `window` or another DOM API.
-
 ## Resource lifecycle
 
-Call `dispose()` (or use `Symbol.dispose`) as soon as a `Value`, `Change` or root
-Builder is no longer needed. Disposal is idempotent. `FinalizationRegistry` is
-only a fallback for missed cleanup and must not be the primary lifecycle plan.
+`Value` and `Change` are Wasm-backed handles. Call `dispose()` or use
+`Symbol.dispose` as soon as ownership ends. Disposal is idempotent, and clones
+have independent ownership. `FinalizationRegistry` is only a fallback for
+missed cleanup.
+
+The callback builders used by `Change.build()` are ordinary TypeScript scopes;
+they have no handle, clone, finalizer, or disposal API.
+
+## More documentation
+
+See the repository
+[documentation index](https://github.com/link-duan/colla/blob/master/docs/README.md)
+for the data model, OT properties, binary format, architecture decisions,
+compatibility policy, and release process.

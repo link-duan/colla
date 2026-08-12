@@ -6,7 +6,7 @@ Colla 定义不可变嵌套文档及其 Operational Transformation 领域语言�
 ## Language
 
 **Colla Core**:
-定义 Core Value、Change、Builder、OT 代数和规范 codec 的基础能力边界；它不拥有
+定义 Core Value、Change、OT 代数和规范 codec 的基础能力边界；它不拥有
 Document、Session、历史、同步协议、网络传输或其他应用层协作状态。
 _Avoid_: Collaboration runtime, document framework
 
@@ -22,9 +22,14 @@ _Avoid_: Document state
 相对于 Snapshot 的规范化前向操作；它不包含旧值、版本、作者或 operation identity。
 _Avoid_: Patch, event, command
 
+**Change Input**:
+JavaScript 构造 Change 使用的递归 typed input；它不是 Change 的规范内存表示、
+Change View 或 wire format。
+_Avoid_: Change Data, serialized Change, Change View
+
 **Change View**:
 结合 Change 与其 Snapshot 派生的只读投影；它不是 Change 的规范表示或构造输入。
-_Avoid_: Change Data, serialized Change
+_Avoid_: Change Input, serialized Change
 
 **Path**:
 相对于特定 Snapshot 的临时 Map key/List index 导航地址，不属于 Change。
@@ -77,7 +82,12 @@ _Avoid_: Quill Delta, HTML
 RichText span 或插入操作承载的 Text/Embed 内容；它描述内容本身，不表示一次插入行为。
 _Avoid_: Insert operation, block node
 
-**Text position**:
-Text 或 RichText 序列中的逻辑位置；Rust 核心按 Unicode scalar value 表示，
-JavaScript facade 按 UTF-16 code unit 表示并在边界处转换。
+**Change position**:
+Text 或 RichText Change 中的逻辑位置；Rust 和 JavaScript 构造 API 均按 Unicode
+scalar value 表示，RichText Embed 占 1。
 _Avoid_: Grapheme index, byte offset
+
+**Projection position**:
+结合 Snapshot 派生的 JavaScript 用户界面位置，使用 UTF-16 code unit，并可与
+Change position 显式转换。
+_Avoid_: Change position, byte offset

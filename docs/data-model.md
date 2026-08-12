@@ -1,11 +1,15 @@
 # Colla 核心数据模型
 
-状态：规范性设计。本文中的“必须/禁止/应当”具有约束力。
+状态：规范性。本文定义合法的 Value/Change 结构、规范形式和核心语义边界；
+“必须/禁止/应当”具有约束力。
+
+相关规范：[OT 性质](ot-properties.md)定义代数要求，
+[二进制 Body 格式](binary-format.md)定义规范编码。
 
 ## 1. 范围
 
-Colla 的核心只包含不可变 `Value`、不可变递归 `Change`、`Path` 导航、
-`ChangeBuilder`、OT 代数操作、输入资源策略和规范二进制 body codec。
+Colla Core 只包含不可变 `Value`、不可变递归 `Change`、`Path` 导航、OT 代数操作、
+输入资源策略和规范二进制 body codec。JavaScript 构造 facade 不属于核心模型。
 
 核心不提供 `DocOp`、`Action`、`Document`、Session、Cursor/Selection、Diff、
 JSON、历史格式兼容、原子 Move 或业务 Schema。
@@ -34,7 +38,7 @@ Value 通过受控构造器保证局部合法。深度、节点数、文本和�
 节点数、Change 节点数、递归深度、容器长度、字符串字节数、序列 op 数和序列
 逻辑长度。
 
-Apply、Compose、Transform、Invert 和 Builder 不接收或读取 InputLimits；运算结果
+Apply、Compose、Transform 和 Invert 不接收或读取 InputLimits；运算结果
 可以超过接收方的默认输入策略。序列算法必须保持紧凑，不能依赖可配置阈值避免
 展开超大逻辑 retain/delete。
 
@@ -47,7 +51,8 @@ embed 是原子值，只能插入、删除或整体替换；需要独立协同�
 
 Text/Embed span 共享的内容类型称为 `RichContent`。缓存 Unicode scalar/UTF-16 长度、
 累计 span 位置或其他查找索引只属于内存表示，不参与相等性、Canonical form 或 wire encoding。
-Rust OT 坐标仍是 Unicode scalar；UTF-16 索引只用于 Rust/Wasm 边界转换。
+Change 坐标在 Rust 和 JavaScript 构造 API 中都是 Unicode scalar；UTF-16 索引只用于
+结合 Snapshot 的 JavaScript 投影和显式坐标转换。
 Rust API 通过 `iter_spans()` 观察规范 spans，不承诺底层使用连续数组。
 
 快照规范：
@@ -124,7 +129,7 @@ List 元素的 Modify。并发 RichText 属性修改中，不同 key 合并；�
 
 ## 7. 规范形式
 
-公共 Value/Change 始终规范，字段私有，只能通过构造器、Builder、代数操作
+公共 Value/Change 始终规范，字段私有，只能通过构造器、代数操作
 或 decoder 产生。主要规则：
 
 - Retain/Delete 长度必须大于零，Insert 内容不能为空。
@@ -145,14 +150,17 @@ List 元素的 Modify。并发 RichText 属性修改中，不同 key 合并；�
     invert(&change, &base)
 
 对应的低层 inherent API 为 `change.apply_to(&base)`、
-`first.compose(&second)` 和 `change.invert(&base)`。`InputLimits` 只用于
-Value/Change decode，不参与代数操作或 Builder。
+`first.compose(&second)` 和 `change.invert(&base)`。`InputLimits` 只用于外部
+Value/Change 输入，不参与代数操作。
 
 Apply 返回新的不可变 Value；失败时基准值不变。公共代数 trait 不开放，
 因为 Value/Change 是封闭类型。
 
-`Path` 仅是相对于某个 Value 快照的临时导航地址，用于查询、错误定位和
-`ChangeBuilder`，不进入 Change 或 wire format。
+Rust 使用 `MapChange::from_entries` 以及 List/Text/RichText 的 `from_ops`
+构造 typed Change，再通过标准 `Into<Change>` 递归包装。typed 构造器负责
+规范化和 checked length accumulation；空 typed Change 与 `IntChange::Add(0)`
+转换为 Noop。
 
-`ChangeBuilder` 持有基准和临时工作快照。每次编辑按调用顺序构造小 Change、
-应用到工作快照并 compose 到累计 Change。单次调用失败时 Builder 状态不变。
+`Path` 仅是相对于某个 Value 快照的临时导航地址，用于查询、投影、坐标转换和错误
+定位，不进入 Change 或 wire format。JavaScript `ChangeInput` 和 Builder 只用于构造
+Change，不是规范内存模型或持久化格式。

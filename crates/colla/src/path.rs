@@ -1,8 +1,13 @@
+//! Snapshot-relative navigation paths.
+
 use std::fmt;
 
+/// One segment in a Snapshot-relative [`Path`].
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum PathSeg {
+    /// Navigates to a Map entry by key.
     Key(String),
+    /// Navigates to a List element by index.
     Index(usize),
 }
 
@@ -12,40 +17,49 @@ pub enum PathSeg {
 pub struct Path(Vec<PathSeg>);
 
 impl Path {
+    /// Creates the root Path.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Creates a one-segment Map-key Path.
     pub fn key(key: impl Into<String>) -> Self {
         Self(vec![PathSeg::Key(key.into())])
     }
 
+    /// Creates a one-segment List-index Path.
     pub fn index(index: usize) -> Self {
         Self(vec![PathSeg::Index(index)])
     }
 
+    /// Appends a Map key and returns the extended Path.
     pub fn push_key(mut self, key: impl Into<String>) -> Self {
         self.0.push(PathSeg::Key(key.into()));
         self
     }
 
+    /// Appends a List index and returns the extended Path.
     pub fn push_index(mut self, index: usize) -> Self {
         self.0.push(PathSeg::Index(index));
         self
     }
 
+    /// Appends one segment in place.
     pub fn push(&mut self, segment: PathSeg) {
         self.0.push(segment);
     }
 
+    /// Removes the final segment, if any.
     pub fn pop(&mut self) {
         self.0.pop();
     }
 
+    /// Returns all path segments from root to target.
     pub fn segments(&self) -> &[PathSeg] {
         &self.0
     }
 
+    /// Returns whether this is the root Path.
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
@@ -67,6 +81,19 @@ impl fmt::Display for Path {
     }
 }
 
+/// Creates a [`Path`] from string Map keys and `usize` List indexes.
+///
+/// # Examples
+///
+/// ```
+/// use colla::{path, PathSeg};
+///
+/// let path = path!["items", 2usize];
+/// assert_eq!(path.segments(), &[
+///     PathSeg::Key("items".into()),
+///     PathSeg::Index(2),
+/// ]);
+/// ```
 #[macro_export]
 macro_rules! path {
     () => { $crate::Path::new() };
@@ -77,7 +104,9 @@ macro_rules! path {
     }};
 }
 
+/// Converts a supported path macro argument into a [`PathSeg`].
 pub trait IntoPathSeg {
+    /// Converts this value into one Path segment.
     fn into_path_seg(self) -> PathSeg;
 }
 
@@ -99,6 +128,10 @@ impl IntoPathSeg for usize {
     }
 }
 
+/// Converts one supported path value into a [`PathSeg`].
+///
+/// This function supports the exported [`crate::path!`] macro and is rarely
+/// needed directly.
 pub fn path_segment(value: impl IntoPathSeg) -> PathSeg {
     value.into_path_seg()
 }

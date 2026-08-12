@@ -1,6 +1,5 @@
 import {
   applyHandles,
-  BuilderHandle,
   ChangeHandle,
   composeHandles,
   inspectChangeHandle,
@@ -72,6 +71,42 @@ export type ValueData =
 export interface ValueDataMap {
   readonly [key: string]: ValueData
 }
+
+export type ChangeInput =
+  | { readonly type: "noop" }
+  | { readonly type: "replace"; readonly value: ValueInput }
+  | { readonly type: "map"; readonly entries: readonly MapChangeEntryInput[] }
+  | { readonly type: "list"; readonly ops: readonly ListChangeOpInput[] }
+  | { readonly type: "text"; readonly ops: readonly TextChangeOpInput[] }
+  | { readonly type: "richText"; readonly ops: readonly RichTextChangeOpInput[] }
+  | { readonly type: "int"; readonly delta: bigint }
+
+export type MapChangeEntryInput =
+  | { readonly key: string; readonly type: "insert"; readonly value: ValueInput }
+  | { readonly key: string; readonly type: "delete" }
+  | { readonly key: string; readonly type: "modify"; readonly change: ChangeInput }
+
+export type ListChangeOpInput =
+  | { readonly type: "retain"; readonly length: number }
+  | { readonly type: "insert"; readonly values: readonly ValueInput[] }
+  | { readonly type: "delete"; readonly length: number }
+  | { readonly type: "modify"; readonly change: ChangeInput }
+
+export type TextChangeOpInput =
+  | { readonly type: "retain"; readonly length: number }
+  | { readonly type: "insert"; readonly text: string }
+  | { readonly type: "delete"; readonly length: number }
+
+export type AttrPatchInput = Readonly<Record<
+  string,
+  | { readonly type: "set"; readonly value: AttrValueData }
+  | { readonly type: "remove" }
+>>
+
+export type RichTextChangeOpInput =
+  | { readonly type: "retain"; readonly length: number; readonly patch?: AttrPatchInput }
+  | { readonly type: "insert"; readonly content: RichTextSpanInput }
+  | { readonly type: "delete"; readonly length: number }
 
 export interface InputLimits {
   readonly maxDepth: number
@@ -173,7 +208,6 @@ function fromWasmError(error: unknown, fallbackOperation: string, path?: Path): 
 
 const valueFinalizer = new FinalizationRegistry<ValueHandle>(handle => handle.free())
 const changeFinalizer = new FinalizationRegistry<ChangeHandle>(handle => handle.free())
-const builderFinalizer = new FinalizationRegistry<BuilderHandle>(handle => handle.free())
 
 const I64_MIN = -(1n << 63n)
 const I64_MAX = (1n << 63n) - 1n
@@ -280,12 +314,16 @@ function writeAttrs(writer: ByteWriter, entries: readonly AttrEntry[]): void {
   writer.varint(BigInt(entries.length))
   for (const entry of entries) {
     writer.string(entry.key)
-    switch (entry.kind) {
-      case "bool": writer.byte(entry.value ? 1 : 0); break
-      case "int": writer.byte(2); writer.int64(BigInt(entry.value)); break
-      case "float": writer.byte(3); writer.float64(entry.value as number); break
-      case "string": writer.byte(4); writer.string(entry.value as string); break
-    }
+    writeAttrValue(writer, entry)
+  }
+}
+
+function writeAttrValue(writer: ByteWriter, entry: AttrEntry): void {
+  switch (entry.kind) {
+    case "bool": writer.byte(entry.value ? 1 : 0); break
+    case "int": writer.byte(2); writer.int64(BigInt(entry.value)); break
+    case "float": writer.byte(3); writer.float64(entry.value as number); break
+    case "string": writer.byte(4); writer.string(entry.value as string); break
   }
 }
 
@@ -463,6 +501,11 @@ class ByteWriter {
     this.varint(BigInt(bytes.length))
     this.bytes.push(...bytes)
   }
+
+  blob(value: Uint8Array): void {
+    this.varint(BigInt(value.length))
+    this.bytes.push(...value)
+  }
 }
 
 function compareUtf8(left: string, right: string): number {
@@ -604,6 +647,298 @@ function encodeValueInput(
   }
 
   encode(input, 1)
+  return Uint8Array.from(writer.bytes)
+}
+
+function changeInputFields(
+  value: unknown,
+  allowed: readonly string[],
+  required: readonly string[],
+  operation: string,
+  context: string,
+): Map<string, unknown> {
+  if (!isRecord(value)) throw invalidArgument(operation, context, "expected a plain record")
+  const fields = new Map(ownDataEntries(value, operation))
+  for (const key of fields.keys()) {
+    if (!allowed.includes(key)) throw invalidArgument(operation, context, `unknown field ${key}`)
+  }
+  for (const key of required) {
+    if (!fields.has(key)) throw invalidArgument(operation, context, `missing field ${key}`)
+  }
+  return fields
+}
+
+function changeInputArray(value: unknown, operation: string, context: string): readonly unknown[] {
+  if (!Array.isArray(value)) throw invalidArgument(operation, context, "expected an array")
+  return ownArrayDataValues(value, operation)
+}
+
+function changeInputLength(value: unknown, operation: string, context: string): number {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
+    throw invalidArgument(operation, context, "expected a non-negative safe integer")
+  }
+  return value
+}
+
+function writeChangeAttrPatch(
+  writer: ByteWriter,
+  input: unknown,
+  operation: string,
+): void {
+  if (input === undefined) {
+    writer.varint(0n)
+    return
+  }
+  if (!isRecord(input)) throw invalidArgument(operation, "patch", "expected a plain record")
+  const changes = ownDataEntries(input, operation).map(([key, value]) => {
+    assertWellFormedString(key, operation)
+    const fields = changeInputFields(value, ["type", "value"], ["type"], operation, `patch.${key}`)
+    const type = fields.get("type")
+    if (type === "remove") {
+      if (fields.has("value")) throw invalidArgument(operation, `patch.${key}`, "remove must not include value")
+      return { key, type: "remove" as const }
+    }
+    if (type !== "set" || !fields.has("value")) {
+      throw invalidArgument(operation, `patch.${key}`, "expected set with value or remove")
+    }
+    const record = Object.create(null) as Record<string, AttrValueData>
+    record[key] = fields.get("value") as AttrValueData
+    const entry = attrEntries(record, operation)[0]
+    return { key, type: "set" as const, entry }
+  }).sort((left, right) => compareUtf8(left.key, right.key))
+
+  writer.varint(BigInt(changes.length))
+  for (const change of changes) {
+    writer.string(change.key)
+    if (change.type === "remove") {
+      writer.byte(1)
+    } else {
+      writer.byte(0)
+      writeAttrValue(writer, change.entry)
+    }
+  }
+}
+
+function encodeChangeInput(input: ChangeInput, operation: string): Uint8Array {
+  const writer = new ByteWriter()
+  const active = new WeakSet<object>()
+
+  const encodeValue = (value: ValueInput): void => {
+    writer.blob(encodeValueInput(value, operation))
+  }
+
+  const encode = (value: unknown, context: string): void => {
+    const fields = changeInputFields(
+      value,
+      ["type", "value", "entries", "ops", "delta"],
+      ["type"],
+      operation,
+      context,
+    )
+    const record = value as object
+    if (active.has(record)) throw invalidArgument(operation, context, "cyclic ChangeInput")
+    active.add(record)
+    try {
+      switch (fields.get("type")) {
+        case "noop": {
+          if (fields.size !== 1) throw invalidArgument(operation, context, "noop has unknown fields")
+          writer.byte(0)
+          break
+        }
+        case "replace": {
+          if (fields.size !== 2 || !fields.has("value")) {
+            throw invalidArgument(operation, context, "replace requires value")
+          }
+          writer.byte(1)
+          encodeValue(fields.get("value") as ValueInput)
+          break
+        }
+        case "map": {
+          if (fields.size !== 2 || !fields.has("entries")) {
+            throw invalidArgument(operation, context, "map requires entries")
+          }
+          const entries = changeInputArray(fields.get("entries"), operation, `${context}.entries`)
+          writer.byte(2)
+          writer.varint(BigInt(entries.length))
+          entries.forEach((entry, index) => {
+            const entryContext = `${context}.entries[${index}]`
+            const item = changeInputFields(
+              entry,
+              ["key", "type", "value", "change"],
+              ["key", "type"],
+              operation,
+              entryContext,
+            )
+            const key = item.get("key")
+            if (typeof key !== "string") throw invalidArgument(operation, `${entryContext}.key`, "expected a string")
+            assertWellFormedString(key, operation)
+            writer.string(key)
+            if (item.get("type") === "insert" && item.size === 3 && item.has("value")) {
+              writer.byte(0)
+              encodeValue(item.get("value") as ValueInput)
+            } else if (item.get("type") === "delete" && item.size === 2) {
+              writer.byte(1)
+            } else if (item.get("type") === "modify" && item.size === 3 && item.has("change")) {
+              writer.byte(2)
+              encode(item.get("change"), `${entryContext}.change`)
+            } else {
+              throw invalidArgument(operation, entryContext, "invalid map entry")
+            }
+          })
+          break
+        }
+        case "list": {
+          if (fields.size !== 2 || !fields.has("ops")) {
+            throw invalidArgument(operation, context, "list requires ops")
+          }
+          const ops = changeInputArray(fields.get("ops"), operation, `${context}.ops`)
+          writer.byte(3)
+          writer.varint(BigInt(ops.length))
+          ops.forEach((op, index) => {
+            const opContext = `${context}.ops[${index}]`
+            const item = changeInputFields(
+              op,
+              ["type", "length", "values", "change"],
+              ["type"],
+              operation,
+              opContext,
+            )
+            if (item.get("type") === "retain" && item.size === 2 && item.has("length")) {
+              writer.byte(0)
+              writer.varint(BigInt(changeInputLength(item.get("length"), operation, `${opContext}.length`)))
+            } else if (item.get("type") === "insert" && item.size === 2 && item.has("values")) {
+              const values = changeInputArray(item.get("values"), operation, `${opContext}.values`)
+              writer.byte(1)
+              writer.varint(BigInt(values.length))
+              values.forEach(value => encodeValue(value as ValueInput))
+            } else if (item.get("type") === "delete" && item.size === 2 && item.has("length")) {
+              writer.byte(2)
+              writer.varint(BigInt(changeInputLength(item.get("length"), operation, `${opContext}.length`)))
+            } else if (item.get("type") === "modify" && item.size === 2 && item.has("change")) {
+              writer.byte(3)
+              encode(item.get("change"), `${opContext}.change`)
+            } else {
+              throw invalidArgument(operation, opContext, "invalid list operation")
+            }
+          })
+          break
+        }
+        case "text": {
+          if (fields.size !== 2 || !fields.has("ops")) {
+            throw invalidArgument(operation, context, "text requires ops")
+          }
+          const ops = changeInputArray(fields.get("ops"), operation, `${context}.ops`)
+          writer.byte(4)
+          writer.varint(BigInt(ops.length))
+          ops.forEach((op, index) => {
+            const opContext = `${context}.ops[${index}]`
+            const item = changeInputFields(op, ["type", "length", "text"], ["type"], operation, opContext)
+            if (item.get("type") === "retain" && item.size === 2 && item.has("length")) {
+              writer.byte(0)
+              writer.varint(BigInt(changeInputLength(item.get("length"), operation, `${opContext}.length`)))
+            } else if (item.get("type") === "insert" && item.size === 2 && item.has("text")) {
+              const text = item.get("text")
+              if (typeof text !== "string") throw invalidArgument(operation, `${opContext}.text`, "expected a string")
+              assertWellFormedString(text, operation)
+              writer.byte(1)
+              writer.string(text)
+            } else if (item.get("type") === "delete" && item.size === 2 && item.has("length")) {
+              writer.byte(2)
+              writer.varint(BigInt(changeInputLength(item.get("length"), operation, `${opContext}.length`)))
+            } else {
+              throw invalidArgument(operation, opContext, "invalid text operation")
+            }
+          })
+          break
+        }
+        case "richText": {
+          if (fields.size !== 2 || !fields.has("ops")) {
+            throw invalidArgument(operation, context, "richText requires ops")
+          }
+          const ops = changeInputArray(fields.get("ops"), operation, `${context}.ops`)
+          writer.byte(5)
+          writer.varint(BigInt(ops.length))
+          ops.forEach((op, index) => {
+            const opContext = `${context}.ops[${index}]`
+            const item = changeInputFields(
+              op,
+              ["type", "length", "patch", "content"],
+              ["type"],
+              operation,
+              opContext,
+            )
+            if (
+              item.get("type") === "retain" &&
+              item.has("length") &&
+              !item.has("content") &&
+              item.size <= 3
+            ) {
+              writer.byte(0)
+              writer.varint(BigInt(changeInputLength(item.get("length"), operation, `${opContext}.length`)))
+              writeChangeAttrPatch(writer, item.get("patch"), operation)
+            } else if (item.get("type") === "insert" && item.size === 2 && item.has("content")) {
+              const contentContext = `${opContext}.content`
+              const content = changeInputFields(
+                item.get("content"),
+                ["type", "text", "value", "attrs"],
+                ["type"],
+                operation,
+                contentContext,
+              )
+              writer.byte(1)
+              if (
+                content.get("type") === "text" &&
+                content.has("text") &&
+                !content.has("value") &&
+                content.size <= 3
+              ) {
+                const text = content.get("text")
+                if (typeof text !== "string") throw invalidArgument(operation, `${contentContext}.text`, "expected a string")
+                assertWellFormedString(text, operation)
+                writer.byte(0)
+                writer.string(text)
+              } else if (
+                content.get("type") === "embed" &&
+                content.has("value") &&
+                !content.has("text") &&
+                content.size <= 3
+              ) {
+                writer.byte(1)
+                encodeValue(content.get("value") as ValueInput)
+              } else {
+                throw invalidArgument(operation, contentContext, "invalid RichText content")
+              }
+              writeAttrs(writer, attrEntries(content.get("attrs") as AttrsData | undefined, operation))
+            } else if (item.get("type") === "delete" && item.size === 2 && item.has("length")) {
+              writer.byte(2)
+              writer.varint(BigInt(changeInputLength(item.get("length"), operation, `${opContext}.length`)))
+            } else {
+              throw invalidArgument(operation, opContext, "invalid richText operation")
+            }
+          })
+          break
+        }
+        case "int": {
+          if (fields.size !== 2 || !fields.has("delta")) {
+            throw invalidArgument(operation, context, "int requires delta")
+          }
+          const delta = fields.get("delta")
+          if (typeof delta !== "bigint" || delta < I64_MIN || delta > I64_MAX) {
+            throw invalidArgument(operation, `${context}.delta`, "expected a signed 64-bit bigint")
+          }
+          writer.byte(6)
+          writer.int64(delta)
+          break
+        }
+        default:
+          throw invalidArgument(operation, `${context}.type`, "unknown ChangeInput type")
+      }
+    } finally {
+      active.delete(record)
+    }
+  }
+
+  encode(input, "change")
   return Uint8Array.from(writer.bytes)
 }
 
@@ -827,10 +1162,6 @@ export class Value {
     return new Value(this.#get("value_clone").cloneHandle())
   }
 
-  change(): ChangeBuilder {
-    return ChangeBuilder._fromHandle(this.#get("value_change").change())
-  }
-
   dispose(): void {
     const handle = this.#handle
     if (handle === undefined) return
@@ -863,11 +1194,6 @@ export class Value {
     return new Value(handle)
   }
 
-  /** @internal */
-  static _fromTrustedJS(input: ValueInput, operation: string): Value {
-    const bytes = encodeValueInput(input, operation)
-    return new Value(ValueHandle.decodeTrusted(bytes))
-  }
 }
 
 export class Change {
@@ -876,6 +1202,26 @@ export class Change {
   private constructor(handle: ChangeHandle) {
     this.#handle = handle
     changeFinalizer.register(this, handle, this)
+  }
+
+  static fromJS(input: ChangeInput, options?: InputOptions): Change {
+    try {
+      const limits = normalizeInputLimits(options, "change_from_js")
+      const bytes = encodeChangeInput(input, "change_from_js")
+      return new Change(ChangeHandle.fromInput(bytes, JSON.stringify(limits)))
+    } catch (error) {
+      throw fromWasmError(error, "change_from_js")
+    }
+  }
+
+  static build(
+    edit: (change: ChangeBuilder) => unknown,
+    options?: InputOptions,
+  ): Change {
+    if (typeof edit !== "function") {
+      throw invalidArgument("change_build", "edit", "expected a function")
+    }
+    return Change.fromJS(buildChangeInput(edit), options)
   }
 
   static decode(bytes: Uint8Array, options?: InputOptions): Change {
@@ -962,28 +1308,40 @@ export type ChangeViewEntry =
 
 export type ChangeView = readonly ChangeViewEntry[]
 
+export interface ChangeBuilder {
+  noop(): this
+  replace(value: ValueInput): this
+  map(edit: (map: MapChangeBuilder) => unknown): this
+  list(edit: (list: ListChangeBuilder) => unknown): this
+  text(edit: (text: TextChangeBuilder) => unknown): this
+  richText(edit: (richText: RichTextChangeBuilder) => unknown): this
+  intAdd(delta: bigint): this
+}
+
 export interface MapChangeBuilder {
-  set(key: string, value: ValueInput): this
+  insert(key: string, value: ValueInput): this
   delete(key: string): this
+  modify(key: string, edit: (change: ChangeBuilder) => unknown): this
 }
 
 export interface ListChangeBuilder {
-  insert(index: number, values: readonly ValueInput[]): this
-  set(index: number, value: ValueInput): this
-  delete(range: Range): this
+  retain(length: number): this
+  insert(values: readonly ValueInput[]): this
+  delete(length: number): this
+  modify(edit: (change: ChangeBuilder) => unknown): this
 }
 
 export interface TextChangeBuilder {
-  insert(position: number, text: string): this
-  delete(range: Range): this
-  replace(range: Range, text: string): this
+  retain(length: number): this
+  insert(text: string): this
+  delete(length: number): this
 }
 
 export interface RichTextChangeBuilder {
-  insertText(position: number, text: string, attrs?: AttrsData): this
-  insertEmbed(position: number, embed: ValueInput, attrs?: AttrsData): this
-  delete(range: Range): this
-  format(range: Range, edit: (patch: AttrPatchBuilder) => unknown): this
+  retain(length: number, edit?: (patch: AttrPatchBuilder) => unknown): this
+  insertText(text: string, attrs?: AttrsData): this
+  insertEmbed(value: ValueInput, attrs?: AttrsData): this
+  delete(length: number): this
 }
 
 export interface AttrPatchBuilder {
@@ -991,8 +1349,280 @@ export interface AttrPatchBuilder {
   remove(key: string): this
 }
 
-export interface IntChangeBuilder {
-  add(delta: bigint): this
+abstract class ChangeBuildScope {
+  #active = true
+
+  close(): void {
+    this.#active = false
+  }
+
+  protected assertActive(): void {
+    if (!this.#active) throw invalidState("change_build", "ChangeBuilder", "scope_closed")
+  }
+}
+
+function runBuildCallback<T extends ChangeBuildScope, R>(
+  scope: T,
+  edit: (scope: T) => unknown,
+  finish: () => R,
+): R {
+  if (typeof edit !== "function") {
+    scope.close()
+    throw invalidArgument("change_build", "edit", "expected a function")
+  }
+  try {
+    const result = edit(scope)
+    if (
+      result !== null &&
+      (typeof result === "object" || typeof result === "function") &&
+      typeof (result as { then?: unknown }).then === "function"
+    ) {
+      throw invalidArgument("change_build", "edit", "callback must be synchronous")
+    }
+    return finish()
+  } finally {
+    scope.close()
+  }
+}
+
+class RootChangeScope extends ChangeBuildScope implements ChangeBuilder {
+  #input: ChangeInput | undefined
+
+  noop(): this {
+    return this.#select(Object.freeze({ type: "noop" }))
+  }
+
+  replace(value: ValueInput): this {
+    return this.#select(Object.freeze({ type: "replace", value }))
+  }
+
+  map(edit: (map: MapChangeBuilder) => unknown): this {
+    this.#assertUnselected()
+    const scope = new MapChangeScope()
+    const entries = runBuildCallback(scope, edit, () => scope.finish())
+    return this.#select(Object.freeze({ type: "map", entries }))
+  }
+
+  list(edit: (list: ListChangeBuilder) => unknown): this {
+    this.#assertUnselected()
+    const scope = new ListChangeScope()
+    const ops = runBuildCallback(scope, edit, () => scope.finish())
+    return this.#select(Object.freeze({ type: "list", ops }))
+  }
+
+  text(edit: (text: TextChangeBuilder) => unknown): this {
+    this.#assertUnselected()
+    const scope = new TextChangeScope()
+    const ops = runBuildCallback(scope, edit, () => scope.finish())
+    return this.#select(Object.freeze({ type: "text", ops }))
+  }
+
+  richText(edit: (richText: RichTextChangeBuilder) => unknown): this {
+    this.#assertUnselected()
+    const scope = new RichTextChangeScope()
+    const ops = runBuildCallback(scope, edit, () => scope.finish())
+    return this.#select(Object.freeze({ type: "richText", ops }))
+  }
+
+  intAdd(delta: bigint): this {
+    return this.#select(Object.freeze({ type: "int", delta }))
+  }
+
+  finish(): ChangeInput {
+    this.assertActive()
+    if (this.#input === undefined) {
+      throw invalidArgument("change_build", "edit", "missing_change_kind")
+    }
+    return this.#input
+  }
+
+  #select(input: ChangeInput): this {
+    this.#assertUnselected()
+    this.#input = input
+    return this
+  }
+
+  #assertUnselected(): void {
+    this.assertActive()
+    if (this.#input !== undefined) {
+      throw invalidArgument("change_build", "edit", "duplicate_change_kind")
+    }
+  }
+}
+
+class MapChangeScope extends ChangeBuildScope implements MapChangeBuilder {
+  readonly #entries: MapChangeEntryInput[] = []
+
+  insert(key: string, value: ValueInput): this {
+    this.assertActive()
+    this.#entries.push(Object.freeze({ key, type: "insert", value }))
+    return this
+  }
+
+  delete(key: string): this {
+    this.assertActive()
+    this.#entries.push(Object.freeze({ key, type: "delete" }))
+    return this
+  }
+
+  modify(key: string, edit: (change: ChangeBuilder) => unknown): this {
+    this.assertActive()
+    const child = new RootChangeScope()
+    const change = runBuildCallback(child, edit, () => child.finish())
+    this.#entries.push(Object.freeze({ key, type: "modify", change }))
+    return this
+  }
+
+  finish(): readonly MapChangeEntryInput[] {
+    this.assertActive()
+    return Object.freeze([...this.#entries])
+  }
+}
+
+class ListChangeScope extends ChangeBuildScope implements ListChangeBuilder {
+  readonly #ops: ListChangeOpInput[] = []
+
+  retain(length: number): this {
+    this.assertActive()
+    this.#ops.push(Object.freeze({ type: "retain", length }))
+    return this
+  }
+
+  insert(values: readonly ValueInput[]): this {
+    this.assertActive()
+    if (!Array.isArray(values)) {
+      throw invalidArgument("change_build", "values", "expected an array")
+    }
+    this.#ops.push(Object.freeze({
+      type: "insert",
+      values: Object.freeze([...ownArrayDataValues(values, "change_build")]) as readonly ValueInput[],
+    }))
+    return this
+  }
+
+  delete(length: number): this {
+    this.assertActive()
+    this.#ops.push(Object.freeze({ type: "delete", length }))
+    return this
+  }
+
+  modify(edit: (change: ChangeBuilder) => unknown): this {
+    this.assertActive()
+    const child = new RootChangeScope()
+    const change = runBuildCallback(child, edit, () => child.finish())
+    this.#ops.push(Object.freeze({ type: "modify", change }))
+    return this
+  }
+
+  finish(): readonly ListChangeOpInput[] {
+    this.assertActive()
+    return Object.freeze([...this.#ops])
+  }
+}
+
+class TextChangeScope extends ChangeBuildScope implements TextChangeBuilder {
+  readonly #ops: TextChangeOpInput[] = []
+
+  retain(length: number): this {
+    this.assertActive()
+    this.#ops.push(Object.freeze({ type: "retain", length }))
+    return this
+  }
+
+  insert(text: string): this {
+    this.assertActive()
+    this.#ops.push(Object.freeze({ type: "insert", text }))
+    return this
+  }
+
+  delete(length: number): this {
+    this.assertActive()
+    this.#ops.push(Object.freeze({ type: "delete", length }))
+    return this
+  }
+
+  finish(): readonly TextChangeOpInput[] {
+    this.assertActive()
+    return Object.freeze([...this.#ops])
+  }
+}
+
+class PatchChangeScope extends ChangeBuildScope implements AttrPatchBuilder {
+  readonly #patch = Object.create(null) as Record<
+    string,
+    { readonly type: "set"; readonly value: AttrValueData } | { readonly type: "remove" }
+  >
+
+  set(key: string, value: AttrValueData): this {
+    this.assertActive()
+    this.#patch[key] = Object.freeze({ type: "set", value })
+    return this
+  }
+
+  remove(key: string): this {
+    this.assertActive()
+    this.#patch[key] = Object.freeze({ type: "remove" })
+    return this
+  }
+
+  finish(): AttrPatchInput {
+    this.assertActive()
+    return Object.freeze(this.#patch)
+  }
+}
+
+class RichTextChangeScope extends ChangeBuildScope implements RichTextChangeBuilder {
+  readonly #ops: RichTextChangeOpInput[] = []
+
+  retain(length: number, edit?: (patch: AttrPatchBuilder) => unknown): this {
+    this.assertActive()
+    if (edit === undefined) {
+      this.#ops.push(Object.freeze({ type: "retain", length }))
+    } else {
+      const scope = new PatchChangeScope()
+      const patch = runBuildCallback(scope, edit, () => scope.finish())
+      this.#ops.push(Object.freeze({ type: "retain", length, patch }))
+    }
+    return this
+  }
+
+  insertText(text: string, attrs?: AttrsData): this {
+    this.assertActive()
+    const content = Object.freeze({
+      type: "text" as const,
+      text,
+      ...(attrs === undefined ? {} : { attrs }),
+    })
+    this.#ops.push(Object.freeze({ type: "insert", content }))
+    return this
+  }
+
+  insertEmbed(value: ValueInput, attrs?: AttrsData): this {
+    this.assertActive()
+    const content = Object.freeze({
+      type: "embed" as const,
+      value,
+      ...(attrs === undefined ? {} : { attrs }),
+    })
+    this.#ops.push(Object.freeze({ type: "insert", content }))
+    return this
+  }
+
+  delete(length: number): this {
+    this.assertActive()
+    this.#ops.push(Object.freeze({ type: "delete", length }))
+    return this
+  }
+
+  finish(): readonly RichTextChangeOpInput[] {
+    this.assertActive()
+    return Object.freeze([...this.#ops])
+  }
+}
+
+function buildChangeInput(edit: (change: ChangeBuilder) => unknown): ChangeInput {
+  const scope = new RootChangeScope()
+  return runBuildCallback(scope, edit, () => scope.finish())
 }
 
 function indexArgument(value: unknown, operation: string, argument: string): number {
@@ -1000,433 +1630,6 @@ function indexArgument(value: unknown, operation: string, argument: string): num
     throw invalidArgument(operation, argument, "expected a non-negative safe integer")
   }
   return value
-}
-
-function rangeArgument(value: Range, operation: string): Range {
-  if (!isRecord(value)) throw invalidArgument(operation, "range", "expected a plain record")
-  const entries = ownDataEntries(value, operation)
-  if (entries.length !== 2 || !entries.some(([key]) => key === "from") || !entries.some(([key]) => key === "to")) {
-    throw invalidArgument(operation, "range", "expected only from and to")
-  }
-  const from = indexArgument(value.from, operation, "range.from")
-  const to = indexArgument(value.to, operation, "range.to")
-  if (from > to) throw invalidArgument(operation, "range", "from must not exceed to")
-  return { from, to }
-}
-
-abstract class ScopedBuilder {
-  #active = true
-
-  constructor(
-    protected readonly handle: BuilderHandle,
-    protected readonly path: Path,
-    protected readonly pathData: string,
-  ) {}
-
-  close(): void {
-    this.#active = false
-  }
-
-  protected assertActive(operation: string): void {
-    if (!this.#active) throw invalidState(operation, "ScopedBuilder", "scope_closed")
-  }
-}
-
-class MapScope extends ScopedBuilder implements MapChangeBuilder {
-  set(key: string, value: ValueInput): this {
-    const operation = "map_set"
-    this.assertActive(operation)
-    if (typeof key !== "string") throw invalidArgument(operation, "key", "expected a string")
-    const input = Value._fromTrustedJS(value, operation)
-    try {
-      this.handle.mapSet(this.pathData, key, Value._handle(input, operation))
-      return this
-    } catch (error) {
-      throw fromWasmError(error, operation, this.path)
-    } finally {
-      input.dispose()
-    }
-  }
-
-  delete(key: string): this {
-    const operation = "map_delete"
-    this.assertActive(operation)
-    if (typeof key !== "string") throw invalidArgument(operation, "key", "expected a string")
-    try {
-      this.handle.mapDelete(this.pathData, key)
-      return this
-    } catch (error) {
-      throw fromWasmError(error, operation, this.path)
-    }
-  }
-}
-
-class ListScope extends ScopedBuilder implements ListChangeBuilder {
-  insert(index: number, values: readonly ValueInput[]): this {
-    const operation = "list_insert"
-    this.assertActive(operation)
-    const position = indexArgument(index, operation, "index")
-    if (!Array.isArray(values)) throw invalidArgument(operation, "values", "expected an array")
-    const input = Value._fromTrustedJS(values, operation)
-    try {
-      this.handle.listInsert(this.pathData, position, Value._handle(input, operation))
-      return this
-    } catch (error) {
-      throw fromWasmError(error, operation, this.path)
-    } finally {
-      input.dispose()
-    }
-  }
-
-  set(index: number, value: ValueInput): this {
-    const operation = "list_set"
-    this.assertActive(operation)
-    const position = indexArgument(index, operation, "index")
-    const input = Value._fromTrustedJS(value, operation)
-    try {
-      this.handle.listSet(this.pathData, position, Value._handle(input, operation))
-      return this
-    } catch (error) {
-      throw fromWasmError(error, operation, this.path)
-    } finally {
-      input.dispose()
-    }
-  }
-
-  delete(range: Range): this {
-    const operation = "list_delete"
-    this.assertActive(operation)
-    const { from, to } = rangeArgument(range, operation)
-    try {
-      this.handle.listDelete(this.pathData, from, to)
-      return this
-    } catch (error) {
-      throw fromWasmError(error, operation, this.path)
-    }
-  }
-}
-
-class TextScope extends ScopedBuilder implements TextChangeBuilder {
-  insert(position: number, value: string): this {
-    const operation = "text_insert"
-    this.assertActive(operation)
-    const index = indexArgument(position, operation, "position")
-    if (typeof value !== "string") throw invalidArgument(operation, "text", "expected a string")
-    assertWellFormedString(value, operation)
-    try {
-      this.handle.textInsert(this.pathData, index, value)
-      return this
-    } catch (error) {
-      throw fromWasmError(error, operation, this.path)
-    }
-  }
-
-  delete(range: Range): this {
-    const operation = "text_delete"
-    this.assertActive(operation)
-    const { from, to } = rangeArgument(range, operation)
-    try {
-      this.handle.textDelete(this.pathData, from, to)
-      return this
-    } catch (error) {
-      throw fromWasmError(error, operation, this.path)
-    }
-  }
-
-  replace(range: Range, value: string): this {
-    const operation = "text_replace"
-    this.assertActive(operation)
-    const { from, to } = rangeArgument(range, operation)
-    if (typeof value !== "string") throw invalidArgument(operation, "text", "expected a string")
-    assertWellFormedString(value, operation)
-    try {
-      this.handle.textReplace(this.pathData, from, to, value)
-      return this
-    } catch (error) {
-      throw fromWasmError(error, operation, this.path)
-    }
-  }
-}
-
-function attrsPayload(attrs: AttrsData | undefined, operation: string): string {
-  return JSON.stringify(attrEntries(attrs, operation).map(entry => ({ ...entry, action: "set" })))
-}
-
-class PatchScope implements AttrPatchBuilder {
-  #active = true
-  readonly #entries = new Map<string, { action: "remove" } | ({ action: "set" } & AttrEntry)>()
-
-  set(key: string, value: AttrValueData): this {
-    const operation = "rich_text_format"
-    this.#assertActive(operation)
-    if (typeof key !== "string") throw invalidArgument(operation, "key", "expected a string")
-    const record = Object.create(null) as Record<string, AttrValueData>
-    record[key] = value
-    const entry = attrEntries(record, operation)[0]
-    this.#entries.set(key, { ...entry, action: "set" })
-    return this
-  }
-
-  remove(key: string): this {
-    const operation = "rich_text_format"
-    this.#assertActive(operation)
-    if (typeof key !== "string") throw invalidArgument(operation, "key", "expected a string")
-    assertWellFormedString(key, operation)
-    this.#entries.set(key, { action: "remove" })
-    return this
-  }
-
-  close(): void {
-    this.#active = false
-  }
-
-  payload(): string {
-    return JSON.stringify(
-      [...this.#entries.entries()]
-        .sort(([left], [right]) => compareUtf8(left, right))
-        .map(([key, entry]) => entry.action === "remove"
-          ? { key, action: "remove" }
-          : entry),
-    )
-  }
-
-  #assertActive(operation: string): void {
-    if (!this.#active) throw invalidState(operation, "AttrPatchBuilder", "scope_closed")
-  }
-}
-
-class RichTextScope extends ScopedBuilder implements RichTextChangeBuilder {
-  insertText(position: number, value: string, attrs?: AttrsData): this {
-    const operation = "rich_text_insert_text"
-    this.assertActive(operation)
-    const index = indexArgument(position, operation, "position")
-    if (typeof value !== "string") throw invalidArgument(operation, "text", "expected a string")
-    assertWellFormedString(value, operation)
-    try {
-      this.handle.richTextInsertText(this.pathData, index, value, attrsPayload(attrs, operation))
-      return this
-    } catch (error) {
-      throw fromWasmError(error, operation, this.path)
-    }
-  }
-
-  insertEmbed(position: number, embed: ValueInput, attrs?: AttrsData): this {
-    const operation = "rich_text_insert_embed"
-    this.assertActive(operation)
-    const index = indexArgument(position, operation, "position")
-    const input = Value._fromTrustedJS(embed, operation)
-    try {
-      this.handle.richTextInsertEmbed(
-        this.pathData,
-        index,
-        Value._handle(input, operation),
-        attrsPayload(attrs, operation),
-      )
-      return this
-    } catch (error) {
-      throw fromWasmError(error, operation, this.path)
-    } finally {
-      input.dispose()
-    }
-  }
-
-  delete(range: Range): this {
-    const operation = "rich_text_delete"
-    this.assertActive(operation)
-    const { from, to } = rangeArgument(range, operation)
-    try {
-      this.handle.richTextDelete(this.pathData, from, to)
-      return this
-    } catch (error) {
-      throw fromWasmError(error, operation, this.path)
-    }
-  }
-
-  format(range: Range, edit: (patch: AttrPatchBuilder) => unknown): this {
-    const operation = "rich_text_format"
-    this.assertActive(operation)
-    const { from, to } = rangeArgument(range, operation)
-    if (typeof edit !== "function") throw invalidArgument(operation, "edit", "expected a function")
-    const patch = new PatchScope()
-    try {
-      const result = edit(patch)
-      if (
-        result !== null &&
-        (typeof result === "object" || typeof result === "function") &&
-        typeof (result as { then?: unknown }).then === "function"
-      ) {
-        throw invalidArgument(operation, "edit", "callback must be synchronous")
-      }
-      try {
-        this.handle.richTextFormat(this.pathData, from, to, patch.payload())
-      } catch (error) {
-        throw fromWasmError(error, operation, this.path)
-      }
-      return this
-    } finally {
-      patch.close()
-    }
-  }
-}
-
-class IntScope extends ScopedBuilder implements IntChangeBuilder {
-  add(delta: bigint): this {
-    const operation = "int_add"
-    this.assertActive(operation)
-    if (typeof delta !== "bigint") {
-      throw invalidArgument(operation, "delta", "expected a bigint")
-    }
-    if (delta < I64_MIN || delta > I64_MAX) {
-      throw invalidArgument(operation, "delta", "outside the signed 64-bit range")
-    }
-    try {
-      this.handle.intAdd(this.pathData, delta)
-      return this
-    } catch (error) {
-      throw fromWasmError(error, operation, this.path)
-    }
-  }
-}
-
-export class ChangeBuilder {
-  #handle: BuilderHandle | undefined
-  #consumed = false
-
-  private constructor(handle: BuilderHandle) {
-    this.#handle = handle
-    builderFinalizer.register(this, handle, this)
-  }
-
-  replace(path: Path, value: ValueInput): this {
-    const handle = this.#get("builder_replace")
-    const pathData = pathJson(path, "builder_replace")
-    const replacement = Value._fromTrustedJS(value, "builder_replace")
-    try {
-      handle.replace(pathData, Value._handle(replacement, "builder_replace"))
-      return this
-    } catch (error) {
-      throw fromWasmError(error, "builder_replace", path)
-    } finally {
-      replacement.dispose()
-    }
-  }
-
-  map(path: Path, edit: (map: MapChangeBuilder) => unknown): this {
-    return this.#scope<MapScope>(path, edit, "map", (handle, scopePath, pathData) =>
-      new MapScope(handle, scopePath, pathData))
-  }
-
-  list(path: Path, edit: (list: ListChangeBuilder) => unknown): this {
-    return this.#scope<ListScope>(path, edit, "list", (handle, scopePath, pathData) =>
-      new ListScope(handle, scopePath, pathData))
-  }
-
-  text(path: Path, edit: (text: TextChangeBuilder) => unknown): this {
-    return this.#scope<TextScope>(path, edit, "text", (handle, scopePath, pathData) =>
-      new TextScope(handle, scopePath, pathData))
-  }
-
-  richText(path: Path, edit: (richText: RichTextChangeBuilder) => unknown): this {
-    return this.#scope<RichTextScope>(path, edit, "richText", (handle, scopePath, pathData) =>
-      new RichTextScope(handle, scopePath, pathData))
-  }
-
-  int(path: Path, edit: (int: IntChangeBuilder) => unknown): this {
-    return this.#scope<IntScope>(path, edit, "int", (handle, scopePath, pathData) =>
-      new IntScope(handle, scopePath, pathData))
-  }
-
-  build(): Change {
-    const handle = this.#get("builder_build")
-    try {
-      const change = Change._fromHandle(handle.build())
-      this.#consume()
-      return change
-    } catch (error) {
-      throw fromWasmError(error, "builder_build")
-    }
-  }
-
-  dispose(): void {
-    const handle = this.#handle
-    if (handle === undefined) return
-    this.#handle = undefined
-    builderFinalizer.unregister(this)
-    handle.free()
-  }
-
-  [Symbol.dispose](): void {
-    this.dispose()
-  }
-
-  #consume(): void {
-    const handle = this.#handle
-    if (handle === undefined) return
-    this.#handle = undefined
-    this.#consumed = true
-    builderFinalizer.unregister(this)
-    handle.free()
-  }
-
-  #get(operation: string): BuilderHandle {
-    if (this.#handle === undefined) {
-      throw invalidState(operation, "ChangeBuilder", this.#consumed ? "consumed" : "disposed")
-    }
-    return this.#handle
-  }
-
-  #scope<T extends ScopedBuilder>(
-    path: Path,
-    edit: (scope: T) => unknown,
-    expected: "map" | "list" | "text" | "richText" | "int",
-    create: (handle: BuilderHandle, path: Path, pathData: string) => T,
-  ): this {
-    const operation = `builder_${expected}`
-    if (typeof edit !== "function") throw invalidArgument(operation, "edit", "expected a function")
-    const root = this.#get(operation)
-    const scopePath = Object.freeze([...path])
-    const pathData = pathJson(scopePath, operation)
-    let trial: BuilderHandle
-    try {
-      trial = root.cloneForScope()
-    } catch (error) {
-      throw fromWasmError(error, operation, scopePath)
-    }
-    const scope = create(trial, scopePath, pathData)
-    try {
-      let actual: string
-      try {
-        actual = trial.currentKind(pathData)
-      } catch (error) {
-        throw fromWasmError(error, operation, scopePath)
-      }
-      if (actual !== expected) {
-        throw new CollaError("type_mismatch", operation, { expected, actual }, scopePath)
-      }
-      const result = edit(scope)
-      if (
-        result !== null &&
-        (typeof result === "object" || typeof result === "function") &&
-        typeof (result as { then?: unknown }).then === "function"
-      ) {
-        throw invalidArgument(operation, "edit", "callback must be synchronous")
-      }
-      try {
-        root.commitScope(trial)
-      } catch (error) {
-        throw fromWasmError(error, operation, scopePath)
-      }
-      return this
-    } finally {
-      scope.close()
-      trial.free()
-    }
-  }
-
-  /** @internal */
-  static _fromHandle(handle: BuilderHandle): ChangeBuilder {
-    return new ChangeBuilder(handle)
-  }
 }
 
 export function apply(base: Value, change: Change): Value {

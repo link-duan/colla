@@ -1,3 +1,8 @@
+//! Canonical Value and Change binary encoding.
+//!
+//! The codec represents a versionless body. Applications are responsible for
+//! protocol envelopes, document identity, authorship, and checksums.
+
 use std::collections::BTreeMap;
 
 use crate::attrs::{AttrChange, AttrPatch, AttrValue, Attrs};
@@ -10,12 +15,27 @@ use crate::input_limits::InputLimits;
 use crate::richtext::{RichContent, RichSpan, RichText};
 use crate::value::{FiniteF64, Value, ValueKind};
 
+/// Encodes a Value into its canonical binary body.
+///
+/// The result can be decoded with [`decode_value`] under receiver-defined
+/// [`InputLimits`].
+///
+/// ```
+/// use colla::codec::{decode_value, encode_value};
+/// use colla::{InputLimits, Value};
+///
+/// let value = Value::text("hello");
+/// let bytes = encode_value(&value);
+/// assert_eq!(decode_value(&bytes, &InputLimits::default())?, value);
+/// # Ok::<(), colla::CodecError>(())
+/// ```
 pub fn encode_value(value: &Value) -> Vec<u8> {
     let mut out = Vec::new();
     encode_value_into(value, &mut out);
     out
 }
 
+/// Decodes a canonical Value body under receiver-defined limits.
 pub fn decode_value(bytes: &[u8], limits: &InputLimits) -> Result<Value, CodecError> {
     let mut decoder = Decoder::new(bytes, limits);
     let value = decoder.value(1)?;
@@ -24,12 +44,14 @@ pub fn decode_value(bytes: &[u8], limits: &InputLimits) -> Result<Value, CodecEr
     Ok(value)
 }
 
+/// Encodes a Change into its canonical binary body.
 pub fn encode_change(change: &Change) -> Vec<u8> {
     let mut out = Vec::new();
     encode_change_into(change, &mut out);
     out
 }
 
+/// Decodes a canonical Change body under receiver-defined limits.
 pub fn decode_change(bytes: &[u8], limits: &InputLimits) -> Result<Change, CodecError> {
     let mut decoder = Decoder::new(bytes, limits);
     let change = decoder.change(1)?;
@@ -39,28 +61,34 @@ pub fn decode_change(bytes: &[u8], limits: &InputLimits) -> Result<Change, Codec
 }
 
 impl Value {
+    /// Encodes this Value into its canonical binary body.
     pub fn encode(&self) -> Vec<u8> {
         encode_value(self)
     }
 
+    /// Decodes a canonical Value using [`InputLimits::default`].
     pub fn decode(bytes: &[u8]) -> Result<Self, CodecError> {
         Self::decode_with_limits(bytes, &InputLimits::default())
     }
 
+    /// Decodes a canonical Value under explicit receiver limits.
     pub fn decode_with_limits(bytes: &[u8], limits: &InputLimits) -> Result<Self, CodecError> {
         decode_value(bytes, limits)
     }
 }
 
 impl Change {
+    /// Encodes this Change into its canonical binary body.
     pub fn encode(&self) -> Vec<u8> {
         encode_change(self)
     }
 
+    /// Decodes a canonical Change using [`InputLimits::default`].
     pub fn decode(bytes: &[u8]) -> Result<Self, CodecError> {
         Self::decode_with_limits(bytes, &InputLimits::default())
     }
 
+    /// Decodes a canonical Change under explicit receiver limits.
     pub fn decode_with_limits(bytes: &[u8], limits: &InputLimits) -> Result<Self, CodecError> {
         decode_change(bytes, limits)
     }
@@ -603,7 +631,7 @@ impl<'a> Decoder<'a> {
                     };
                     map.insert(key, entry);
                 }
-                Ok(Change::map(MapChange::from_btree(map)))
+                Ok(MapChange::from_btree(map).into())
             }
             3 => {
                 let count = self.count("sequence ops", self.limits.max_sequence_ops)?;
@@ -669,7 +697,7 @@ impl<'a> Decoder<'a> {
                 if !is_canonical_list_ops(&ops) {
                     return Err(self.noncanonical(offset, "ListChange", "non-canonical ops"));
                 }
-                Ok(Change::list(ListChange::from_canonical(ops)))
+                Ok(ListChange::from_canonical(ops).into())
             }
             4 => {
                 let count = self.count("sequence ops", self.limits.max_sequence_ops)?;
@@ -719,7 +747,7 @@ impl<'a> Decoder<'a> {
                 if !is_canonical_text_ops(&ops) {
                     return Err(self.noncanonical(offset, "TextChange", "non-canonical ops"));
                 }
-                Ok(Change::text(TextChange::from_canonical(ops)))
+                Ok(TextChange::from_canonical(ops).into())
             }
             5 => {
                 let count = self.count("sequence ops", self.limits.max_sequence_ops)?;
@@ -781,14 +809,14 @@ impl<'a> Decoder<'a> {
                 if !is_canonical_rich_text_ops(&ops) {
                     return Err(self.noncanonical(offset, "RichTextChange", "non-canonical ops"));
                 }
-                Ok(Change::rich_text(RichTextChange::from_canonical(ops)))
+                Ok(RichTextChange::from_canonical(ops).into())
             }
             6 => {
                 let delta = self.i64()?;
                 if delta == 0 {
                     return Err(self.noncanonical(offset, "IntChange", "Add(0)"));
                 }
-                Ok(Change::int_add(delta))
+                Ok(IntChange::Add(delta).into())
             }
             _ => Err(self.tag_error(offset, tag, "Change")),
         }

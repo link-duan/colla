@@ -10,7 +10,9 @@ use crate::path::Path;
 use crate::value::{Value, ValueKind, ValueType};
 
 impl Change {
-    /// Builds an inverse using the snapshot immediately before this Change.
+    /// Builds an inverse using the Snapshot immediately before this Change.
+    ///
+    /// This is the inherent equivalent of [`crate::invert`].
     pub fn invert(&self, base: &Value) -> Result<Change, InvertError> {
         self.apply_to(base)?;
         invert_change(self, base)
@@ -22,7 +24,7 @@ fn invert_change(change: &Change, base: &Value) -> Result<Change, InvertError> {
         ChangeKind::Noop => Ok(Change::noop()),
         ChangeKind::Replace(_) => Ok(Change::replace(base.clone())),
         ChangeKind::Int(IntChange::Add(delta)) => Ok(match delta.checked_neg() {
-            Some(inverse) => Change::int_add(inverse),
+            Some(inverse) => IntChange::Add(inverse).into(),
             None => Change::replace(base.clone()),
         }),
         ChangeKind::Map(map_change) => {
@@ -44,7 +46,7 @@ fn invert_change(change: &Change, base: &Value) -> Result<Change, InvertError> {
                 };
                 out.insert(key.clone(), inverse);
             }
-            Ok(Change::map(MapChange::from_btree(out)))
+            Ok(MapChange::from_btree(out).into())
         }
         ChangeKind::List(list_change) => {
             let list = match base.kind() {
@@ -73,7 +75,9 @@ fn invert_change(change: &Change, base: &Value) -> Result<Change, InvertError> {
                     }
                 }
             }
-            Ok(Change::list(ListChange::new(out)))
+            ListChange::from_ops(out)
+                .map(Change::from)
+                .map_err(|_| InvertError::LengthOverflow)
         }
         ChangeKind::Text(text_change) => {
             let text = match base.kind() {
@@ -96,7 +100,9 @@ fn invert_change(change: &Change, base: &Value) -> Result<Change, InvertError> {
                     }
                 }
             }
-            Ok(Change::text(TextChange::new(out)))
+            TextChange::from_ops(out)
+                .map(Change::from)
+                .map_err(|_| InvertError::LengthOverflow)
         }
         ChangeKind::RichText(rich_change) => {
             let rich = match base.kind() {
@@ -146,7 +152,9 @@ fn invert_change(change: &Change, base: &Value) -> Result<Change, InvertError> {
                     }
                 }
             }
-            Ok(Change::rich_text(RichTextChange::new(out)))
+            RichTextChange::from_ops(out)
+                .map(Change::from)
+                .map_err(|_| InvertError::LengthOverflow)
         }
     }
 }

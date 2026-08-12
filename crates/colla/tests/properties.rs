@@ -10,37 +10,46 @@ use proptest::prelude::*;
 fn text_change(base_len: usize, pos_seed: usize, del_seed: usize, insert: String) -> Change {
     let pos = pos_seed % (base_len + 1);
     let delete = del_seed % (base_len - pos + 1);
-    Change::text(TextChange::new(vec![
-        TextOp::Retain(pos),
-        TextOp::Delete(delete),
-        TextOp::Insert(insert),
-    ]))
+    Change::from(
+        TextChange::from_ops(vec![
+            TextOp::Retain(pos),
+            TextOp::Delete(delete),
+            TextOp::Insert(insert),
+        ])
+        .unwrap(),
+    )
 }
 
 fn list_change(base_len: usize, pos_seed: usize, del_seed: usize, inserted: Vec<i64>) -> Change {
     let pos = pos_seed % (base_len + 1);
     let delete = del_seed % (base_len - pos + 1);
-    Change::list(ListChange::new(vec![
-        ListOp::Retain(pos),
-        ListOp::Delete(delete),
-        ListOp::Insert(inserted.into_iter().map(Value::int).collect()),
-    ]))
+    Change::from(
+        ListChange::from_ops(vec![
+            ListOp::Retain(pos),
+            ListOp::Delete(delete),
+            ListOp::Insert(inserted.into_iter().map(Value::int).collect()),
+        ])
+        .unwrap(),
+    )
 }
 
 fn rich_change(base_len: usize, pos_seed: usize, del_seed: usize, insert: String) -> Change {
     let pos = pos_seed % (base_len + 1);
     let delete = del_seed % (base_len - pos + 1);
-    Change::rich_text(RichTextChange::new(vec![
-        RichTextOp::Retain {
-            len: pos,
-            attrs: AttrPatch::new(),
-        },
-        RichTextOp::Delete(delete),
-        RichTextOp::Insert {
-            content: colla::RichContent::text(insert),
-            attrs: Attrs::new(),
-        },
-    ]))
+    Change::from(
+        RichTextChange::from_ops(vec![
+            RichTextOp::Retain {
+                len: pos,
+                attrs: AttrPatch::new(),
+            },
+            RichTextOp::Delete(delete),
+            RichTextOp::Insert {
+                content: colla::RichContent::text(insert),
+                attrs: Attrs::new(),
+            },
+        ])
+        .unwrap(),
+    )
 }
 
 fn arb_string() -> impl Strategy<Value = String> {
@@ -246,7 +255,7 @@ fn rich_change_from_actions(base_len: usize, specs: &[RichActionSpec]) -> RichTe
             }
         }
     }
-    RichTextChange::new(ops)
+    RichTextChange::from_ops(ops).unwrap()
 }
 
 #[derive(Clone)]
@@ -355,7 +364,7 @@ fn reference_invert_rich(base: &RichText, change: &RichTextChange) -> Change {
             }
         }
     }
-    Change::rich_text(RichTextChange::new(out))
+    Change::from(RichTextChange::from_ops(out).unwrap())
 }
 
 proptest! {
@@ -416,8 +425,8 @@ proptest! {
         bp in any::<usize>(), bd in any::<usize>(), bi in arb_string(),
     ) {
         let base_value = Value::map([("text", Value::text(base.clone()))]).unwrap();
-        let a = Change::map(MapChange::from_entries([("text", MapEntryChange::Modify(text_change(base.chars().count(), ap, ad, ai)))]).unwrap());
-        let b = Change::map(MapChange::from_entries([("text", MapEntryChange::Modify(text_change(base.chars().count(), bp, bd, bi)))]).unwrap());
+        let a = Change::from(MapChange::from_entries([("text", MapEntryChange::Modify(text_change(base.chars().count(), ap, ad, ai)))]).unwrap());
+        let b = Change::from(MapChange::from_entries([("text", MapEntryChange::Modify(text_change(base.chars().count(), bp, bd, bi)))]).unwrap());
         let (a_prime, b_prime) = transform_pair(&a, &b, TieBreak::LeftFirst).unwrap();
         let left = b_prime.apply_to(&a.apply_to(&base_value).unwrap()).unwrap();
         let right = a_prime.apply_to(&b.apply_to(&base_value).unwrap()).unwrap();
@@ -447,7 +456,7 @@ proptest! {
         let rich = rich_from_specs(&specs);
         let base = Value::rich_text(rich.clone());
         let rich_change = rich_change_from_actions(rich.len(), &actions);
-        let change = Change::rich_text(rich_change.clone());
+        let change = Change::from(rich_change.clone());
 
         let expected = Value::rich_text(reference_apply_rich(&rich, &rich_change));
         let actual = change.apply_to(&base).unwrap();
@@ -481,14 +490,16 @@ fn rich_text_attribute_tp1() {
         AttrPatch::from_entries([("color", AttrChange::Set(AttrValue::string("red")))]).unwrap();
     let blue =
         AttrPatch::from_entries([("color", AttrChange::Set(AttrValue::string("blue")))]).unwrap();
-    let a = Change::rich_text(RichTextChange::new(vec![RichTextOp::Retain {
-        len: 5,
-        attrs: red,
-    }]));
-    let b = Change::rich_text(RichTextChange::new(vec![RichTextOp::Retain {
-        len: 5,
-        attrs: blue,
-    }]));
+    let a = Change::from(
+        RichTextChange::from_ops(vec![RichTextOp::Retain { len: 5, attrs: red }]).unwrap(),
+    );
+    let b = Change::from(
+        RichTextChange::from_ops(vec![RichTextOp::Retain {
+            len: 5,
+            attrs: blue,
+        }])
+        .unwrap(),
+    );
     let (ap, bp) = transform_pair(&a, &b, TieBreak::LeftFirst).unwrap();
     let left = bp.apply_to(&a.apply_to(&base).unwrap()).unwrap();
     let right = ap.apply_to(&b.apply_to(&base).unwrap()).unwrap();
@@ -509,14 +520,17 @@ fn rich_text_attribute_overwrite_and_remove_cover_text_and_embed() {
         ])
         .unwrap(),
     );
-    let change = Change::rich_text(RichTextChange::new(vec![RichTextOp::Retain {
-        len: 2,
-        attrs: AttrPatch::from_entries([
-            ("bold", AttrChange::Set(AttrValue::Bool(true))),
-            ("color", AttrChange::Set(AttrValue::string("red"))),
-        ])
+    let change = Change::from(
+        RichTextChange::from_ops(vec![RichTextOp::Retain {
+            len: 2,
+            attrs: AttrPatch::from_entries([
+                ("bold", AttrChange::Set(AttrValue::Bool(true))),
+                ("color", AttrChange::Set(AttrValue::string("red"))),
+            ])
+            .unwrap(),
+        }])
         .unwrap(),
-    }]));
+    );
 
     let after = change.apply_to(&base).unwrap();
     for span in after.as_rich_text().unwrap().iter_spans() {
@@ -526,14 +540,17 @@ fn rich_text_attribute_overwrite_and_remove_cover_text_and_embed() {
     let inverse = change.invert(&base).unwrap();
     assert_eq!(inverse.apply_to(&after).unwrap(), base);
 
-    let remove = Change::rich_text(RichTextChange::new(vec![RichTextOp::Retain {
-        len: 2,
-        attrs: AttrPatch::from_entries([
-            ("bold", AttrChange::Remove),
-            ("color", AttrChange::Remove),
-        ])
+    let remove = Change::from(
+        RichTextChange::from_ops(vec![RichTextOp::Retain {
+            len: 2,
+            attrs: AttrPatch::from_entries([
+                ("bold", AttrChange::Remove),
+                ("color", AttrChange::Remove),
+            ])
+            .unwrap(),
+        }])
         .unwrap(),
-    }]));
+    );
     let removed = remove.apply_to(&after).unwrap();
     for span in removed.as_rich_text().unwrap().iter_spans() {
         assert!(span.attrs().is_empty());

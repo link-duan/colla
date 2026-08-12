@@ -12,6 +12,8 @@ use crate::op::reader::{
 
 impl Change {
     /// Sequentially composes `self` followed by `next`.
+    ///
+    /// This is the inherent equivalent of [`crate::compose`].
     pub fn compose(&self, next: &Change) -> Result<Change, ComposeError> {
         compose_change(self, next)
     }
@@ -29,14 +31,12 @@ fn compose_change(left: &Change, right: &Change) -> Result<Change, ComposeError>
                     path: crate::Path::new(),
                 })
             })?;
-            Ok(Change::int_add(sum))
+            Ok(IntChange::Add(sum).into())
         }
         (ChangeKind::Map(a), ChangeKind::Map(b)) => compose_map(a, b),
         (ChangeKind::List(a), ChangeKind::List(b)) => compose_list(a, b),
-        (ChangeKind::Text(a), ChangeKind::Text(b)) => Ok(Change::text(compose_text(a, b))),
-        (ChangeKind::RichText(a), ChangeKind::RichText(b)) => {
-            Ok(Change::rich_text(compose_rich(a, b)))
-        }
+        (ChangeKind::Text(a), ChangeKind::Text(b)) => Ok(compose_text(a, b)?.into()),
+        (ChangeKind::RichText(a), ChangeKind::RichText(b)) => Ok(compose_rich(a, b)?.into()),
         _ => Err(ComposeError::IncompatibleKinds {
             left: left.kind_name(),
             right: right.kind_name(),
@@ -89,10 +89,10 @@ fn compose_map(left: &MapChange, right: &MapChange) -> Result<Change, ComposeErr
             out.insert(key.clone(), entry);
         }
     }
-    Ok(Change::map(MapChange::from_btree(out)))
+    Ok(MapChange::from_btree(out).into())
 }
 
-fn compose_text(left: &TextChange, right: &TextChange) -> TextChange {
+fn compose_text(left: &TextChange, right: &TextChange) -> Result<TextChange, ComposeError> {
     let mut a = TextOpReader::new(left.ops());
     let mut b = TextOpReader::new(right.ops());
     let mut out = Vec::new();
@@ -157,7 +157,7 @@ fn compose_text(left: &TextChange, right: &TextChange) -> TextChange {
             _ => unreachable!(),
         }
     }
-    TextChange::new(out)
+    TextChange::from_ops(out).map_err(|_| ComposeError::LengthOverflow)
 }
 
 fn compose_list(left: &ListChange, right: &ListChange) -> Result<Change, ComposeError> {
@@ -254,10 +254,15 @@ fn compose_list(left: &ListChange, right: &ListChange) -> Result<Change, Compose
             _ => unreachable!(),
         }
     }
-    Ok(Change::list(ListChange::new(out)))
+    ListChange::from_ops(out)
+        .map(Change::from)
+        .map_err(|_| ComposeError::LengthOverflow)
 }
 
-fn compose_rich(left: &RichTextChange, right: &RichTextChange) -> RichTextChange {
+fn compose_rich(
+    left: &RichTextChange,
+    right: &RichTextChange,
+) -> Result<RichTextChange, ComposeError> {
     let mut a = RichTextOpReader::new(left.ops());
     let mut b = RichTextOpReader::new(right.ops());
     let mut out = Vec::new();
@@ -357,7 +362,7 @@ fn compose_rich(left: &RichTextChange, right: &RichTextChange) -> RichTextChange
             _ => unreachable!(),
         }
     }
-    RichTextChange::new(out)
+    RichTextChange::from_ops(out).map_err(|_| ComposeError::LengthOverflow)
 }
 
 pub(crate) fn compose_attr_patch(left: &AttrPatch, right: &AttrPatch) -> AttrPatch {

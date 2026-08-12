@@ -1,3 +1,5 @@
+//! Canonical RichText spans and coordinate conversion.
+
 use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::ops::Deref;
@@ -40,15 +42,15 @@ impl TextMetrics {
             .byte_len
             .checked_add(other.byte_len)
             .filter(|length| *length <= isize::MAX as usize)
-            .ok_or(ValueError::SequenceLengthOverflow)?;
+            .ok_or(ValueError::LengthOverflow)?;
         let scalar_len = self
             .scalar_len
             .checked_add(other.scalar_len)
-            .ok_or(ValueError::SequenceLengthOverflow)?;
+            .ok_or(ValueError::LengthOverflow)?;
         let utf16_len = self
             .utf16_len
             .checked_add(other.utf16_len)
-            .ok_or(ValueError::SequenceLengthOverflow)?;
+            .ok_or(ValueError::LengthOverflow)?;
         Ok(Self::new(byte_len, scalar_len, utf16_len))
     }
 }
@@ -77,6 +79,7 @@ impl TextSlice {
 }
 
 impl RichTextChunk {
+    /// Creates immutable text content and caches its scalar and UTF-16 lengths.
     pub fn new(value: impl Into<String>) -> Self {
         let text: Arc<str> = Arc::from(value.into());
         let byte_len = text.len();
@@ -86,14 +89,17 @@ impl RichTextChunk {
         Self::from_arc(text, TextMetrics::new(byte_len, scalar_len, utf16_len))
     }
 
+    /// Returns the UTF-8 text content.
     pub fn as_str(&self) -> &str {
         &self.text
     }
 
+    /// Returns the Unicode scalar length.
     pub fn len(&self) -> usize {
         self.scalar_len
     }
 
+    /// Returns whether the chunk contains no text.
     pub fn is_empty(&self) -> bool {
         self.text.is_empty()
     }
@@ -182,21 +188,27 @@ impl Hash for RichTextChunk {
     }
 }
 
+/// Text or one atomic embed carried by a RichText span or insertion.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum RichContent {
+    /// UTF-8 text addressed by Unicode scalar positions.
     Text(RichTextChunk),
+    /// One atomic embedded Core Value with logical length one.
     Embed(Value),
 }
 
 impl RichContent {
+    /// Creates text content.
     pub fn text(value: impl Into<String>) -> Self {
         Self::Text(RichTextChunk::new(value))
     }
 
+    /// Creates one atomic embed.
     pub fn embed(value: Value) -> Self {
         Self::Embed(value)
     }
 
+    /// Returns the logical length in Unicode scalars or atomic embeds.
     pub fn len(&self) -> usize {
         match self {
             Self::Text(value) => value.len(),
@@ -204,6 +216,7 @@ impl RichContent {
         }
     }
 
+    /// Returns whether this is empty text content; embeds are never empty.
     pub fn is_empty(&self) -> bool {
         matches!(self, Self::Text(value) if value.is_empty())
     }
@@ -216,6 +229,7 @@ impl RichContent {
     }
 }
 
+/// One attributed text or embed span in a RichText Snapshot.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct RichSpan {
     content: RichContent,
@@ -223,6 +237,7 @@ pub struct RichSpan {
 }
 
 impl RichSpan {
+    /// Creates a text span.
     pub fn text(value: impl Into<String>, attrs: Attrs) -> Self {
         Self {
             content: RichContent::text(value),
@@ -230,6 +245,7 @@ impl RichSpan {
         }
     }
 
+    /// Creates an atomic embed span.
     pub fn embed(value: Value, attrs: Attrs) -> Self {
         Self {
             content: RichContent::embed(value),
@@ -237,18 +253,22 @@ impl RichSpan {
         }
     }
 
+    /// Returns the span content.
     pub fn content(&self) -> &RichContent {
         &self.content
     }
 
+    /// Returns the attributes applied to the complete span.
     pub fn attrs(&self) -> &Attrs {
         &self.attrs
     }
 
+    /// Returns the logical scalar/embed length.
     pub fn len(&self) -> usize {
         self.content.len()
     }
 
+    /// Returns whether this is an empty text span.
     pub fn is_empty(&self) -> bool {
         self.content.is_empty()
     }
@@ -294,11 +314,11 @@ impl RichTextReprBuilder {
         self.len = self
             .len
             .checked_add(span.len())
-            .ok_or(ValueError::SequenceLengthOverflow)?;
+            .ok_or(ValueError::LengthOverflow)?;
         self.utf16_len = self
             .utf16_len
             .checked_add(span.utf16_len())
-            .ok_or(ValueError::SequenceLengthOverflow)?;
+            .ok_or(ValueError::LengthOverflow)?;
         self.spans.push(span);
         self.span_ends.push(self.len);
         self.span_utf16_ends.push(self.utf16_len);
@@ -316,6 +336,10 @@ impl RichTextReprBuilder {
     }
 }
 
+/// Immutable canonical RichText with indexed scalar and UTF-16 positions.
+///
+/// RichText is a linear sequence of text and atomic embeds. Canonical values
+/// contain no empty text spans and merge adjacent text with equal attributes.
 #[derive(Clone)]
 pub struct RichText(Arc<RichTextRepr>);
 
@@ -350,6 +374,23 @@ impl Hash for RichText {
 
 impl RichText {
     /// Constructs and canonicalizes a RichText value.
+    ///
+    /// Empty text spans are removed and adjacent text spans with equal
+    /// attributes are merged. Length overflow returns
+    /// [`ValueError::LengthOverflow`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use colla::{Attrs, RichSpan, RichText, Value};
+    ///
+    /// let rich_text = RichText::from_spans(vec![
+    ///     RichSpan::text("Hi", Attrs::new()),
+    ///     RichSpan::embed(Value::string("mention:1"), Attrs::new()),
+    /// ])?;
+    /// assert_eq!(rich_text.len(), 3);
+    /// # Ok::<(), colla::ValueError>(())
+    /// ```
     pub fn from_spans(spans: Vec<RichSpan>) -> Result<Self, ValueError> {
         let spans = normalize_spans(spans)?;
         let mut builder = RichTextReprBuilder::with_capacity(spans.len());
@@ -359,22 +400,27 @@ impl RichText {
         Ok(Self(Arc::new(builder.finish())))
     }
 
+    /// Iterates canonical spans without exposing the physical storage type.
     pub fn iter_spans(&self) -> impl DoubleEndedIterator<Item = &RichSpan> + ExactSizeIterator {
         self.0.spans.iter()
     }
 
+    /// Returns the number of canonical spans.
     pub fn span_count(&self) -> usize {
         self.0.spans.len()
     }
 
+    /// Returns the logical length in Unicode scalars and atomic embeds.
     pub fn len(&self) -> usize {
         self.0.len
     }
 
+    /// Returns whether the sequence contains no text or embeds.
     pub fn is_empty(&self) -> bool {
         self.0.len == 0
     }
 
+    /// Concatenates text spans into a display string and omits embeds.
     pub fn to_plain_string(&self) -> String {
         self.iter_spans()
             .filter_map(|span| match span.content() {
@@ -397,9 +443,10 @@ impl RichText {
         Some((span_index, position - span_start))
     }
 
-    /// Converts a Unicode scalar position into the corresponding UTF-16 position.
+    /// Converts a Unicode scalar/embed position to a UTF-16 position.
     ///
-    /// The end position is valid. RichText embeds occupy one unit in both coordinate systems.
+    /// The end position is valid. RichText embeds occupy one unit in both
+    /// coordinate systems.
     pub fn code_point_to_utf16(&self, position: usize) -> Result<usize, Utf16PositionError> {
         if position > self.len() {
             return Err(Utf16PositionError::CodePointOutOfBounds {
@@ -422,7 +469,7 @@ impl RichText {
         Ok(utf16_start + offset)
     }
 
-    /// Converts a UTF-16 position into the corresponding Unicode scalar position.
+    /// Converts a UTF-16 position to a Unicode scalar/embed position.
     ///
     /// The end position is valid. A position inside a surrogate pair is rejected.
     pub fn utf16_to_code_point(&self, position: usize) -> Result<usize, Utf16PositionError> {
@@ -630,15 +677,15 @@ mod tests {
     fn text_metrics_reject_all_length_overflows() {
         assert_eq!(
             TextMetrics::new(isize::MAX as usize, 1, 1).checked_add(TextMetrics::new(1, 1, 1)),
-            Err(ValueError::SequenceLengthOverflow)
+            Err(ValueError::LengthOverflow)
         );
         assert_eq!(
             TextMetrics::new(1, usize::MAX, 1).checked_add(TextMetrics::new(1, 1, 1)),
-            Err(ValueError::SequenceLengthOverflow)
+            Err(ValueError::LengthOverflow)
         );
         assert_eq!(
             TextMetrics::new(1, 1, usize::MAX).checked_add(TextMetrics::new(1, 1, 1)),
-            Err(ValueError::SequenceLengthOverflow)
+            Err(ValueError::LengthOverflow)
         );
     }
 
@@ -647,12 +694,9 @@ mod tests {
         let left = RichTextChunk::from_arc(Arc::from("a"), TextMetrics::new(1, usize::MAX, 1));
         let right = RichTextChunk::new("b");
 
-        assert_eq!(
-            left.try_concat(&right),
-            Err(ValueError::SequenceLengthOverflow)
-        );
+        assert_eq!(left.try_concat(&right), Err(ValueError::LengthOverflow));
 
-        let change = RichTextChange::try_new(vec![
+        let change = RichTextChange::from_ops([
             RichTextOp::Insert {
                 content: RichContent::Text(left),
                 attrs: Attrs::new(),
@@ -662,6 +706,6 @@ mod tests {
                 attrs: Attrs::new(),
             },
         ]);
-        assert_eq!(change, Err(ValueError::SequenceLengthOverflow));
+        assert_eq!(change, Err(ValueError::LengthOverflow));
     }
 }

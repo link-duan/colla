@@ -1,3 +1,7 @@
+---
+status: superseded by ADR-0012
+---
+
 # ChangeBuilder 相对 Snapshot 链式构造
 
 Builder 从 `base.change()` 创建并持有 Snapshot 的廉价 clone，使用可链式的 scoped

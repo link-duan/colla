@@ -17,11 +17,11 @@ const fixtureDir = await mkdtemp(join(temporaryRoot, "colla-browser-e2e-"))
 const packageSpec = process.env.COLLA_PACKAGE_SPEC
 
 const tracer = `
-import { apply, Value } from "colla-ot"
+import { apply, Change, Value } from "colla-ot"
 
 export function trace() {
   const base = Value.fromJS("before")
-  const change = base.change().replace([], "after").build()
+  const change = Change.build(change => change.replace("after"))
   const next = apply(base, change)
   try {
     return next.toJS()

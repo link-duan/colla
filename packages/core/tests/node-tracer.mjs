@@ -154,19 +154,24 @@ try {
     )
 
     const trustedTextBase = Value.fromJS(text("a"), { limits: { maxStringBytes: 1 } })
-    const trustedTextChange = trustedTextBase.change()
-      .text([], editor => editor.insert(1, " larger"))
-      .build()
+    const trustedTextChange = Change.build(change => {
+      change.text(editor => editor.retain(1).insert(" larger"))
+    })
     const trustedTextNext = apply(trustedTextBase, trustedTextChange)
     assert.deepEqual(trustedTextNext.toJS(), text("a larger"))
 
     const textBase = Value.fromJS({ title: text("A😀B") })
-    const textBuilder = textBase.change()
     let escapedText
-    const textChange = textBuilder.text(["title"], editor => {
-      escapedText = editor
-      editor.insert(3, "X").delete({ from: 0, to: 1 }).replace({ from: 2, to: 3 }, "Y")
-    }).build()
+    const textChange = Change.build(change => {
+      change.map(map => {
+        map.modify("title", title => {
+          title.text(editor => {
+            escapedText = editor
+            editor.delete(1).retain(1).insert("Y")
+          })
+        })
+      })
+    })
     assert.deepEqual(
       textChange.encode(),
       Uint8Array.from([2, 1, 5, 116, 105, 116, 108, 101, 2, 4, 3, 2, 1, 0, 1, 1, 1, 89]),
@@ -175,22 +180,19 @@ try {
       () => Change.decode(textChange.encode(), { limits: { maxSequenceLength: 1 } }),
       error => error instanceof CollaError && error.code === "limit_exceeded",
     )
-    assert.throws(() => escapedText.insert(0, "late"), error =>
+    assert.throws(() => escapedText.insert("late"), error =>
       error instanceof CollaError && error.code === "invalid_state")
     const textNext = apply(textBase, textChange)
     assert.deepEqual(textNext.get(["title"]), text("😀YB"))
 
-    const textRollback = textBase.change()
     assert.throws(
-      () => textRollback.text(["title"], editor => {
-        editor.insert(4, "temporary").delete({ from: 2, to: 3 })
-      }),
-      error => error instanceof CollaError && error.code === "invalid_utf16_boundary",
+      () => Change.build(change => {
+        change.map(map => map.modify("title", title => {
+          title.text(editor => editor.retain(4).insert("temporary"))
+        }))
+      }, { limits: { maxSequenceLength: 3 } }),
+      error => error instanceof CollaError && error.code === "limit_exceeded",
     )
-    textRollback.text(["title"], editor => editor.insert(0, "").delete({ from: 1, to: 1 }))
-    const textRollbackChange = textRollback.build()
-    const textRollbackNext = apply(textBase, textRollbackChange)
-    assert.deepEqual(textRollbackNext.toJS(), textBase.toJS())
 
     const richInput = richText([
       { type: "text", text: "A😀", attrs: { bold: true, count: 2n, opacity: 0.5, label: "base" } },
@@ -290,18 +292,19 @@ try {
       error instanceof CollaError && error.code === "invalid_utf16_boundary")
 
     let escapedPatch
-    const richChange = richBase.change().richText([], editor => {
-      assert.equal(editor.replace, undefined)
-      assert.equal(editor.insert, undefined)
-      editor
-        .insertText(4, "X", { italic: true })
-        .insertEmbed(6, { id: "two" }, { kind: "chip" })
-        .delete({ from: 3, to: 4 })
-        .format({ from: 3, to: 6 }, patch => {
-          escapedPatch = patch
-          patch.remove("bold").set("color", "red")
-        })
-    }).build()
+    const richChange = Change.build(change => {
+      change.richText(editor => {
+        editor
+          .retain(2)
+          .insertText("X", { color: "red", italic: true })
+          .delete(1)
+          .retain(1, patch => {
+            escapedPatch = patch
+            patch.remove("bold").set("color", "red")
+          })
+          .insertEmbed({ id: "two" }, { color: "red", kind: "chip" })
+      })
+    })
     assert.deepEqual(richChange.encode(), Uint8Array.from([
       5, 5, 0, 2, 0, 1, 0, 1, 88, 2, 5, 99, 111, 108, 111, 114, 4, 3, 114, 101,
       100, 6, 105, 116, 97, 108, 105, 99, 1, 2, 1, 0, 1, 2, 4, 98, 111, 108, 100, 1,
@@ -321,29 +324,27 @@ try {
       assert.equal(span.attrs.bold, undefined)
     }
 
-    const richRollback = richBase.change()
     const patchFailure = new Error("patch failure")
     assert.throws(
-      () => richRollback.richText([], editor => {
-        editor.insertText(0, "temporary").format({ from: 0, to: 1 }, patch => {
+      () => Change.build(change => {
+        change.richText(editor => editor.retain(1, patch => {
           patch.set("temporary", true)
           throw patchFailure
-        })
+        }))
       }),
       error => error === patchFailure,
     )
-    const richRollbackChange = richRollback.build()
-    const richRollbackNext = apply(richBase, richRollbackChange)
-    assert.deepEqual(richRollbackNext.toJS(), richBase.toJS())
 
     const trustedRichBase = Value.fromJS(
       richText([{ type: "text", text: "a" }]),
       { limits: { maxStringBytes: 1, maxContainerLength: 1, maxValueNodes: 1 } },
     )
-    const trustedRichChange = trustedRichBase.change().richText([], editor => editor
-      .insertText(1, " larger")
-      .insertEmbed(8, { nested: ["larger"] }, { description: "larger" }))
-      .build()
+    const trustedRichChange = Change.build(change => {
+      change.richText(editor => editor
+        .retain(1)
+        .insertText(" larger")
+        .insertEmbed({ nested: ["larger"] }, { description: "larger" }))
+    })
     const trustedRichNext = apply(trustedRichBase, trustedRichChange)
     assert.equal(trustedRichNext.toJS().spans[0].text, "a larger")
     assert.deepEqual(trustedRichNext.toJS().spans[1].value.nested, ["larger"])
@@ -357,32 +358,36 @@ try {
       replace: "old",
     })
     let escapedInt
-    const algebraFirst = algebraBase.change()
-      .int(["count"], value => {
-        escapedInt = value
-        value.add(2n)
+    const algebraFirst = Change.build(change => {
+      change.map(map => {
+        map.modify("count", value => {
+          escapedInt = value
+          value.intAdd(2n)
+        })
+        map.modify("meta", value => value.map(meta => meta.insert("owner", "team")))
+        map.modify("items", value => value.list(list => list.retain(1).insert(["x"])))
+        map.modify("title", value => value.text(title => title.retain(1).insert("X")))
+        map.modify("rich", value => value.richText(rich => rich
+          .retain(1)
+          .insertText("X", { bold: true })))
+        map.modify("replace", value => value.replace("middle"))
       })
-      .map(["meta"], value => value.set("owner", "team"))
-      .list(["items"], value => value.insert(1, ["x"]))
-      .text(["title"], value => value.insert(1, "X"))
-      .richText(["rich"], value => value.insertText(1, "X", { bold: true }))
-      .replace(["replace"], "middle")
-      .build()
+    })
     const algebraFirstBytes = algebraFirst.encode()
-    assert.throws(() => escapedInt.add(1n), error =>
+    assert.throws(() => escapedInt.intAdd(1n), error =>
       error instanceof CollaError && error.code === "invalid_state")
     const algebraMiddle = apply(algebraBase, algebraFirst)
-    const algebraSecond = algebraMiddle.change()
-      .int(["count"], value => value.add(3n))
-      .map(["meta"], value => value.set("status", "published"))
-      .list(["items"], value => value.delete({ from: 0, to: 1 }))
-      .text(["title"], value => value.delete({ from: 0, to: 1 }))
-      .richText(["rich"], value => value.format(
-        { from: 0, to: 2 },
-        patch => patch.set("color", "red"),
-      ))
-      .replace(["replace"], "final")
-      .build()
+    const algebraSecond = Change.build(change => {
+      change.map(map => {
+        map.modify("count", value => value.intAdd(3n))
+        map.modify("meta", value => value.map(meta => meta.modify("status", status => status.replace("published"))))
+        map.modify("items", value => value.list(list => list.delete(1)))
+        map.modify("title", value => value.text(title => title.delete(1)))
+        map.modify("rich", value => value.richText(rich => rich
+          .retain(2, patch => patch.set("color", "red"))))
+        map.modify("replace", value => value.replace("final"))
+      })
+    })
     const algebraCombined = compose(algebraFirst, algebraSecond)
     const combinedGolden = Uint8Array.from([
       2, 6, 5, 99, 111, 117, 110, 116, 2, 6, 10, 5, 105, 116, 101, 109, 115, 2,
@@ -414,14 +419,18 @@ try {
     const algebraRestored = apply(algebraFinal, algebraInverse)
     assert.deepEqual(algebraRestored.toJS(), algebraBase.toJS())
 
-    const algebraRight = algebraBase.change()
-      .int(["count"], value => value.add(4n))
-      .map(["meta"], value => value.set("reviewer", "qa"))
-      .list(["items"], value => value.insert(1, ["y"]))
-      .text(["title"], value => value.insert(1, "Y"))
-      .richText(["rich"], value => value.insertText(1, "Y", { italic: true }))
-      .replace(["replace"], "right")
-      .build()
+    const algebraRight = Change.build(change => {
+      change.map(map => {
+        map.modify("count", value => value.intAdd(4n))
+        map.modify("meta", value => value.map(meta => meta.insert("reviewer", "qa")))
+        map.modify("items", value => value.list(list => list.retain(1).insert(["y"])))
+        map.modify("title", value => value.text(title => title.retain(1).insert("Y")))
+        map.modify("rich", value => value.richText(rich => rich
+          .retain(1)
+          .insertText("Y", { italic: true })))
+        map.modify("replace", value => value.replace("right"))
+      })
+    })
     const algebraRightBytes = algebraRight.encode()
     const algebraPair = transformPair(algebraFirst, algebraRight, { order: "left-first" })
     assert.ok(Object.isFrozen(algebraPair))
@@ -469,9 +478,9 @@ try {
       error instanceof CollaError && error.code === "invalid_argument")
     assert.throws(() => transformPair(algebraFirst, algebraRight, { order: "unknown" }), error =>
       error instanceof CollaError && error.code === "invalid_argument")
-    const incompatibleText = Value.fromJS(text("a")).change()
-      .text([], value => value.insert(1, "b"))
-      .build()
+    const incompatibleText = Change.build(change => {
+      change.text(value => value.retain(1).insert("b"))
+    })
     assert.throws(() => compose(algebraFirst, incompatibleText), error =>
       error instanceof CollaError && error.code === "incompatible_change" &&
       error.details.reason === "kind_mismatch")
@@ -483,17 +492,17 @@ try {
       error instanceof CollaError && error.code === "type_mismatch")
 
     const maxInt = Value.fromJS((1n << 63n) - 1n)
-    const overflowBuilder = maxInt.change()
-    assert.throws(() => overflowBuilder.int([], value => value.add(1n)), error =>
+    const overflowChange = Change.build(change => change.intAdd(1n))
+    assert.throws(() => apply(maxInt, overflowChange), error =>
       error instanceof CollaError && error.code === "integer_overflow")
-    assert.throws(() => overflowBuilder.int([], value => value.add(1)), error =>
+    assert.throws(() => Change.build(change => change.intAdd(1)), error =>
       error instanceof CollaError && error.code === "invalid_argument")
-    const overflowNoop = overflowBuilder.int([], value => value.add(0n)).build()
+    const overflowNoop = Change.build(change => change.intAdd(0n))
     const overflowSame = apply(maxInt, overflowNoop)
     assert.deepEqual(overflowSame.toJS(), maxInt.toJS())
     const deltaBase = Value.fromJS(0n)
-    const maxDelta = deltaBase.change().int([], value => value.add((1n << 63n) - 1n)).build()
-    const oneDelta = deltaBase.change().int([], value => value.add(1n)).build()
+    const maxDelta = Change.build(change => change.intAdd((1n << 63n) - 1n))
+    const oneDelta = Change.build(change => change.intAdd(1n))
     assert.throws(() => compose(maxDelta, oneDelta), error =>
       error instanceof CollaError && error.code === "integer_overflow")
 
@@ -526,24 +535,32 @@ try {
       ]),
       replace: "old",
     })
-    const inspectedChange = inspectBase.change()
-      .int(["count"], value => value.add(2n))
-      .map(["meta"], value => value.set("status", "new").delete("remove"))
-      .list(["items"], value => value
-        .insert(1, ["x"])
-        .set(2, "B")
-        .delete({ from: 3, to: 4 }))
-      .text(["title"], value => value.replace({ from: 1, to: 3 }, "X"))
-      .richText(["rich"], value => value
-        .insertEmbed(3, { id: "new" }, { kind: "chip" })
-        .delete({ from: 1, to: 3 })
-        .format({ from: 0, to: 2 }, patch => patch
-          .remove("bold")
-          .set("count", 2n)
-          .set("opacity", 0.5)
-          .set("label", "red")))
-      .replace(["replace"], "new")
-      .build()
+    const inspectedChange = Change.build(change => {
+      change.map(map => {
+        map.modify("count", value => value.intAdd(2n))
+        map.modify("meta", value => value.map(meta => {
+          meta.modify("status", status => status.replace("new")).delete("remove")
+        }))
+        map.modify("items", value => value.list(list => list
+          .retain(1)
+          .insert(["x"])
+          .modify(item => item.replace("B"))
+          .delete(1)))
+        map.modify("title", value => value.text(title => title
+          .retain(1)
+          .delete(1)
+          .insert("X")))
+        map.modify("rich", value => value.richText(rich => rich
+          .retain(2, patch => patch
+            .remove("bold")
+            .set("count", 2n)
+            .set("opacity", 0.5)
+            .set("label", "red"))
+          .insertEmbed({ id: "new" }, { kind: "chip" })
+          .delete(1)))
+        map.modify("replace", value => value.replace("new"))
+      })
+    })
     const view = inspectChange(inspectedChange, inspectBase)
     assert.ok(Object.isFrozen(view))
     assert.deepEqual(view.map(entry => entry.type), [
@@ -568,14 +585,14 @@ try {
     })
     assert.equal(view[2].index, 1)
     assert.deepEqual(view[3].range, { from: 2, to: 3 })
-    assert.deepEqual(view[9].range, { from: 1, to: 3 })
+    assert.deepEqual(view[9].range, { from: 3, to: 4 })
     assert.equal(view[10].at, 1)
     assert.deepEqual(view[11].range, { from: 1, to: 3 })
     assert.deepEqual(Object.keys(view[7].patch), ["bold", "count", "label", "opacity"])
     assert.deepEqual(view[7].patch.bold, { type: "remove" })
     assert.deepEqual(view[7].patch.count, { type: "set", value: 2n })
     assert.equal(view[8].attrs.kind, "chip")
-    assert.equal(view[8].attrs.count, 2n)
+    assert.equal(view[8].attrs.count, undefined)
     assert.ok(Object.isFrozen(view[7].path))
     assert.ok(Object.isFrozen(view[7].range))
     assert.ok(Object.isFrozen(view[7].patch))
@@ -583,23 +600,25 @@ try {
     assert.ok(Object.isFrozen(view[8].embed))
     assert.ok(Object.isFrozen(view[8].attrs))
 
-    const rootReplace = inspectBase.change().replace([], { fresh: true }).build()
+    const rootReplace = Change.build(change => change.replace({ fresh: true }))
     const rootReplaceView = inspectChange(rootReplace, inspectBase)
     assert.deepEqual(rootReplaceView, [{
       type: "value.replace",
       path: [],
       value: Object.assign(Object.create(null), { fresh: true }),
     }])
-    const richPositionChange = inspectBase.change().richText(["rich"], value => value
-      .insertText(3, "X")
-      .delete({ from: 4, to: 5 }))
-      .build()
+    const richPositionChange = Change.build(change => {
+      change.map(map => map.modify("rich", value => value.richText(rich => rich
+        .retain(2)
+        .insertText("X")
+        .delete(1))))
+    })
     const richPositionView = inspectChange(richPositionChange, inspectBase)
     assert.equal(richPositionView[0].type, "richText.insertText")
     assert.equal(richPositionView[0].at, 3)
     assert.equal(richPositionView[0].attrs, undefined)
     assert.deepEqual(richPositionView[1].range, { from: 3, to: 4 })
-    const noopChange = inspectBase.change().build()
+    const noopChange = Change.build(change => change.noop())
     const noopView = inspectChange(noopChange, inspectBase)
     assert.deepEqual(noopView, [])
     assert.ok(Object.isFrozen(noopView))
@@ -614,18 +633,21 @@ try {
       items: ["a", "b"],
     })
     let escapedMap
-    const structuredBuilder = structuredBase.change()
-      .map(["meta"], map => {
+    const structuredChange = Change.build(change => {
+      change.map(map => {
         escapedMap = map
-        map.set("status", "published").set("owner", "team").delete("missing")
+        map.modify("meta", meta => meta.map(value => value
+          .modify("status", status => status.replace("published"))
+          .insert("owner", "team")))
+        map.modify("items", items => items.list(list => list
+          .insert(["x"])
+          .delete(1)
+          .modify(item => item.replace("B"))))
       })
-      .list(["items"], list => {
-        list.insert(1, ["x"]).set(2, "B").delete({ from: 0, to: 1 })
-      })
-    assert.throws(() => escapedMap.set("late", true), error =>
+    })
+    assert.throws(() => escapedMap.insert("late", true), error =>
       error instanceof CollaError && error.code === "invalid_state" &&
       error.details.reason === "scope_closed")
-    const structuredChange = structuredBuilder.build()
     assert.deepEqual(structuredChange.encode(), Uint8Array.from([
       2, 2, 5, 105, 116, 101, 109, 115, 2, 3, 3, 1, 1, 5, 1, 120, 2, 1, 3, 1, 5,
       1, 66, 4, 109, 101, 116, 97, 2, 2, 2, 5, 111, 119, 110, 101, 114, 0, 5, 4,
@@ -638,56 +660,182 @@ try {
       meta: Object.assign(Object.create(null), { owner: "team", status: "published" }),
     }))
 
-    const rollbackBuilder = structuredBase.change()
     const callbackFailure = new Error("callback failure")
     assert.throws(
-      () => rollbackBuilder.map(["meta"], map => {
-        map.set("temporary", true)
+      () => Change.build(change => change.map(map => {
+        map.insert("temporary", true)
         throw callbackFailure
-      }),
+      })),
       error => error === callbackFailure,
     )
     assert.throws(
-      () => rollbackBuilder.map(["meta"], map => {
-        map.set("temporary", true).set("invalid", new Date())
+      () => Change.build(() => {}),
+      error => error instanceof CollaError && error.code === "invalid_argument" &&
+        error.details.reason === "missing_change_kind",
+    )
+    assert.throws(
+      () => Change.build(change => change.noop().replace(null)),
+      error => error instanceof CollaError && error.code === "invalid_argument" &&
+        error.details.reason === "duplicate_change_kind",
+    )
+    assert.throws(
+      () => Change.build(async change => change.noop()),
+      error => error instanceof CollaError && error.code === "invalid_argument",
+    )
+    assert.throws(
+      () => Change.fromJS({
+        type: "map",
+        entries: [
+          { key: "duplicate", type: "insert", value: 1 },
+          { key: "duplicate", type: "delete" },
+        ],
       }),
       error => error instanceof CollaError && error.code === "invalid_value",
     )
     assert.throws(
-      () => rollbackBuilder.list(["items"], list => list.insert(9, ["x"])),
-      error => error instanceof CollaError && error.code === "out_of_bounds",
+      () => Change.fromJS({
+        type: "text",
+        ops: [{ type: "retain", length: 4 }],
+      }, { limits: { maxSequenceLength: 3 } }),
+      error => error instanceof CollaError && error.code === "limit_exceeded",
     )
-    rollbackBuilder
-      .map(["meta"], map => map.set("status", "draft").delete("missing"))
-      .list(["items"], list => list.insert(0, []).delete({ from: 1, to: 1 }))
-    const rollbackChange = rollbackBuilder.build()
-    const rollbackNext = apply(structuredBase, rollbackChange)
-    assert.deepEqual(rollbackNext.toJS(), structuredBase.toJS())
 
-    const asyncBuilder = structuredBase.change()
+    const assertBuilderEquivalent = (input, edit) => {
+      const typed = Change.fromJS(input)
+      const built = Change.build(edit)
+      assert.deepEqual(built.encode(), typed.encode())
+      typed.dispose()
+      built.dispose()
+    }
+    assertBuilderEquivalent({ type: "noop" }, change => change.noop())
+    assertBuilderEquivalent(
+      { type: "replace", value: { nested: [true, 1n] } },
+      change => change.replace({ nested: [true, 1n] }),
+    )
+    assertBuilderEquivalent({ type: "int", delta: -2n }, change => change.intAdd(-2n))
+    assertBuilderEquivalent({
+      type: "list",
+      ops: [
+        { type: "retain", length: 1 },
+        { type: "insert", values: ["x", 2n] },
+        { type: "modify", change: { type: "replace", value: "y" } },
+        { type: "delete", length: 1 },
+      ],
+    }, change => change.list(list => list
+      .retain(1)
+      .insert(["x", 2n])
+      .modify(item => item.replace("y"))
+      .delete(1)))
+    assertBuilderEquivalent({
+      type: "text",
+      ops: [
+        { type: "retain", length: 2 },
+        { type: "insert", text: "X" },
+        { type: "delete", length: 1 },
+      ],
+    }, change => change.text(value => value.retain(2).insert("X").delete(1)))
+    assertBuilderEquivalent({
+      type: "richText",
+      ops: [
+        {
+          type: "retain",
+          length: 2,
+          patch: {
+            bold: { type: "remove" },
+            color: { type: "set", value: "red" },
+          },
+        },
+        { type: "insert", content: { type: "text", text: "X", attrs: { bold: true } } },
+        { type: "insert", content: { type: "embed", value: { id: 1n }, attrs: { kind: "chip" } } },
+        { type: "delete", length: 1 },
+      ],
+    }, change => change.richText(value => value
+      .retain(2, patch => patch.remove("bold").set("color", "red"))
+      .insertText("X", { bold: true })
+      .insertEmbed({ id: 1n }, { kind: "chip" })
+      .delete(1)))
+    assertBuilderEquivalent({
+      type: "map",
+      entries: [
+        { key: "created", type: "insert", value: true },
+        { key: "removed", type: "delete" },
+        {
+          key: "nested",
+          type: "modify",
+          change: { type: "map", entries: [{ key: "value", type: "delete" }] },
+        },
+      ],
+    }, change => change.map(map => map
+      .insert("created", true)
+      .delete("removed")
+      .modify("nested", nested => nested.map(value => value.delete("value")))))
+
+    const scalarBase = Value.fromJS(text("A😀B"))
+    const scalarChange = Change.fromJS({
+      type: "text",
+      ops: [{ type: "retain", length: 2 }, { type: "insert", text: "X" }],
+    })
+    assert.deepEqual(apply(scalarBase, scalarChange).toJS(), text("A😀XB"))
+
     assert.throws(
-      () => asyncBuilder.map(["meta"], async map => map.set("async", true)),
+      () => Change.build(change => change.map(map => map.modify("child", () => {}))),
+      error => error instanceof CollaError && error.code === "invalid_argument" &&
+        error.details.reason === "missing_change_kind",
+    )
+    assert.throws(
+      () => Change.build(change => change.list(list => list.modify(child => child.noop().replace(null)))),
+      error => error instanceof CollaError && error.code === "invalid_argument" &&
+        error.details.reason === "duplicate_change_kind",
+    )
+    let escapedList
+    Change.build(change => change.list(list => { escapedList = list }))
+    assert.throws(() => escapedList.retain(1), error =>
+      error instanceof CollaError && error.code === "invalid_state" &&
+      error.details.reason === "scope_closed")
+    let duplicateCallbackRan = false
+    assert.throws(
+      () => Change.build(change => {
+        change.noop()
+        change.map(() => { duplicateCallbackRan = true })
+      }),
+      error => error instanceof CollaError && error.details.reason === "duplicate_change_kind",
+    )
+    assert.equal(duplicateCallbackRan, false)
+
+    for (const length of [-1, Number.MAX_SAFE_INTEGER + 1, 1.5]) {
+      assert.throws(
+        () => Change.fromJS({ type: "text", ops: [{ type: "retain", length }] }),
+        error => error instanceof CollaError && error.code === "invalid_argument",
+      )
+    }
+    assert.throws(
+      () => Change.fromJS({ type: "text", ops: [{ type: "insert", text: "\\ud800" }] }),
+      error => error instanceof CollaError && error.code === "invalid_value",
+    )
+    assert.throws(
+      () => Change.fromJS({
+        type: "richText",
+        ops: [{ type: "insert", content: { type: "text", text: "x", value: null } }],
+      }),
       error => error instanceof CollaError && error.code === "invalid_argument",
     )
-    const asyncChange = asyncBuilder.build()
-    const asyncNext = apply(structuredBase, asyncChange)
-    assert.deepEqual(asyncNext.toJS(), structuredBase.toJS())
-
-    const independentOriginal = Value.fromJS({ meta: {} })
-    const independentSnapshot = independentOriginal.clone()
-    const independentBuilder = independentOriginal.change()
-    independentOriginal.dispose()
-    const independentChange = independentBuilder
-      .map(["meta"], map => map.set("alive", true))
-      .build()
-    const independentNext = apply(independentSnapshot, independentChange)
-    assert.equal(independentNext.get(["meta", "alive"]), true)
-
-    const abandoned = structuredBase.change()
-    abandoned.dispose()
-    assert.throws(() => abandoned.build(), error =>
-      error instanceof CollaError && error.code === "invalid_state" &&
-      error.details.reason === "disposed")
+    const cyclicChange = { type: "map", entries: [] }
+    cyclicChange.entries.push({ key: "self", type: "modify", change: cyclicChange })
+    assert.throws(() => Change.fromJS(cyclicChange), error =>
+      error instanceof CollaError && error.code === "invalid_argument")
+    assert.throws(
+      () => Change.fromJS({
+        type: "text",
+        ops: [{ type: "retain", length: 0 }, { type: "delete", length: 0 }],
+      }, { limits: { maxSequenceOps: 1 } }),
+      error => error instanceof CollaError && error.code === "limit_exceeded" &&
+        error.details.limit === "sequence ops",
+    )
+    const modifyNoop = Change.fromJS({
+      type: "list",
+      ops: [{ type: "modify", change: { type: "noop" } }],
+    })
+    assert.deepEqual(modifyNoop.encode(), Uint8Array.of(0))
 
     const base = Value.fromJS("draft", { limits: { maxStringBytes: 5 } })
     const integer = Value.fromJS(42n)
@@ -698,12 +846,8 @@ try {
     assert.equal(decodedBase.toJS(), "draft")
     assert.notEqual(decodedBase.encode().buffer, baseBytes.buffer)
 
-    const builder = base.change()
     base.dispose()
-    const change = builder.replace([], "published value larger than receiver input policy").build()
-    assert.throws(() => builder.build(), error =>
-      error instanceof CollaError && error.code === "invalid_state" &&
-      error.details.reason === "consumed")
+    const change = Change.build(value => value.replace("published value larger than receiver input policy"))
 
     const changeBytes = change.encode()
     const decodedChange = Change.decode(changeBytes)
@@ -751,14 +895,10 @@ try {
       trustedTextNext,
       textChange,
       textNext,
-      textRollbackChange,
-      textRollbackNext,
       richBase,
       rustRichBase,
       richChange,
       richNext,
-      richRollbackChange,
-      richRollbackNext,
       trustedRichBase,
       trustedRichChange,
       trustedRichNext,
@@ -787,6 +927,7 @@ try {
       incompatibleText,
       incompatibleBase,
       maxInt,
+      overflowChange,
       overflowNoop,
       overflowSame,
       deltaBase,
@@ -802,13 +943,6 @@ try {
       structuredBase,
       structuredChange,
       structuredNext,
-      rollbackChange,
-      rollbackNext,
-      asyncChange,
-      asyncNext,
-      independentSnapshot,
-      independentChange,
-      independentNext,
       integer,
       clone,
       decodedBase,

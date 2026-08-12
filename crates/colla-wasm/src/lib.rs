@@ -3,11 +3,14 @@
 //! Generated names and error payloads in this crate are an implementation
 //! detail of the handwritten `colla-ot` facade.
 
+mod change_input;
+
+use change_input::{decode_change_input, ChangeInputError};
 use colla::{
     apply, compose, invert, transform_pair, ApplyError, AttrChange, AttrPatch, AttrValue, Attrs,
-    BuildError, Change, ChangeBuilder, ChangeKind, CodecError, ComposeError, InputLimits,
-    IntChange, InvertError, ListOp, MapEntryChange, Path, PathSeg, RichContent, RichText,
-    RichTextOp, TextOp, TieBreak, TransformError, Utf16PositionError, Value, ValueKind, ValueType,
+    Change, ChangeKind, CodecError, ComposeError, InputLimits, IntChange, InvertError, ListOp,
+    MapEntryChange, Path, PathSeg, RichContent, RichText, RichTextOp, TextOp, TieBreak,
+    TransformError, Utf16PositionError, Value, ValueError, ValueKind, ValueType,
 };
 use serde_json::{json, Value as JsonValue};
 use wasm_bindgen::prelude::*;
@@ -59,13 +62,6 @@ impl ValueHandle {
         Value::decode_with_limits(bytes, &parse_limits(limits, "value_decode")?)
             .map(|value| Self { value })
             .map_err(|error| codec_error(error, "value_decode"))
-    }
-
-    #[wasm_bindgen(js_name = decodeTrusted)]
-    pub fn decode_trusted(bytes: &[u8]) -> Result<Self, JsValue> {
-        Value::decode_with_limits(bytes, &trusted_limits())
-            .map(|value| Self { value })
-            .map_err(|error| codec_error(error, "value_from_js"))
     }
 
     pub fn encode(&self) -> Vec<u8> {
@@ -125,13 +121,6 @@ impl ValueHandle {
             value: self.value.clone(),
         }
     }
-
-    #[wasm_bindgen(js_name = change)]
-    pub fn change_builder(&self) -> BuilderHandle {
-        BuilderHandle {
-            builder: Some(self.value.change()),
-        }
-    }
 }
 
 #[wasm_bindgen]
@@ -141,6 +130,14 @@ pub struct ChangeHandle {
 
 #[wasm_bindgen]
 impl ChangeHandle {
+    #[wasm_bindgen(js_name = fromInput)]
+    pub fn from_input(bytes: &[u8], limits: &str) -> Result<Self, JsValue> {
+        let limits = parse_limits(limits, "change_from_js")?;
+        decode_change_input(bytes, &limits)
+            .map(|change| Self { change })
+            .map_err(change_input_error)
+    }
+
     #[wasm_bindgen(js_name = decode)]
     pub fn decode(bytes: &[u8], limits: &str) -> Result<Self, JsValue> {
         Change::decode_with_limits(bytes, &parse_limits(limits, "change_decode")?)
@@ -157,342 +154,6 @@ impl ChangeHandle {
         Self {
             change: self.change.clone(),
         }
-    }
-}
-
-#[wasm_bindgen]
-pub struct BuilderHandle {
-    builder: Option<ChangeBuilder>,
-}
-
-#[wasm_bindgen]
-impl BuilderHandle {
-    pub fn replace(&mut self, path: &str, value: &ValueHandle) -> Result<(), JsValue> {
-        let path = parse_path(path, "builder_replace")?;
-        self.builder_mut()?
-            .replace(&path, value.value.clone())
-            .map(|_| ())
-            .map_err(|error| build_error(error, "builder_replace"))
-    }
-
-    #[wasm_bindgen(js_name = mapSet)]
-    pub fn map_set(&mut self, path: &str, key: &str, value: &ValueHandle) -> Result<(), JsValue> {
-        let path = parse_path(path, "map_set")?;
-        self.builder_mut()?
-            .map_set(&path, key, value.value.clone())
-            .map(|_| ())
-            .map_err(|error| build_error(error, "map_set"))
-    }
-
-    #[wasm_bindgen(js_name = mapDelete)]
-    pub fn map_delete(&mut self, path: &str, key: &str) -> Result<(), JsValue> {
-        let path = parse_path(path, "map_delete")?;
-        self.builder_mut()?
-            .map_delete(&path, key)
-            .map(|_| ())
-            .map_err(|error| build_error(error, "map_delete"))
-    }
-
-    #[wasm_bindgen(js_name = listInsert)]
-    pub fn list_insert(
-        &mut self,
-        path: &str,
-        index: usize,
-        values: &ValueHandle,
-    ) -> Result<(), JsValue> {
-        let path = parse_path(path, "list_insert")?;
-        let ValueKind::List(values) = values.value.kind() else {
-            return Err(type_error("list", values.value.kind()));
-        };
-        self.builder_mut()?
-            .list_insert(&path, index, values.as_slice().iter().cloned())
-            .map(|_| ())
-            .map_err(|error| build_error(error, "list_insert"))
-    }
-
-    #[wasm_bindgen(js_name = listSet)]
-    pub fn list_set(
-        &mut self,
-        path: &str,
-        index: usize,
-        value: &ValueHandle,
-    ) -> Result<(), JsValue> {
-        let path = parse_path(path, "list_set")?;
-        self.builder_mut()?
-            .list_set(&path, index, value.value.clone())
-            .map(|_| ())
-            .map_err(|error| build_error(error, "list_set"))
-    }
-
-    #[wasm_bindgen(js_name = listDelete)]
-    pub fn list_delete(&mut self, path: &str, from: usize, to: usize) -> Result<(), JsValue> {
-        let path = parse_path(path, "list_delete")?;
-        let len = to.checked_sub(from).ok_or_else(|| {
-            wasm_error_details(
-                "invalid_argument",
-                "list_delete",
-                json!({ "argument": "range", "reason": "from must not exceed to" }),
-            )
-        })?;
-        self.builder_mut()?
-            .list_delete(&path, from, len)
-            .map(|_| ())
-            .map_err(|error| build_error(error, "list_delete"))
-    }
-
-    #[wasm_bindgen(js_name = currentKind)]
-    pub fn current_kind(&self, path: &str) -> Result<String, JsValue> {
-        let path = parse_path(path, "builder_scope")?;
-        let builder = self.builder.as_ref().ok_or_else(|| {
-            wasm_error("invalid_state", "builder_scope", "builder already consumed")
-        })?;
-        Ok(
-            value_kind_name(value_at_path(builder.current(), &path, "builder_scope")?.kind())
-                .into(),
-        )
-    }
-
-    #[wasm_bindgen(js_name = textInsert)]
-    pub fn text_insert(&mut self, path: &str, position: usize, value: &str) -> Result<(), JsValue> {
-        let path = parse_path(path, "text_insert")?;
-        let index = {
-            let text = text_at_path(
-                self.builder_ref("text_insert")?.current(),
-                &path,
-                "text_insert",
-            )?;
-            utf16_to_code_point(text, position, "text_insert")?
-        };
-        self.builder_mut()?
-            .text_insert(&path, index, value)
-            .map(|_| ())
-            .map_err(|error| build_error(error, "text_insert"))
-    }
-
-    #[wasm_bindgen(js_name = textDelete)]
-    pub fn text_delete(&mut self, path: &str, from: usize, to: usize) -> Result<(), JsValue> {
-        let path = parse_path(path, "text_delete")?;
-        let (from, to) = {
-            let text = text_at_path(
-                self.builder_ref("text_delete")?.current(),
-                &path,
-                "text_delete",
-            )?;
-            (
-                utf16_to_code_point(text, from, "text_delete")?,
-                utf16_to_code_point(text, to, "text_delete")?,
-            )
-        };
-        let len = to.checked_sub(from).ok_or_else(|| {
-            wasm_error_details(
-                "invalid_argument",
-                "text_delete",
-                json!({ "argument": "range", "reason": "from must not exceed to" }),
-            )
-        })?;
-        self.builder_mut()?
-            .text_delete(&path, from, len)
-            .map(|_| ())
-            .map_err(|error| build_error(error, "text_delete"))
-    }
-
-    #[wasm_bindgen(js_name = textReplace)]
-    pub fn text_replace(
-        &mut self,
-        path: &str,
-        from: usize,
-        to: usize,
-        value: &str,
-    ) -> Result<(), JsValue> {
-        let path = parse_path(path, "text_replace")?;
-        let (from, to) = {
-            let text = text_at_path(
-                self.builder_ref("text_replace")?.current(),
-                &path,
-                "text_replace",
-            )?;
-            (
-                utf16_to_code_point(text, from, "text_replace")?,
-                utf16_to_code_point(text, to, "text_replace")?,
-            )
-        };
-        let len = to.checked_sub(from).ok_or_else(|| {
-            wasm_error_details(
-                "invalid_argument",
-                "text_replace",
-                json!({ "argument": "range", "reason": "from must not exceed to" }),
-            )
-        })?;
-        self.builder_mut()?
-            .text_replace(&path, from, len, value)
-            .map(|_| ())
-            .map_err(|error| build_error(error, "text_replace"))
-    }
-
-    #[wasm_bindgen(js_name = richTextInsertText)]
-    pub fn rich_text_insert_text(
-        &mut self,
-        path: &str,
-        position: usize,
-        value: &str,
-        attrs: &str,
-    ) -> Result<(), JsValue> {
-        let path = parse_path(path, "rich_text_insert_text")?;
-        let index = {
-            let rich = rich_text_at_path(
-                self.builder_ref("rich_text_insert_text")?.current(),
-                &path,
-                "rich_text_insert_text",
-            )?;
-            rich_utf16_to_code_point(rich, position, "rich_text_insert_text")?
-        };
-        let attrs = parse_attrs(attrs, "rich_text_insert_text")?;
-        self.builder_mut()?
-            .rich_text_insert_text(&path, index, value, attrs)
-            .map(|_| ())
-            .map_err(|error| build_error(error, "rich_text_insert_text"))
-    }
-
-    #[wasm_bindgen(js_name = richTextInsertEmbed)]
-    pub fn rich_text_insert_embed(
-        &mut self,
-        path: &str,
-        position: usize,
-        value: &ValueHandle,
-        attrs: &str,
-    ) -> Result<(), JsValue> {
-        let path = parse_path(path, "rich_text_insert_embed")?;
-        let index = {
-            let rich = rich_text_at_path(
-                self.builder_ref("rich_text_insert_embed")?.current(),
-                &path,
-                "rich_text_insert_embed",
-            )?;
-            rich_utf16_to_code_point(rich, position, "rich_text_insert_embed")?
-        };
-        let attrs = parse_attrs(attrs, "rich_text_insert_embed")?;
-        self.builder_mut()?
-            .rich_text_insert_embed(&path, index, value.value.clone(), attrs)
-            .map(|_| ())
-            .map_err(|error| build_error(error, "rich_text_insert_embed"))
-    }
-
-    #[wasm_bindgen(js_name = richTextDelete)]
-    pub fn rich_text_delete(&mut self, path: &str, from: usize, to: usize) -> Result<(), JsValue> {
-        let path = parse_path(path, "rich_text_delete")?;
-        let (from, to) = {
-            let rich = rich_text_at_path(
-                self.builder_ref("rich_text_delete")?.current(),
-                &path,
-                "rich_text_delete",
-            )?;
-            (
-                rich_utf16_to_code_point(rich, from, "rich_text_delete")?,
-                rich_utf16_to_code_point(rich, to, "rich_text_delete")?,
-            )
-        };
-        let len = to.checked_sub(from).ok_or_else(|| {
-            wasm_error_details(
-                "invalid_argument",
-                "rich_text_delete",
-                json!({ "argument": "range", "reason": "from must not exceed to" }),
-            )
-        })?;
-        self.builder_mut()?
-            .rich_text_delete(&path, from, len)
-            .map(|_| ())
-            .map_err(|error| build_error(error, "rich_text_delete"))
-    }
-
-    #[wasm_bindgen(js_name = richTextFormat)]
-    pub fn rich_text_format(
-        &mut self,
-        path: &str,
-        from: usize,
-        to: usize,
-        patch: &str,
-    ) -> Result<(), JsValue> {
-        let path = parse_path(path, "rich_text_format")?;
-        let (from, to) = {
-            let rich = rich_text_at_path(
-                self.builder_ref("rich_text_format")?.current(),
-                &path,
-                "rich_text_format",
-            )?;
-            (
-                rich_utf16_to_code_point(rich, from, "rich_text_format")?,
-                rich_utf16_to_code_point(rich, to, "rich_text_format")?,
-            )
-        };
-        let len = to.checked_sub(from).ok_or_else(|| {
-            wasm_error_details(
-                "invalid_argument",
-                "rich_text_format",
-                json!({ "argument": "range", "reason": "from must not exceed to" }),
-            )
-        })?;
-        let patch = parse_attr_patch(patch, "rich_text_format")?;
-        self.builder_mut()?
-            .rich_text_format(&path, from, len, patch)
-            .map(|_| ())
-            .map_err(|error| build_error(error, "rich_text_format"))
-    }
-
-    #[wasm_bindgen(js_name = intAdd)]
-    pub fn int_add(&mut self, path: &str, delta: i64) -> Result<(), JsValue> {
-        let path = parse_path(path, "int_add")?;
-        self.builder_mut()?
-            .int_add(&path, delta)
-            .map(|_| ())
-            .map_err(|error| build_error(error, "int_add"))
-    }
-
-    #[wasm_bindgen(js_name = cloneForScope)]
-    pub fn clone_for_scope(&self) -> Result<Self, JsValue> {
-        let builder = self.builder.as_ref().ok_or_else(|| {
-            wasm_error("invalid_state", "builder_scope", "builder already consumed")
-        })?;
-        Ok(Self {
-            builder: Some(builder.clone()),
-        })
-    }
-
-    #[wasm_bindgen(js_name = commitScope)]
-    pub fn commit_scope(&mut self, scope: &mut BuilderHandle) -> Result<(), JsValue> {
-        self.builder_mut()?;
-        let next = scope
-            .builder
-            .take()
-            .ok_or_else(|| wasm_error("invalid_state", "builder_scope", "scope already closed"))?;
-        self.builder = Some(next);
-        Ok(())
-    }
-
-    pub fn build(&mut self) -> Result<ChangeHandle, JsValue> {
-        let builder = self.builder.take().ok_or_else(|| {
-            wasm_error("invalid_state", "builder_build", "builder already consumed")
-        })?;
-        Ok(ChangeHandle {
-            change: builder.build(),
-        })
-    }
-}
-
-impl BuilderHandle {
-    fn builder_ref(&self, operation: &'static str) -> Result<&ChangeBuilder, JsValue> {
-        self.builder
-            .as_ref()
-            .ok_or_else(|| wasm_error("invalid_state", operation, "builder already consumed"))
-    }
-
-    fn builder_mut(&mut self) -> Result<&mut ChangeBuilder, JsValue> {
-        self.builder.as_mut().ok_or_else(|| {
-            wasm_error(
-                "invalid_state",
-                "builder_replace",
-                "builder already consumed",
-            )
-        })
     }
 }
 
@@ -944,16 +605,34 @@ fn codec_error(error: CodecError, operation: &'static str) -> JsValue {
     }
 }
 
-fn build_error(error: BuildError, operation: &'static str) -> JsValue {
+fn change_input_error(error: ChangeInputError) -> JsValue {
     match error {
-        BuildError::Apply(error) => apply_error(error, operation),
-        BuildError::Compose(ComposeError::Apply(error)) => apply_error(error, operation),
-        BuildError::Compose(error) => wasm_error_details(
-            "incompatible_change",
-            operation,
-            json!({ "reason": error.to_string() }),
+        ChangeInputError::Encoding { offset, reason } => wasm_error_details(
+            "invalid_argument",
+            "change_from_js",
+            json!({ "reason": reason, "offset": offset }),
         ),
-        _ => wasm_error("invalid_argument", operation, error.to_string()),
+        ChangeInputError::Limit {
+            name,
+            actual,
+            maximum,
+        } => wasm_error_details(
+            "limit_exceeded",
+            "change_from_js",
+            json!({ "limit": name, "actual": actual, "maximum": maximum }),
+        ),
+        ChangeInputError::Value(ValueError::LengthOverflow) => wasm_error_details(
+            "invalid_argument",
+            "change_from_js",
+            json!({ "reason": "length_overflow" }),
+        ),
+        ChangeInputError::Value(error) => {
+            wasm_error("invalid_value", "change_from_js", error.to_string())
+        }
+        ChangeInputError::ValueCodec(CodecError::Value(error)) => {
+            wasm_error("invalid_value", "change_from_js", error.to_string())
+        }
+        ChangeInputError::ValueCodec(error) => codec_error(error, "change_from_js"),
     }
 }
 
@@ -969,6 +648,11 @@ fn compose_error(error: ComposeError, operation: &'static str) -> JsValue {
             "incompatible_change",
             operation,
             json!({ "reason": "map_entry_conflict", "key": key }),
+        ),
+        ComposeError::LengthOverflow => wasm_error_details(
+            "incompatible_change",
+            operation,
+            json!({ "reason": "length_overflow" }),
         ),
         _ => wasm_error("incompatible_change", operation, error.to_string()),
     }
@@ -998,6 +682,11 @@ fn transform_error(error: TransformError, operation: &'static str) -> JsValue {
 fn invert_error(error: InvertError, operation: &'static str) -> JsValue {
     match error {
         InvertError::Apply(error) => apply_error(error, operation),
+        InvertError::LengthOverflow => wasm_error_details(
+            "incompatible_change",
+            operation,
+            json!({ "reason": "length_overflow" }),
+        ),
         _ => wasm_error("incompatible_change", operation, error.to_string()),
     }
 }
@@ -1048,103 +737,6 @@ fn value_type_name(value_type: ValueType) -> &'static str {
     }
 }
 
-fn parse_attrs(value: &str, operation: &'static str) -> Result<Attrs, JsValue> {
-    let entries = parse_attr_entries(value, operation)?;
-    let mut attrs = Vec::with_capacity(entries.len());
-    for (key, _, value) in entries {
-        let value = value.ok_or_else(|| {
-            wasm_error("invalid_value", operation, "attribute entry cannot remove")
-        })?;
-        attrs.push((key, value));
-    }
-    Attrs::from_entries(attrs)
-        .map_err(|error| wasm_error("invalid_value", operation, error.to_string()))
-}
-
-fn parse_attr_patch(value: &str, operation: &'static str) -> Result<AttrPatch, JsValue> {
-    let entries = parse_attr_entries(value, operation)?;
-    AttrPatch::from_entries(entries.into_iter().map(|(key, action, value)| {
-        let change = if action == "remove" {
-            AttrChange::Remove
-        } else {
-            AttrChange::Set(value.expect("set entries have a value"))
-        };
-        (key, change)
-    }))
-    .map_err(|error| wasm_error("invalid_value", operation, error.to_string()))
-}
-
-fn parse_attr_entries(
-    value: &str,
-    operation: &'static str,
-) -> Result<Vec<(String, String, Option<AttrValue>)>, JsValue> {
-    let value: JsonValue = serde_json::from_str(value)
-        .map_err(|error| wasm_error("invalid_value", operation, error.to_string()))?;
-    let entries = value
-        .as_array()
-        .ok_or_else(|| wasm_error("invalid_value", operation, "attributes must be an array"))?;
-    let mut out = Vec::with_capacity(entries.len());
-    for entry in entries {
-        let key = entry
-            .get("key")
-            .and_then(JsonValue::as_str)
-            .ok_or_else(|| wasm_error("invalid_value", operation, "attribute key is missing"))?
-            .to_owned();
-        let action = entry
-            .get("action")
-            .and_then(JsonValue::as_str)
-            .unwrap_or("set")
-            .to_owned();
-        if action == "remove" {
-            out.push((key, action, None));
-            continue;
-        }
-        if action != "set" {
-            return Err(wasm_error(
-                "invalid_value",
-                operation,
-                "unknown attribute patch action",
-            ));
-        }
-        let kind = entry
-            .get("kind")
-            .and_then(JsonValue::as_str)
-            .ok_or_else(|| wasm_error("invalid_value", operation, "attribute kind is missing"))?;
-        let data = entry
-            .get("value")
-            .ok_or_else(|| wasm_error("invalid_value", operation, "attribute value is missing"))?;
-        let value =
-            match kind {
-                "bool" => AttrValue::Bool(data.as_bool().ok_or_else(|| {
-                    wasm_error("invalid_value", operation, "invalid Bool attribute")
-                })?),
-                "int" => AttrValue::Int(
-                    data.as_str()
-                        .and_then(|value| value.parse::<i64>().ok())
-                        .ok_or_else(|| {
-                            wasm_error("invalid_value", operation, "invalid Int attribute")
-                        })?,
-                ),
-                "float" => AttrValue::float(data.as_f64().ok_or_else(|| {
-                    wasm_error("invalid_value", operation, "invalid Float attribute")
-                })?)
-                .map_err(|error| wasm_error("invalid_value", operation, error.to_string()))?,
-                "string" => AttrValue::string(data.as_str().ok_or_else(|| {
-                    wasm_error("invalid_value", operation, "invalid String attribute")
-                })?),
-                _ => {
-                    return Err(wasm_error(
-                        "invalid_value",
-                        operation,
-                        "unknown attribute kind",
-                    ))
-                }
-            };
-        out.push((key, action, Some(value)));
-    }
-    Ok(out)
-}
-
 fn parse_limits(value: &str, operation: &'static str) -> Result<InputLimits, JsValue> {
     let value: JsonValue = serde_json::from_str(value)
         .map_err(|error| wasm_error("invalid_argument", operation, error.to_string()))?;
@@ -1167,18 +759,6 @@ fn parse_limits(value: &str, operation: &'static str) -> Result<InputLimits, JsV
         max_sequence_ops: field("maxSequenceOps")?,
         max_sequence_len: field("maxSequenceLength")?,
     })
-}
-
-fn trusted_limits() -> InputLimits {
-    InputLimits {
-        max_depth: usize::MAX,
-        max_value_nodes: usize::MAX,
-        max_change_nodes: usize::MAX,
-        max_container_len: usize::MAX,
-        max_string_bytes: usize::MAX,
-        max_sequence_ops: usize::MAX,
-        max_sequence_len: usize::MAX,
-    }
 }
 
 fn parse_path(value: &str, operation: &'static str) -> Result<Path, JsValue> {
@@ -1249,22 +829,6 @@ fn value_at_path<'a>(
     Ok(current)
 }
 
-fn text_at_path<'a>(
-    root: &'a Value,
-    path: &Path,
-    operation: &'static str,
-) -> Result<&'a str, JsValue> {
-    let value = value_at_path(root, path, operation)?;
-    match value.kind() {
-        ValueKind::Text(text) => Ok(text.as_str()),
-        actual => Err(wasm_error_details(
-            "type_mismatch",
-            operation,
-            json!({ "expected": "text", "actual": value_kind_name(actual) }),
-        )),
-    }
-}
-
 fn utf16_to_code_point(
     text: &str,
     position: usize,
@@ -1317,22 +881,6 @@ fn code_point_to_utf16(
             operation,
             json!({ "target": "text", "length": length, "index": position }),
         ))
-    }
-}
-
-fn rich_text_at_path<'a>(
-    root: &'a Value,
-    path: &Path,
-    operation: &'static str,
-) -> Result<&'a RichText, JsValue> {
-    let value = value_at_path(root, path, operation)?;
-    match value.kind() {
-        ValueKind::RichText(rich) => Ok(rich),
-        actual => Err(wasm_error_details(
-            "type_mismatch",
-            operation,
-            json!({ "expected": "richText", "actual": value_kind_name(actual) }),
-        )),
     }
 }
 

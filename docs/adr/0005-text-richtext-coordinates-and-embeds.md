@@ -1,3 +1,7 @@
+---
+status: superseded by ADR-0013
+---
+
 # JavaScript 文本坐标使用 UTF-16
 
 Rust core 与 wire 使用 Unicode scalar position，JavaScript Text/RichText API 使用

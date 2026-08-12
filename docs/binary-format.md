@@ -1,5 +1,10 @@
 # Colla 规范二进制 Body 格式
 
+状态：规范性。本文只定义 Value 与 Change 的 canonical body encoding 和严格解码要求。
+
+相关规范：[核心数据模型](data-model.md)定义合法结构，
+[OT 性质](ot-properties.md)定义代数语义。
+
 本文只定义 Value 与 Change 的规范 body。magic、版本、CRC、压缩、消息类型和
 业务元数据属于调用方信封，不在核心 codec 中。
 
@@ -60,11 +65,12 @@ AttrPatch 是 `(count + key + AttrChange)*`。AttrChange tag：00 Set(AttrValue)
 
 decoder 必须拒绝：非最短 varint、非法 UTF-8、未知 tag、尾随字节、乱序或重复
 key、零长度 Retain/Delete、空 Insert、相邻可合并 op、尾部纯 Retain、空类型化
-Change、Modify(Noop)、IntAdd(0)、非有限或负零 Float、非规范 RichText span，
-以及任何 InputLimits 超限。
+Change、Modify(Noop)、IntAdd(0)、非有限或负零 Float，以及任何 InputLimits 超限。
 
-Builder 可以接收可规范化的调用序列，但 encoder 的输入始终已经规范。decoder
-绝不静默修复远端非规范字节。
+RichText Snapshot 是唯一宽容例外：decoder 接受空 Text span 和属性相同的相邻 Text
+span，并在内存构造时删除或合并；重新编码产生规范 bytes。RichText Change 和其他
+Value/Change 编码仍严格拒绝非规范形式。构造 API 可以接收可规范化的操作流，但
+encoder 的输入始终已经规范。
 
 ## 6. API
 

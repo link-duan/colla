@@ -5,10 +5,10 @@ RichText 的规范模型和 wire 继续表示为 Text/Embed spans，但 Rust 公
 Apply/Invert 通过 span cursor 工作而不展开逐字符 atom。scalar 与 UTF-16 索引都是可从
 UTF-8 span 内容重建的派生缓存，不参与相等性、哈希、Canonical form 或 wire encoding。
 
-Rust OT 操作只接受 Unicode scalar 坐标。UTF-16 索引仅服务于 Rust/Wasm 边界的坐标
-投影：先用累计位置二分定位 span，再只扫描目标 Text span；Embed 在两套坐标中都占 1。
-这样保持既有规范字节、JavaScript API 和 OT 语义，同时避免把当前 `Vec` 或未来可能采用的
-rope/tree 固化成跨语言数据契约。
+Rust OT 操作和 JavaScript Change 构造都使用 Unicode scalar 坐标。UTF-16 索引仅服务于
+结合 Snapshot 的 JavaScript 坐标投影：先用累计位置二分定位 span，再只扫描目标 Text
+span；Embed 在两套坐标中都占 1。这样保持既有规范字节和 OT 语义，同时避免把当前
+`Vec` 或未来可能采用的 rope/tree 固化成跨语言数据契约。
 
 Rust 统一通过 fallible `RichText::from_spans` 构造值：入口删除空 Text、合并属性
 兼容的相邻 Text spans，再以 checked arithmetic 构建累计索引。内部不提供跳过

@@ -16,6 +16,23 @@ use crate::op::reader::{
 /// transformed execution paths are applicable:
 /// `apply(apply(base, left), right_prime) ==
 /// apply(apply(base, right), left_prime)`.
+///
+/// # Examples
+///
+/// ```
+/// use colla::{apply, transform_pair, Change, TextChange, TextOp, TieBreak, Value};
+///
+/// let base = Value::text("a");
+/// let left: Change = TextChange::from_ops([TextOp::Insert("L".into())])?.into();
+/// let right: Change = TextChange::from_ops([TextOp::Insert("R".into())])?.into();
+/// let (left_prime, right_prime) =
+///     transform_pair(&left, &right, TieBreak::LeftFirst)?;
+/// assert_eq!(
+///     apply(&apply(&base, &left)?, &right_prime)?,
+///     apply(&apply(&base, &right)?, &left_prime)?,
+/// );
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 pub fn transform_pair(
     left: &Change,
     right: &Change,
@@ -42,12 +59,12 @@ fn transform_change(
         (ChangeKind::Map(a), ChangeKind::Map(b)) => transform_map(a, b, tie),
         (ChangeKind::List(a), ChangeKind::List(b)) => transform_list(a, b, tie),
         (ChangeKind::Text(a), ChangeKind::Text(b)) => {
-            let (a, b) = transform_text(a, b, tie);
-            Ok((Change::text(a), Change::text(b)))
+            let (a, b) = transform_text(a, b, tie)?;
+            Ok((a.into(), b.into()))
         }
         (ChangeKind::RichText(a), ChangeKind::RichText(b)) => {
             let (a, b) = transform_rich(a, b, tie)?;
-            Ok((Change::rich_text(a), Change::rich_text(b)))
+            Ok((a.into(), b.into()))
         }
         _ => Err(TransformError::IncompatibleKinds {
             left: left.kind_name(),
@@ -120,8 +137,8 @@ fn transform_map(
         }
     }
     Ok((
-        Change::map(MapChange::from_btree(a_out)),
-        Change::map(MapChange::from_btree(b_out)),
+        MapChange::from_btree(a_out).into(),
+        MapChange::from_btree(b_out).into(),
     ))
 }
 
@@ -129,7 +146,7 @@ fn transform_text(
     left: &TextChange,
     right: &TextChange,
     tie: TieBreak,
-) -> (TextChange, TextChange) {
+) -> Result<(TextChange, TextChange), TransformError> {
     let mut a = TextOpReader::new(left.ops());
     let mut b = TextOpReader::new(right.ops());
     let mut ao = Vec::new();
@@ -198,7 +215,9 @@ fn transform_text(
             _ => unreachable!(),
         }
     }
-    (TextChange::new(ao), TextChange::new(bo))
+    let left = TextChange::from_ops(ao).map_err(|_| TransformError::LengthOverflow)?;
+    let right = TextChange::from_ops(bo).map_err(|_| TransformError::LengthOverflow)?;
+    Ok((left, right))
 }
 
 fn transform_list(
@@ -321,10 +340,9 @@ fn transform_list(
             _ => unreachable!(),
         }
     }
-    Ok((
-        Change::list(ListChange::new(ao)),
-        Change::list(ListChange::new(bo)),
-    ))
+    let left = ListChange::from_ops(ao).map_err(|_| TransformError::LengthOverflow)?;
+    let right = ListChange::from_ops(bo).map_err(|_| TransformError::LengthOverflow)?;
+    Ok((left.into(), right.into()))
 }
 
 fn transform_rich(
@@ -430,8 +448,8 @@ fn transform_rich(
             _ => unreachable!(),
         }
     }
-    let left = RichTextChange::try_new(ao).map_err(|_| TransformError::LengthOverflow)?;
-    let right = RichTextChange::try_new(bo).map_err(|_| TransformError::LengthOverflow)?;
+    let left = RichTextChange::from_ops(ao).map_err(|_| TransformError::LengthOverflow)?;
+    let right = RichTextChange::from_ops(bo).map_err(|_| TransformError::LengthOverflow)?;
     Ok((left, right))
 }
 

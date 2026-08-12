@@ -19,6 +19,7 @@ if (process.argv[2] === "--init") {
 execFileSync("pnpm", ["build"], { cwd: packageDir, stdio: "inherit" })
 
 const {
+  Change,
   Value,
   apply,
   compose,
@@ -55,10 +56,13 @@ const input = {
   items: ["a", "b", "c"],
 }
 const base = Value.fromJS(input)
-const first = base.change().int(["count"], value => value.add(1n)).build()
+const first = Change.build(change => change.map(map =>
+  map.modify("count", value => value.intAdd(1n))))
 const afterFirst = apply(base, first)
-const second = afterFirst.change().int(["count"], value => value.add(2n)).build()
-const concurrent = base.change().int(["count"], value => value.add(3n)).build()
+const second = Change.build(change => change.map(map =>
+  map.modify("count", value => value.intAdd(2n))))
+const concurrent = Change.build(change => change.map(map =>
+  map.modify("count", value => value.intAdd(3n))))
 
 const timings = {
   valueFromJS: benchmark(200, () => {
@@ -67,7 +71,9 @@ const timings = {
     value.dispose()
   }),
   builder: benchmark(200, () => {
-    const change = base.change().map(["meta"], map => map.set("status", "ready")).build()
+    const change = Change.build(change => change.map(map =>
+      map.modify("meta", meta => meta.map(value =>
+        value.modify("status", status => status.replace("ready"))))))
     change.dispose()
   }),
   apply: benchmark(500, () => {

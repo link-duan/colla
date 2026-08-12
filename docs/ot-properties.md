@@ -1,5 +1,10 @@
 # Colla OT 性质
 
+状态：规范性。本文定义 Colla OT 代数必须满足的性质、冲突语义和明确不提供的保证。
+
+相关规范：[核心数据模型](data-model.md)定义操作结构，
+[二进制 Body 格式](binary-format.md)定义规范编码。
+
 ## 1. 记号
 
 `apply(v, a)` 表示把 Change a 应用于 Value v。所有等式都以参与操作在对应

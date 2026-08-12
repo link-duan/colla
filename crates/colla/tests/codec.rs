@@ -16,13 +16,12 @@ fn value_and_change_roundtrip() {
     assert_eq!(Value::decode(&bytes).unwrap(), value);
     assert_eq!(codec::decode_value(&bytes, &limits).unwrap(), value);
 
-    let change = Change::map(
+    let change = Change::from(
         MapChange::from_entries([(
             "t",
-            MapEntryChange::Modify(Change::text(TextChange::new(vec![
-                TextOp::Retain(8),
-                TextOp::Insert("!".into()),
-            ]))),
+            MapEntryChange::Modify(Change::from(
+                TextChange::from_ops(vec![TextOp::Retain(8), TextOp::Insert("!".into())]).unwrap(),
+            )),
         )])
         .unwrap(),
     );
@@ -78,7 +77,7 @@ fn decoder_rejects_negative_zero() {
 
 #[test]
 fn input_limits_reject_large_logical_changes_only_when_decoding() {
-    let change = Change::text(TextChange::new(vec![TextOp::Delete(9)]));
+    let change = Change::from(TextChange::from_ops(vec![TextOp::Delete(9)]).unwrap());
     let limits = InputLimits {
         max_sequence_len: 8,
         ..InputLimits::default()
