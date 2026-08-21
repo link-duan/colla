@@ -314,8 +314,9 @@ impl TransformError {
     /// The stable classification of this error.
     pub fn code(&self) -> ErrorCode {
         match self {
-            TransformError::IncompatibleKinds { .. }
-            | TransformError::IncompatibleMapEntry(_) => ErrorCode::IncompatibleChange,
+            TransformError::IncompatibleKinds { .. } | TransformError::IncompatibleMapEntry(_) => {
+                ErrorCode::IncompatibleChange
+            }
             TransformError::LengthOverflow => ErrorCode::LimitExceeded,
         }
     }

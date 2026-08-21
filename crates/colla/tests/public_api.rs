@@ -75,7 +75,10 @@ fn error_code_classification_is_stable_across_error_kinds() {
         ComposeError::IncompatibleMapEntry("k".into()).code(),
         ErrorCode::IncompatibleChange
     );
-    assert_eq!(ComposeError::LengthOverflow.code(), ErrorCode::LimitExceeded);
+    assert_eq!(
+        ComposeError::LengthOverflow.code(),
+        ErrorCode::LimitExceeded
+    );
     assert_eq!(
         ComposeError::Apply(ApplyError::IntegerOverflow { path: p() }).code(),
         ErrorCode::IntegerOverflow
@@ -93,7 +96,10 @@ fn error_code_classification_is_stable_across_error_kinds() {
         TransformError::IncompatibleMapEntry("k".into()).code(),
         ErrorCode::IncompatibleChange
     );
-    assert_eq!(TransformError::LengthOverflow.code(), ErrorCode::LimitExceeded);
+    assert_eq!(
+        TransformError::LengthOverflow.code(),
+        ErrorCode::LimitExceeded
+    );
 
     assert_eq!(
         InvertError::Apply(ApplyError::MissingKey {
