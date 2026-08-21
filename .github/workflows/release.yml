@@ -29,14 +29,14 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{ env.RELEASE_TAG }}
           fetch-depth: 0
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           version: 10.34.5
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 24
           cache: pnpm
@@ -98,7 +98,7 @@ jobs:
     needs: preflight
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{ env.RELEASE_TAG }}
           fetch-depth: 0
@@ -126,7 +126,7 @@ jobs:
     runs-on: ubuntu-latest
     environment: release
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{ env.RELEASE_TAG }}
           fetch-depth: 0
@@ -134,7 +134,7 @@ jobs:
         with:
           name: release-candidate-${{ needs.preflight.outputs.version }}
           path: artifacts
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
@@ -178,15 +178,15 @@ jobs:
             node_resolve: latest
     name: Verify public (Node ${{ matrix.node }}, ${{ matrix.bundlers.name }})
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           # Recovery runs keep the immutable release tag but may use a fixed
           # verifier from the default branch.
           ref: ${{ github.event_name == 'workflow_dispatch' && github.event.repository.default_branch || env.RELEASE_TAG }}
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           version: 10.34.5
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: ${{ matrix.node }}
       - uses: dtolnay/rust-toolchain@stable
