@@ -334,23 +334,6 @@ function sameAttrs(left: readonly AttrEntry[], right: readonly AttrEntry[]): boo
   return JSON.stringify(left) === JSON.stringify(right)
 }
 
-function writeAttrs(writer: ByteWriter, entries: readonly AttrEntry[]): void {
-  writer.varint(BigInt(entries.length))
-  for (const entry of entries) {
-    writer.string(entry.key)
-    writeAttrValue(writer, entry)
-  }
-}
-
-function writeAttrValue(writer: ByteWriter, entry: AttrEntry): void {
-  switch (entry.kind) {
-    case "bool": writer.byte(entry.value ? 1 : 0); break
-    case "int": writer.byte(2); writer.int64(BigInt(entry.value)); break
-    case "float": writer.byte(3); writer.float64(entry.value as number); break
-    case "string": writer.byte(4); writer.string(entry.value as string); break
-  }
-}
-
 type NormalizedRichSpan =
   | { type: "text"; text: string; attrs: AttrEntry[] }
   | { type: "embed"; value: ValueInput; attrs: AttrEntry[] }
@@ -495,43 +478,6 @@ function limitExceeded(limit: string, actual: number, maximum: number, operation
   throw new CollaError("limit_exceeded", operation, { limit, actual, maximum })
 }
 
-class ByteWriter {
-  readonly bytes: number[] = []
-
-  byte(value: number): void {
-    this.bytes.push(value)
-  }
-
-  varint(value: bigint): void {
-    while (value >= 0x80n) {
-      this.bytes.push(Number(value & 0x7fn) | 0x80)
-      value >>= 7n
-    }
-    this.bytes.push(Number(value))
-  }
-
-  int64(value: bigint): void {
-    this.varint(BigInt.asUintN(64, (value << 1n) ^ (value >> 63n)))
-  }
-
-  float64(value: number): void {
-    const bytes = new Uint8Array(8)
-    new DataView(bytes.buffer).setFloat64(0, Object.is(value, -0) ? 0 : value, true)
-    this.bytes.push(...bytes)
-  }
-
-  string(value: string): void {
-    const bytes = utf8.encode(value)
-    this.varint(BigInt(bytes.length))
-    this.bytes.push(...bytes)
-  }
-
-  blob(value: Uint8Array): void {
-    this.varint(BigInt(value.length))
-    this.bytes.push(...value)
-  }
-}
-
 function compareUtf8(left: string, right: string): number {
   const a = utf8.encode(left)
   const b = utf8.encode(right)
@@ -542,62 +488,45 @@ function compareUtf8(left: string, right: string): number {
   return a.length - b.length
 }
 
-function encodeValueInput(
-  input: ValueInput,
-  operation: string,
-  limits?: InputLimits,
-): Uint8Array {
-  const writer = new ByteWriter()
+function validateValueInput(input: ValueInput, operation: string): void {
   const active = new WeakSet<object>()
-  let nodes = 0
 
-  const check = (name: string, actual: number, maximum: number | undefined): void => {
-    if (maximum !== undefined && actual > maximum) limitExceeded(name, actual, maximum, operation)
-  }
-
-  const encode = (value: ValueInput, depth: number): void => {
-    nodes += 1
-    check("value nodes", nodes, limits?.maxValueNodes)
-    check("value depth", depth, limits?.maxDepth)
-
-    if (value === null) {
-      writer.byte(0)
-    } else if (typeof value === "boolean") {
-      writer.byte(value ? 2 : 1)
-    } else if (typeof value === "bigint") {
+  const visit = (value: ValueInput): void => {
+    if (value === null || typeof value === "boolean") {
+      return
+    }
+    if (typeof value === "bigint") {
       if (value < I64_MIN || value > I64_MAX) {
         throw new CollaError("invalid_value", operation, {
           reason: "integer is outside the signed 64-bit range",
         })
       }
-      writer.byte(3)
-      writer.int64(value)
-    } else if (typeof value === "number") {
+      return
+    }
+    if (typeof value === "number") {
       if (!Number.isFinite(value)) {
         throw new CollaError("invalid_value", operation, { reason: "number must be finite" })
       }
-      writer.byte(4)
-      writer.float64(value)
-    } else if (typeof value === "string") {
+      return
+    }
+    if (typeof value === "string") {
       assertWellFormedString(value, operation)
-      check("string bytes", utf8.encode(value).length, limits?.maxStringBytes)
-      writer.byte(5)
-      writer.string(value)
-    } else if (Array.isArray(value)) {
+      return
+    }
+    if (Array.isArray(value)) {
       if (active.has(value)) {
         throw new CollaError("invalid_value", operation, { reason: "cyclic ValueInput" })
       }
-      check("container length", value.length, limits?.maxContainerLength)
       const values = ownArrayDataValues(value, operation)
       active.add(value)
       try {
-        writer.byte(8)
-        writer.varint(BigInt(value.length))
-        for (const child of values) encode(child as ValueInput, depth + 1)
+        for (const child of values) visit(child as ValueInput)
       } finally {
         active.delete(value)
       }
-    } else if (isRecord(value)) {
+      return
+    }
+    if (isRecord(value)) {
       const entries = [...ownDataEntries(value, operation)]
       const marker = entries.find(([key]) => key === "type")
       if (marker?.[1] === "text") {
@@ -609,9 +538,6 @@ function encodeValueInput(
           throw new CollaError("invalid_value", operation, { reason: "TextInput value must be a string" })
         }
         assertWellFormedString(textValue, operation)
-        check("text bytes", utf8.encode(textValue).length, limits?.maxStringBytes)
-        writer.byte(6)
-        writer.string(textValue)
         return
       }
       if (marker?.[1] === "richText") {
@@ -621,24 +547,14 @@ function encodeValueInput(
         if (active.has(value)) {
           throw new CollaError("invalid_value", operation, { reason: "cyclic ValueInput" })
         }
-        const spans = normalizedRichSpans(
-          entries.find(([key]) => key === "spans")?.[1] as readonly RichTextSpanInput[],
-          operation,
-          limits,
-        )
         active.add(value)
         try {
-          writer.byte(7)
-          writer.varint(BigInt(spans.length))
+          const spans = normalizedRichSpans(
+            entries.find(([key]) => key === "spans")?.[1] as readonly RichTextSpanInput[],
+            operation,
+          )
           for (const span of spans) {
-            if (span.type === "text") {
-              writer.byte(0)
-              writer.string(span.text)
-            } else {
-              writer.byte(1)
-              encode(span.value, depth + 1)
-            }
-            writeAttrs(writer, span.attrs)
+            if (span.type === "embed") visit(span.value)
           }
         } finally {
           active.delete(value)
@@ -648,30 +564,19 @@ function encodeValueInput(
       if (active.has(value)) {
         throw new CollaError("invalid_value", operation, { reason: "cyclic ValueInput" })
       }
-      entries.sort(([left], [right]) => compareUtf8(left, right))
-      check("container length", entries.length, limits?.maxContainerLength)
-      for (const [key] of entries) {
-        assertWellFormedString(key, operation)
-        check("string bytes", utf8.encode(key).length, limits?.maxStringBytes)
-      }
+      for (const [key] of entries) assertWellFormedString(key, operation)
       active.add(value)
       try {
-        writer.byte(9)
-        writer.varint(BigInt(entries.length))
-        for (const [key, child] of entries) {
-          writer.string(key)
-          encode(child as ValueInput, depth + 1)
-        }
+        for (const [, child] of entries) visit(child as ValueInput)
       } finally {
         active.delete(value)
       }
-    } else {
-      throw new CollaError("invalid_value", operation, { reason: "unsupported ValueInput" })
+      return
     }
+    throw new CollaError("invalid_value", operation, { reason: "unsupported ValueInput" })
   }
 
-  encode(input, 1)
-  return Uint8Array.from(writer.bytes)
+  visit(input)
 }
 
 function changeInputFields(
@@ -704,54 +609,29 @@ function changeInputLength(value: unknown, operation: string, context: string): 
   return value
 }
 
-function writeChangeAttrPatch(
-  writer: ByteWriter,
-  input: unknown,
-  operation: string,
-): void {
-  if (input === undefined) {
-    writer.varint(0n)
-    return
-  }
+function validateChangeAttrPatch(input: unknown, operation: string): void {
+  if (input === undefined) return
   if (!isRecord(input)) throw invalidArgument(operation, "patch", "expected a plain record")
-  const changes = ownDataEntries(input, operation).map(([key, value]) => {
+  for (const [key, value] of ownDataEntries(input, operation)) {
     assertWellFormedString(key, operation)
     const fields = changeInputFields(value, ["type", "value"], ["type"], operation, `patch.${key}`)
     const type = fields.get("type")
     if (type === "remove") {
       if (fields.has("value")) throw invalidArgument(operation, `patch.${key}`, "remove must not include value")
-      return { key, type: "remove" as const }
-    }
-    if (type !== "set" || !fields.has("value")) {
-      throw invalidArgument(operation, `patch.${key}`, "expected set with value or remove")
-    }
-    const record = Object.create(null) as Record<string, AttrValueData>
-    record[key] = fields.get("value") as AttrValueData
-    const entry = attrEntries(record, operation)[0]
-    return { key, type: "set" as const, entry }
-  }).sort((left, right) => compareUtf8(left.key, right.key))
-
-  writer.varint(BigInt(changes.length))
-  for (const change of changes) {
-    writer.string(change.key)
-    if (change.type === "remove") {
-      writer.byte(1)
+    } else if (type === "set" && fields.has("value")) {
+      const record = Object.create(null) as Record<string, AttrValueData>
+      record[key] = fields.get("value") as AttrValueData
+      attrEntries(record, operation)
     } else {
-      writer.byte(0)
-      writeAttrValue(writer, change.entry)
+      throw invalidArgument(operation, `patch.${key}`, "expected set with value or remove")
     }
   }
 }
 
-function encodeChangeInput(input: ChangeInput, operation: string): Uint8Array {
-  const writer = new ByteWriter()
+function validateChangeInput(input: ChangeInput, operation: string): void {
   const active = new WeakSet<object>()
 
-  const encodeValue = (value: ValueInput): void => {
-    writer.blob(encodeValueInput(value, operation))
-  }
-
-  const encode = (value: unknown, context: string): void => {
+  const visit = (value: unknown, context: string): void => {
     const fields = changeInputFields(
       value,
       ["type", "value", "entries", "ops", "delta"],
@@ -766,15 +646,13 @@ function encodeChangeInput(input: ChangeInput, operation: string): Uint8Array {
       switch (fields.get("type")) {
         case "noop": {
           if (fields.size !== 1) throw invalidArgument(operation, context, "noop has unknown fields")
-          writer.byte(0)
           break
         }
         case "replace": {
           if (fields.size !== 2 || !fields.has("value")) {
             throw invalidArgument(operation, context, "replace requires value")
           }
-          writer.byte(1)
-          encodeValue(fields.get("value") as ValueInput)
+          validateValueInput(fields.get("value") as ValueInput, operation)
           break
         }
         case "map": {
@@ -782,8 +660,6 @@ function encodeChangeInput(input: ChangeInput, operation: string): Uint8Array {
             throw invalidArgument(operation, context, "map requires entries")
           }
           const entries = changeInputArray(fields.get("entries"), operation, `${context}.entries`)
-          writer.byte(2)
-          writer.varint(BigInt(entries.length))
           entries.forEach((entry, index) => {
             const entryContext = `${context}.entries[${index}]`
             const item = changeInputFields(
@@ -796,15 +672,12 @@ function encodeChangeInput(input: ChangeInput, operation: string): Uint8Array {
             const key = item.get("key")
             if (typeof key !== "string") throw invalidArgument(operation, `${entryContext}.key`, "expected a string")
             assertWellFormedString(key, operation)
-            writer.string(key)
             if (item.get("type") === "insert" && item.size === 3 && item.has("value")) {
-              writer.byte(0)
-              encodeValue(item.get("value") as ValueInput)
+              validateValueInput(item.get("value") as ValueInput, operation)
             } else if (item.get("type") === "delete" && item.size === 2) {
-              writer.byte(1)
+              // structurally valid
             } else if (item.get("type") === "modify" && item.size === 3 && item.has("change")) {
-              writer.byte(2)
-              encode(item.get("change"), `${entryContext}.change`)
+              visit(item.get("change"), `${entryContext}.change`)
             } else {
               throw invalidArgument(operation, entryContext, "invalid map entry")
             }
@@ -816,8 +689,6 @@ function encodeChangeInput(input: ChangeInput, operation: string): Uint8Array {
             throw invalidArgument(operation, context, "list requires ops")
           }
           const ops = changeInputArray(fields.get("ops"), operation, `${context}.ops`)
-          writer.byte(3)
-          writer.varint(BigInt(ops.length))
           ops.forEach((op, index) => {
             const opContext = `${context}.ops[${index}]`
             const item = changeInputFields(
@@ -828,19 +699,14 @@ function encodeChangeInput(input: ChangeInput, operation: string): Uint8Array {
               opContext,
             )
             if (item.get("type") === "retain" && item.size === 2 && item.has("length")) {
-              writer.byte(0)
-              writer.varint(BigInt(changeInputLength(item.get("length"), operation, `${opContext}.length`)))
+              changeInputLength(item.get("length"), operation, `${opContext}.length`)
             } else if (item.get("type") === "insert" && item.size === 2 && item.has("values")) {
               const values = changeInputArray(item.get("values"), operation, `${opContext}.values`)
-              writer.byte(1)
-              writer.varint(BigInt(values.length))
-              values.forEach(value => encodeValue(value as ValueInput))
+              values.forEach(value => validateValueInput(value as ValueInput, operation))
             } else if (item.get("type") === "delete" && item.size === 2 && item.has("length")) {
-              writer.byte(2)
-              writer.varint(BigInt(changeInputLength(item.get("length"), operation, `${opContext}.length`)))
+              changeInputLength(item.get("length"), operation, `${opContext}.length`)
             } else if (item.get("type") === "modify" && item.size === 2 && item.has("change")) {
-              writer.byte(3)
-              encode(item.get("change"), `${opContext}.change`)
+              visit(item.get("change"), `${opContext}.change`)
             } else {
               throw invalidArgument(operation, opContext, "invalid list operation")
             }
@@ -852,23 +718,17 @@ function encodeChangeInput(input: ChangeInput, operation: string): Uint8Array {
             throw invalidArgument(operation, context, "text requires ops")
           }
           const ops = changeInputArray(fields.get("ops"), operation, `${context}.ops`)
-          writer.byte(4)
-          writer.varint(BigInt(ops.length))
           ops.forEach((op, index) => {
             const opContext = `${context}.ops[${index}]`
             const item = changeInputFields(op, ["type", "length", "text"], ["type"], operation, opContext)
             if (item.get("type") === "retain" && item.size === 2 && item.has("length")) {
-              writer.byte(0)
-              writer.varint(BigInt(changeInputLength(item.get("length"), operation, `${opContext}.length`)))
+              changeInputLength(item.get("length"), operation, `${opContext}.length`)
             } else if (item.get("type") === "insert" && item.size === 2 && item.has("text")) {
               const text = item.get("text")
               if (typeof text !== "string") throw invalidArgument(operation, `${opContext}.text`, "expected a string")
               assertWellFormedString(text, operation)
-              writer.byte(1)
-              writer.string(text)
             } else if (item.get("type") === "delete" && item.size === 2 && item.has("length")) {
-              writer.byte(2)
-              writer.varint(BigInt(changeInputLength(item.get("length"), operation, `${opContext}.length`)))
+              changeInputLength(item.get("length"), operation, `${opContext}.length`)
             } else {
               throw invalidArgument(operation, opContext, "invalid text operation")
             }
@@ -880,8 +740,6 @@ function encodeChangeInput(input: ChangeInput, operation: string): Uint8Array {
             throw invalidArgument(operation, context, "richText requires ops")
           }
           const ops = changeInputArray(fields.get("ops"), operation, `${context}.ops`)
-          writer.byte(5)
-          writer.varint(BigInt(ops.length))
           ops.forEach((op, index) => {
             const opContext = `${context}.ops[${index}]`
             const item = changeInputFields(
@@ -897,9 +755,8 @@ function encodeChangeInput(input: ChangeInput, operation: string): Uint8Array {
               !item.has("content") &&
               item.size <= 3
             ) {
-              writer.byte(0)
-              writer.varint(BigInt(changeInputLength(item.get("length"), operation, `${opContext}.length`)))
-              writeChangeAttrPatch(writer, item.get("patch"), operation)
+              changeInputLength(item.get("length"), operation, `${opContext}.length`)
+              validateChangeAttrPatch(item.get("patch"), operation)
             } else if (item.get("type") === "insert" && item.size === 2 && item.has("content")) {
               const contentContext = `${opContext}.content`
               const content = changeInputFields(
@@ -909,7 +766,6 @@ function encodeChangeInput(input: ChangeInput, operation: string): Uint8Array {
                 operation,
                 contentContext,
               )
-              writer.byte(1)
               if (
                 content.get("type") === "text" &&
                 content.has("text") &&
@@ -919,23 +775,19 @@ function encodeChangeInput(input: ChangeInput, operation: string): Uint8Array {
                 const text = content.get("text")
                 if (typeof text !== "string") throw invalidArgument(operation, `${contentContext}.text`, "expected a string")
                 assertWellFormedString(text, operation)
-                writer.byte(0)
-                writer.string(text)
               } else if (
                 content.get("type") === "embed" &&
                 content.has("value") &&
                 !content.has("text") &&
                 content.size <= 3
               ) {
-                writer.byte(1)
-                encodeValue(content.get("value") as ValueInput)
+                validateValueInput(content.get("value") as ValueInput, operation)
               } else {
                 throw invalidArgument(operation, contentContext, "invalid RichText content")
               }
-              writeAttrs(writer, attrEntries(content.get("attrs") as AttrsData | undefined, operation))
+              attrEntries(content.get("attrs") as AttrsData | undefined, operation)
             } else if (item.get("type") === "delete" && item.size === 2 && item.has("length")) {
-              writer.byte(2)
-              writer.varint(BigInt(changeInputLength(item.get("length"), operation, `${opContext}.length`)))
+              changeInputLength(item.get("length"), operation, `${opContext}.length`)
             } else {
               throw invalidArgument(operation, opContext, "invalid richText operation")
             }
@@ -950,8 +802,6 @@ function encodeChangeInput(input: ChangeInput, operation: string): Uint8Array {
           if (typeof delta !== "bigint" || delta < I64_MIN || delta > I64_MAX) {
             throw invalidArgument(operation, `${context}.delta`, "expected a signed 64-bit bigint")
           }
-          writer.byte(6)
-          writer.int64(delta)
           break
         }
         default:
@@ -962,151 +812,20 @@ function encodeChangeInput(input: ChangeInput, operation: string): Uint8Array {
     }
   }
 
-  encode(input, "change")
-  return Uint8Array.from(writer.bytes)
+  visit(input, "change")
 }
 
-class ByteReader {
-  #offset = 0
+const INTERNAL_LIMITS_JSON = JSON.stringify(
+  Object.fromEntries(inputLimitNames.map(name => [name, Number.MAX_SAFE_INTEGER])),
+)
 
-  constructor(private readonly bytes: Uint8Array, private readonly operation: string) {}
-
-  byte(): number {
-    const value = this.bytes[this.#offset]
-    if (value === undefined) this.fail("unexpected end of encoded Value")
-    this.#offset += 1
-    return value
+function valueDataFromBytes(bytes: Uint8Array): ValueData {
+  const handle = ValueHandle.decode(bytes, INTERNAL_LIMITS_JSON)
+  try {
+    return handle.toJs() as ValueData
+  } finally {
+    handle.free()
   }
-
-  exact(length: number): Uint8Array {
-    const end = this.#offset + length
-    if (!Number.isSafeInteger(end) || end > this.bytes.length) this.fail("unexpected end of encoded Value")
-    const value = this.bytes.slice(this.#offset, end)
-    this.#offset = end
-    return value
-  }
-
-  varint(): bigint {
-    let value = 0n
-    for (let index = 0; index < 10; index += 1) {
-      const byte = this.byte()
-      value |= BigInt(byte & 0x7f) << BigInt(index * 7)
-      if ((byte & 0x80) === 0) return value
-    }
-    return this.fail("integer is out of range")
-  }
-
-  length(): number {
-    const value = this.varint()
-    if (value > BigInt(Number.MAX_SAFE_INTEGER)) this.fail("length is out of range")
-    return Number(value)
-  }
-
-  string(): string {
-    try {
-      return new TextDecoder("utf-8", { fatal: true }).decode(this.exact(this.length()))
-    } catch (error) {
-      if (error instanceof CollaError) throw error
-      return this.fail("invalid UTF-8")
-    }
-  }
-
-  finish(): void {
-    if (this.#offset !== this.bytes.length) this.fail("trailing encoded Value bytes")
-  }
-
-  fail(reason: string): never {
-    throw new CollaError("invalid_encoding", this.operation, { reason, offset: this.#offset })
-  }
-}
-
-function readAttrs(reader: ByteReader): AttrsData | undefined {
-  const result = Object.create(null) as Record<string, AttrValueData>
-  const length = reader.length()
-  for (let index = 0; index < length; index += 1) {
-    const key = reader.string()
-    switch (reader.byte()) {
-      case 0: result[key] = false; break
-      case 1: result[key] = true; break
-      case 2: {
-        const value = reader.varint()
-        result[key] = (value >> 1n) ^ -(value & 1n)
-        break
-      }
-      case 3: {
-        const bytes = reader.exact(8)
-        result[key] = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getFloat64(0, true)
-        break
-      }
-      case 4: result[key] = reader.string(); break
-      default: return reader.fail("unsupported attribute value kind")
-    }
-  }
-  return length === 0 ? undefined : Object.freeze(result)
-}
-
-function decodeValueData(bytes: Uint8Array, operation: string): ValueData {
-  const reader = new ByteReader(bytes, operation)
-  const decode = (): ValueData => {
-    switch (reader.byte()) {
-      case 0: return null
-      case 1: return false
-      case 2: return true
-      case 3: {
-        const value = reader.varint()
-        return (value >> 1n) ^ -(value & 1n)
-      }
-      case 4: {
-        const bytes = reader.exact(8)
-        return new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getFloat64(0, true)
-      }
-      case 5: return reader.string()
-      case 6: return Object.freeze({ type: "text" as const, value: reader.string() })
-      case 7: {
-        const spans: RichTextSpanData[] = []
-        const length = reader.length()
-        for (let index = 0; index < length; index += 1) {
-          const kind = reader.byte()
-          if (kind === 0) {
-            const text = reader.string()
-            const attrs = readAttrs(reader)
-            spans.push(Object.freeze({
-              type: "text",
-              text,
-              ...(attrs === undefined ? {} : { attrs }),
-            }))
-          } else if (kind === 1) {
-            const value = decode()
-            const attrs = readAttrs(reader)
-            spans.push(Object.freeze({
-              type: "embed",
-              value,
-              ...(attrs === undefined ? {} : { attrs }),
-            }))
-          } else {
-            reader.fail("unsupported RichText content kind")
-          }
-        }
-        return Object.freeze({ type: "richText", spans: Object.freeze(spans) })
-      }
-      case 8: {
-        const values: ValueData[] = []
-        const length = reader.length()
-        for (let index = 0; index < length; index += 1) values.push(decode())
-        return Object.freeze(values)
-      }
-      case 9: {
-        const result = Object.create(null) as Record<string, ValueData>
-        const length = reader.length()
-        for (let index = 0; index < length; index += 1) result[reader.string()] = decode()
-        return Object.freeze(result)
-      }
-      default: return reader.fail("unsupported encoded Value kind")
-    }
-  }
-  const value = decode()
-  reader.finish()
-  return value
 }
 
 function pathJson(path: Path, operation: string): string {
@@ -1130,8 +849,8 @@ export class Value {
   static fromJS(input: ValueInput, options?: InputOptions): Value {
     try {
       const limits = normalizeInputLimits(options, "value_from_js")
-      const bytes = encodeValueInput(input, "value_from_js", limits)
-      return new Value(ValueHandle.decode(bytes, JSON.stringify(limits)))
+      validateValueInput(input, "value_from_js")
+      return new Value(ValueHandle.fromJs(input, JSON.stringify(limits)))
     } catch (error) {
       throw fromWasmError(error, "value_from_js")
     }
@@ -1168,14 +887,14 @@ export class Value {
   get(path: Path): ValueData {
     try {
       const bytes = this.#get("value_get").getBytes(pathJson(path, "value_get"))
-      return decodeValueData(new Uint8Array(bytes), "value_get")
+      return valueDataFromBytes(new Uint8Array(bytes))
     } catch (error) {
       throw fromWasmError(error, "value_get", path)
     }
   }
 
   toJS(): ValueData {
-    return decodeValueData(this.encode(), "value_to_js")
+    return this.#get("value_to_js").toJs() as ValueData
   }
 
   encode(): Uint8Array {
@@ -1231,8 +950,8 @@ export class Change {
   static fromJS(input: ChangeInput, options?: InputOptions): Change {
     try {
       const limits = normalizeInputLimits(options, "change_from_js")
-      const bytes = encodeChangeInput(input, "change_from_js")
-      return new Change(ChangeHandle.fromInput(bytes, JSON.stringify(limits)))
+      validateChangeInput(input, "change_from_js")
+      return new Change(ChangeHandle.fromJs(input, JSON.stringify(limits)))
     } catch (error) {
       throw fromWasmError(error, "change_from_js")
     }
@@ -1747,7 +1466,7 @@ type RawChangeViewEntry = {
 }
 
 function viewValue(bytes: number[] | undefined): ValueData {
-  return decodeValueData(Uint8Array.from(bytes ?? []), "inspect_change")
+  return valueDataFromBytes(Uint8Array.from(bytes ?? []))
 }
 
 function viewRange(entry: RawChangeViewEntry): Range {

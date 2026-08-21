@@ -57,6 +57,7 @@ Accepted decisions:
 - [ADR-0013: Change construction and Snapshot projection use distinct coordinates](adr/0013-change-and-projection-coordinates.md)
 - [ADR-0014: Conformance corpus uses a neutral tagged representation and unified error codes](adr/0014-conformance-corpus-format-and-runner-contract.md)
 - [ADR-0015: The core crate owns the ErrorCode classification; the TS type is maintained separately](adr/0015-error-code-classification.md)
+- [ADR-0016: The wire codec has a single implementation; the wasm boundary is structured and Rust owns encode/decode](adr/0016-single-source-codec-via-structured-wasm-boundary.md)
 
 Superseded decisions remain available as historical context:
 

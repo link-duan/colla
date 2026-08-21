@@ -3,15 +3,15 @@
 //! Generated names and error payloads in this crate are an implementation
 //! detail of the handwritten `colla-ot` facade.
 
-mod change_input;
+mod js_marshal;
 
-use change_input::{decode_change_input, ChangeInputError};
 use colla::{
     apply, compose, invert, transform_pair, ApplyError, AttrChange, AttrPatch, AttrValue, Attrs,
     Change, ChangeKind, CodecError, ComposeError, InputLimits, IntChange, InvertError, ListOp,
     MapEntryChange, Path, PathSeg, RichContent, RichText, RichTextOp, TextOp, TieBreak,
     TransformError, Utf16PositionError, Value, ValueError, ValueKind, ValueType,
 };
+use js_marshal::{change_from_js, value_from_js, value_to_js, InputError};
 use serde_json::{json, Value as JsonValue};
 use wasm_bindgen::prelude::*;
 
@@ -66,6 +66,19 @@ impl ValueHandle {
 
     pub fn encode(&self) -> Vec<u8> {
         self.value.encode()
+    }
+
+    #[wasm_bindgen(js_name = fromJs)]
+    pub fn from_js(input: JsValue, limits: &str) -> Result<Self, JsValue> {
+        let limits = parse_limits(limits, "value_from_js")?;
+        value_from_js(&input, &limits)
+            .map(|value| Self { value })
+            .map_err(|error| input_error(error, "value_from_js"))
+    }
+
+    #[wasm_bindgen(js_name = toJs)]
+    pub fn to_js(&self) -> JsValue {
+        value_to_js(&self.value)
     }
 
     pub fn kind(&self, path: &str) -> Result<String, JsValue> {
@@ -130,12 +143,12 @@ pub struct ChangeHandle {
 
 #[wasm_bindgen]
 impl ChangeHandle {
-    #[wasm_bindgen(js_name = fromInput)]
-    pub fn from_input(bytes: &[u8], limits: &str) -> Result<Self, JsValue> {
+    #[wasm_bindgen(js_name = fromJs)]
+    pub fn from_js(input: JsValue, limits: &str) -> Result<Self, JsValue> {
         let limits = parse_limits(limits, "change_from_js")?;
-        decode_change_input(bytes, &limits)
+        change_from_js(&input, &limits)
             .map(|change| Self { change })
-            .map_err(change_input_error)
+            .map_err(|error| input_error(error, "change_from_js"))
     }
 
     #[wasm_bindgen(js_name = decode)]
@@ -606,34 +619,29 @@ fn codec_error(error: CodecError, operation: &'static str) -> JsValue {
     }
 }
 
-fn change_input_error(error: ChangeInputError) -> JsValue {
+fn input_error(error: InputError, operation: &'static str) -> JsValue {
     match error {
-        ChangeInputError::Encoding { offset, reason } => wasm_error_details(
-            "invalid_argument",
-            "change_from_js",
-            json!({ "reason": reason, "offset": offset }),
-        ),
-        ChangeInputError::Limit {
+        InputError::Limit {
             name,
             actual,
             maximum,
         } => wasm_error_details(
             "limit_exceeded",
-            "change_from_js",
+            operation,
             json!({ "limit": name, "actual": actual, "maximum": maximum }),
         ),
-        ChangeInputError::Value(ValueError::LengthOverflow) => wasm_error_details(
+        InputError::Value(ValueError::LengthOverflow) => wasm_error_details(
             "invalid_argument",
-            "change_from_js",
+            operation,
             json!({ "reason": "length_overflow" }),
         ),
-        ChangeInputError::Value(error) => {
-            wasm_error("invalid_value", "change_from_js", error.to_string())
-        }
-        ChangeInputError::ValueCodec(CodecError::Value(error)) => {
-            wasm_error("invalid_value", "change_from_js", error.to_string())
-        }
-        ChangeInputError::ValueCodec(error) => codec_error(error, "change_from_js"),
+        InputError::Value(error) => wasm_error("invalid_value", operation, error.to_string()),
+        InputError::InvalidValue(reason) => wasm_error("invalid_value", operation, reason),
+        InputError::Argument { context, reason } => wasm_error_details(
+            "invalid_argument",
+            operation,
+            json!({ "reason": reason, "context": context }),
+        ),
     }
 }
 

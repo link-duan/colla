@@ -5,6 +5,14 @@ package are recorded here. Both artifacts always use the same version.
 
 ## [Unreleased]
 
+### Changed
+
+- Collapsed the canonical binary codec to a single implementation. The
+  `colla-ot` facade no longer contains a hand-written byte encoder/decoder; it
+  now marshals structured values across the WebAssembly boundary and the Rust
+  `colla` codec is the sole implementation of the wire format. Observable
+  behavior (canonical bytes, `toJS` shapes, error codes) is unchanged.
+
 ### Added
 
 - Added a stable `ErrorCode` classification to the Rust `colla` crate: a
