@@ -71,7 +71,7 @@ impl<'a> Counter<'a> {
     }
 
     fn value(&mut self, input: &JsValue, depth: usize, ctx: &str) -> Result<Value, InputError> {
-        self.check_limit("value depth", depth, self.limits.max_depth)?;
+        self.check_limit("depth", depth, self.limits.max_depth)?;
         self.value_nodes += 1;
         self.check_limit("value nodes", self.value_nodes, self.limits.max_value_nodes)?;
 
@@ -108,7 +108,7 @@ impl<'a> Counter<'a> {
         match marker(object, ctx)? {
             Some("text") => {
                 let text = self.read_field_string(object, "value", ctx)?;
-                self.check_limit("text bytes", text.len(), self.limits.max_string_bytes)?;
+                self.check_limit("string bytes", text.len(), self.limits.max_string_bytes)?;
                 Ok(Value::text(text))
             }
             Some("richText") => {
@@ -116,9 +116,12 @@ impl<'a> Counter<'a> {
                 let spans: &Array = spans.unchecked_ref();
                 let count = spans.length() as usize;
                 self.check_limit("container length", count, self.limits.max_container_len)?;
+                let mut lengths = SequenceLengths::default();
                 let mut built = Vec::with_capacity(count);
                 for index in 0..count {
-                    built.push(self.rich_span(&spans.get(index as u32), depth + 1, ctx)?);
+                    let span = self.rich_span(&spans.get(index as u32), depth + 1, ctx)?;
+                    lengths.insert(span.len(), self)?;
+                    built.push(span);
                 }
                 Ok(Value::rich_text(RichText::from_spans(built)?))
             }
@@ -197,7 +200,7 @@ impl<'a> Counter<'a> {
     }
 
     fn change(&mut self, input: &JsValue, depth: usize, ctx: &str) -> Result<Change, InputError> {
-        self.check_limit("change depth", depth, self.limits.max_depth)?;
+        self.check_limit("depth", depth, self.limits.max_depth)?;
         self.change_nodes += 1;
         self.check_limit(
             "change nodes",

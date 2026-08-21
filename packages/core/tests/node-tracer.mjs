@@ -154,7 +154,7 @@ try {
     assert.throws(
       () => Value.fromJS(text("ab"), { limits: { maxStringBytes: 1 } }),
       error => error instanceof CollaError && error.code === "limit_exceeded" &&
-        error.details.limit === "text bytes",
+        error.details.limit === "string bytes",
     )
 
     const trustedTextBase = Value.fromJS(text("a"), { limits: { maxStringBytes: 1 } })
@@ -262,7 +262,14 @@ try {
         { type: "embed", value: { nested: true } },
       ]), { limits: { maxDepth: 1 } }),
       error => error instanceof CollaError && error.code === "limit_exceeded" &&
-        error.details.limit === "value depth",
+        error.details.limit === "depth",
+    )
+    assert.throws(
+      () => Value.fromJS(richText([
+        { type: "text", text: "abcdef" },
+      ]), { limits: { maxSequenceLength: 3 } }),
+      error => error instanceof CollaError && error.code === "limit_exceeded" &&
+        error.details.limit === "sequence length",
     )
     assert.throws(
       () => Value.fromJS(richText([

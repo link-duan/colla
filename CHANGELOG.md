@@ -7,6 +7,12 @@ package are recorded here. Both artifacts always use the same version.
 
 ### Changed
 
+- Unified the `limit_exceeded` `details.limit` names into a stable, bijective
+  set (one name per `InputLimits` field) across every entry point: `value
+  depth`/`change depth` are now `depth`, and Text values report `string bytes`
+  instead of `text bytes`. Callers can map `details.limit` back to the exact
+  limit they configured. The pre-/post-canonical enforcement *semantics* of
+  `fromJS` vs `decode` are intentionally unchanged.
 - Collapsed the canonical binary codec to a single implementation. The
   `colla-ot` facade no longer contains a hand-written byte encoder/decoder; it
   now marshals structured values across the WebAssembly boundary and the Rust
@@ -21,6 +27,13 @@ package are recorded here. Both artifacts always use the same version.
   `InvertError`, and `CodecError`. This is the single source of truth for error
   codes across the WebAssembly facade, the Rust conformance runner, and the
   `colla-ot` `ErrorCode` union type (now the type of `CollaError.code`).
+
+### Fixed
+
+- `Value.fromJS` now enforces `maxSequenceLength` on richText values. A crafted
+  input with few spans of near-`maxStringBytes` text could previously drive the
+  total length past a caller-configured `maxSequenceLength` undetected; it is
+  now rejected with `limit_exceeded` (`sequence length`), matching `decode`.
 
 ## [0.2.0] - 2026-08-12
 

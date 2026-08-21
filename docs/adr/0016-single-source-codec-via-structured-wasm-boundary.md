@@ -41,9 +41,9 @@ TS 退化为**薄 marshaling 层**,不再包含任何 varint / tag / 排序 / �
   其它 → `invalid_value` "unsupported ValueInput"。
 - **i64 跨界**:Int/IntChange.delta/AttrValue.Int 一律用 JS `BigInt` 承载,双向零精度损失。
 - **`toJs` 输出**:Int→`bigint`,Float→`number`,与既有 `ValueData`/`ChangeData` 形状一致。
-- **错误契约**:限额 → `limit_exceeded`(name/actual/maximum,exact 名称如 `value depth`/
-  `value nodes`/`text bytes`/`string bytes`/`container length`/`sequence ops`/`sequence length`);
-  值域/形状 → `invalid_value` 或 `invalid_argument`(+ 现有 path/context),与现 TS 行为一致。
+- **错误契约**：限额 → `limit_exceeded`（name/actual/maximum，name 对每个 `InputLimits` 字段
+  **双射且稳定**：`depth`/`value nodes`/`change nodes`/`string bytes`/`container length`/`sequence ops`/
+  `sequence length`）;值域/形状 → `invalid_value` 或 `invalid_argument`（+ 现有 path/context），与现 TS 行为一致。
 - **limits**:仍由接收方经 `limitsJson` 传入;不改变 `InputLimits` 语义。
 
 ## Consequences
@@ -55,8 +55,10 @@ TS 退化为**薄 marshaling 层**,不再包含任何 varint / tag / 排序 / �
 - JS↔wasm 每次构造多一次边界穿越(此前是纯 TS 编码),以正确性与可维护性换取少量性能;对 1.0
   地基是正确取舍。
 - marshaling 桥不定义 wire 字节,不违反「核心只做 OT primitives、版本协商归信封」的章程。
-- **限额语义保持现状**:`fromJs` 沿用旧 `Change.fromJS`/`Value.fromJS` 的行为——在**未规范化的原始
-  输入**上逐层校 `InputLimits`(例如 `sequence ops` 按原始 op 数、Text 值报 `text bytes`),而非委派给
-  `decode_with_limits`。这与 `decode` 的 post-canonical 校验存在**早于本次重构的历史差异**(紧限额下
-  `fromJS` 比 `decode` 更严);统一两者的限额语义是单独的行为变更,不属本次行为保持型重构。
+- **限额命名双射 + 语义分歧有意保留**：`fromJs` 在**未规范化的原始输入**上逐层校
+  `InputLimits`（`sequence ops` 按原始 op 数、节点/深度按原始累加），`decode` 则在 canonical 结果上
+  校验（post-canonical）——两侧各自防护自己那种输入，**语义分歧有意保留**（issue #22）。但
+  `limit_exceeded.name` 对所有入口**双射且稳定**（`value depth`/`change depth` 合并为 `depth`，
+  `text bytes` 并入 `string bytes`，命名基准 = 权威 decoder）。同时修复 `Value.fromJS` 对 richText **值**
+  漏检 `max_sequence_len` 的防护缺口。命名表见 `docs/binary-format.md §6`。
 - 既有 Rust 与 JS 测试、corpus runner 作为回归 oracle:行为保持不变则全绿。

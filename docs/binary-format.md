@@ -85,5 +85,21 @@ encoder 的输入始终已经规范。
 `codec::decode_change` 作为等价底层入口保留。InputLimits 只是接收方的输入资源策略，
 不定义 Value/Change 的合法大小，也不限制编码或代数结果。
 
+每个入口对**它实际收到的输入**设限：`decode*` 约束 canonical 字节流（post-canonical），
+结构化入口 `Value::fromJS`/`Change::fromJS` 约束调用方传入的**原始未规范化结构**
+（pre-canonical，例如 `sequence ops` 按原始 op 数计）。因此**触发点与判定可因入口而异**，
+这是有意的——各自忠实防护自己那侧的输入开销。但 `limit_exceeded` 的 `name` 字段对所有入口
+**双射且稳定**：每个 `InputLimits` 字段恰好对应一个名字，调用方可据此反查是哪个上限被触发。
+
+| `InputLimits` 字段 | `name` |
+|---|---|
+| `max_depth` | `depth` |
+| `max_value_nodes` | `value nodes` |
+| `max_change_nodes` | `change nodes` |
+| `max_string_bytes` | `string bytes` |
+| `max_container_len` | `container length` |
+| `max_sequence_ops` | `sequence ops` |
+| `max_sequence_len` | `sequence length` |
+
 操作元数据不在 body 内。调用方必须在外部维护文档 ID、版本、作者、时间和
 operation ID 等字段。

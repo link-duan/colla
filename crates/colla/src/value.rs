@@ -359,7 +359,7 @@ impl Value {
             }
             if depth > limits.max_depth {
                 return Err(CodecError::LimitExceeded {
-                    name: "value depth",
+                    name: "depth",
                     actual: depth,
                     limit: limits.max_depth,
                 });
@@ -369,7 +369,7 @@ impl Value {
                     check_len("string bytes", s.len(), limits.max_string_bytes)?
                 }
                 ValueKind::Text(t) => {
-                    check_len("text bytes", t.as_str().len(), limits.max_string_bytes)?
+                    check_len("string bytes", t.as_str().len(), limits.max_string_bytes)?
                 }
                 ValueKind::List(list) => {
                     check_len("container length", list.len(), limits.max_container_len)?;

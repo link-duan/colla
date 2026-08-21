@@ -316,7 +316,7 @@ impl Change {
         while let Some((change, depth)) = stack.pop() {
             nodes += 1;
             check_limit("change nodes", nodes, limits.max_change_nodes)?;
-            check_limit("change depth", depth, limits.max_depth)?;
+            check_limit("depth", depth, limits.max_depth)?;
             match change.kind() {
                 ChangeKind::Noop | ChangeKind::Int(_) => {}
                 ChangeKind::Replace(value) => value.check_input_limits(limits)?,
