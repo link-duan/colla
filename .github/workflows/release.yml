@@ -89,7 +89,7 @@ jobs:
         name: Inspect registries
         run: node scripts/check-release-state.mjs --manifest artifacts/release-candidate.json --output artifacts/registry-before.json
       - run: pnpm --filter colla-ot measure --output "$GITHUB_WORKSPACE/artifacts/quality-baseline.json"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: release-candidate-${{ steps.version.outputs.version }}
           path: artifacts
@@ -102,7 +102,7 @@ jobs:
         with:
           ref: ${{ env.RELEASE_TAG }}
           fetch-depth: 0
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           name: release-candidate-${{ needs.preflight.outputs.version }}
           path: artifacts
@@ -130,7 +130,7 @@ jobs:
         with:
           ref: ${{ env.RELEASE_TAG }}
           fetch-depth: 0
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           name: release-candidate-${{ needs.preflight.outputs.version }}
           path: artifacts
@@ -155,7 +155,7 @@ jobs:
         run: npm publish "./artifacts/colla-ot-${{ needs.preflight.outputs.version }}.tgz" --access public --provenance
       - name: Wait for both registries
         run: node scripts/check-release-state.mjs --manifest artifacts/release-candidate.json --require all --attempts 12 --output artifacts/registry-after.json
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: registry-state-${{ needs.preflight.outputs.version }}
           path: artifacts/registry-after.json
@@ -206,7 +206,7 @@ jobs:
           COLLA_ROLLUP_VERSION: ${{ matrix.bundlers.rollup }}
           COLLA_NODE_RESOLVE_VERSION: ${{ matrix.bundlers.node_resolve }}
           COLLA_RUN_BROWSER: ${{ matrix.node == 24 && matrix.bundlers.name == 'latest' && '1' || '0' }}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: public-evidence-node-${{ matrix.node }}-${{ matrix.bundlers.name }}
           path: artifacts/*.json
@@ -215,7 +215,7 @@ jobs:
     needs: [preflight, verify-public]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           pattern: public-evidence-*
           path: evidence
