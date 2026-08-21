@@ -53,6 +53,17 @@ _Avoid_: Canonical encoding
 同一数据模型与 OT 语义。
 _Avoid_: Unit test snapshots
 
+**Conformance fixture**:
+Conformance corpus 中的单个版本化用例，用语言中立表示描述输入及其期望的输出、
+规范字节或稳定错误分类；它不是 Change 的规范内存表示、wire format 或构造用的
+Change Input。
+_Avoid_: Change Input, serialized Change, Change View
+
+**Error code**:
+跨实现稳定的错误分类（如 `type_mismatch`、`out_of_bounds`），由核心 `ErrorCode`
+拥有，供 conformance fixture 与跨语言契约断言；区别于各实现内部的富错误枚举。
+_Avoid_: error kind, error variant
+
 **String**:
 只能整体替换的原子字符串，不参与字符级 Operational Transformation。
 _Avoid_: Text

@@ -1,7 +1,139 @@
 use colla::{
-    apply, compose, invert, transform_pair, Change, ChangeKind, InputLimits, IntChange, ListChange,
-    ListOp, MapChange, MapEntryChange, RichTextChange, TextChange, TextOp, TieBreak, Value,
+    apply, compose, invert, transform_pair, ApplyError, Change, ChangeKind, CodecError,
+    ComposeError, ErrorCode, InputLimits, IntChange, InvertError, ListChange, ListOp, MapChange,
+    MapEntryChange, Path, RichTextChange, TextChange, TextOp, TieBreak, TransformError, Value,
+    ValueError, ValueType,
 };
+
+#[test]
+fn error_code_classification_is_stable_across_error_kinds() {
+    let p = Path::new;
+
+    assert_eq!(ValueError::NonFiniteFloat.code(), ErrorCode::InvalidValue);
+    assert_eq!(
+        ValueError::DuplicateKey("k".into()).code(),
+        ErrorCode::InvalidValue
+    );
+    assert_eq!(ValueError::LengthOverflow.code(), ErrorCode::LimitExceeded);
+
+    assert_eq!(
+        ApplyError::TypeMismatch {
+            path: p(),
+            expected: ValueType::Int,
+            actual: ValueType::Bool,
+        }
+        .code(),
+        ErrorCode::TypeMismatch
+    );
+    assert_eq!(
+        ApplyError::MissingKey {
+            path: p(),
+            key: "k".into(),
+        }
+        .code(),
+        ErrorCode::MissingKey
+    );
+    assert_eq!(
+        ApplyError::ExistingKey {
+            path: p(),
+            key: "k".into(),
+        }
+        .code(),
+        ErrorCode::KeyAlreadyExists
+    );
+    assert_eq!(
+        ApplyError::IndexOutOfBounds {
+            path: p(),
+            index: 1,
+            len: 0,
+        }
+        .code(),
+        ErrorCode::OutOfBounds
+    );
+    assert_eq!(
+        ApplyError::SequenceOutOfBounds { path: p() }.code(),
+        ErrorCode::OutOfBounds
+    );
+    assert_eq!(
+        ApplyError::IntegerOverflow { path: p() }.code(),
+        ErrorCode::IntegerOverflow
+    );
+    assert_eq!(
+        ApplyError::SequenceLengthOverflow { path: p() }.code(),
+        ErrorCode::LimitExceeded
+    );
+
+    assert_eq!(
+        ComposeError::IncompatibleKinds {
+            left: "a",
+            right: "b",
+        }
+        .code(),
+        ErrorCode::IncompatibleChange
+    );
+    assert_eq!(
+        ComposeError::IncompatibleMapEntry("k".into()).code(),
+        ErrorCode::IncompatibleChange
+    );
+    assert_eq!(ComposeError::LengthOverflow.code(), ErrorCode::LimitExceeded);
+    assert_eq!(
+        ComposeError::Apply(ApplyError::IntegerOverflow { path: p() }).code(),
+        ErrorCode::IntegerOverflow
+    );
+
+    assert_eq!(
+        TransformError::IncompatibleKinds {
+            left: "a",
+            right: "b",
+        }
+        .code(),
+        ErrorCode::IncompatibleChange
+    );
+    assert_eq!(
+        TransformError::IncompatibleMapEntry("k".into()).code(),
+        ErrorCode::IncompatibleChange
+    );
+    assert_eq!(TransformError::LengthOverflow.code(), ErrorCode::LimitExceeded);
+
+    assert_eq!(
+        InvertError::Apply(ApplyError::MissingKey {
+            path: p(),
+            key: "k".into(),
+        })
+        .code(),
+        ErrorCode::MissingKey
+    );
+    assert_eq!(InvertError::LengthOverflow.code(), ErrorCode::LimitExceeded);
+
+    assert_eq!(
+        CodecError::UnexpectedEof { offset: 0 }.code(),
+        ErrorCode::InvalidEncoding
+    );
+    assert_eq!(
+        CodecError::TrailingBytes { offset: 0 }.code(),
+        ErrorCode::InvalidEncoding
+    );
+    assert_eq!(
+        CodecError::LimitExceeded {
+            name: "x",
+            actual: 2,
+            limit: 1,
+        }
+        .code(),
+        ErrorCode::LimitExceeded
+    );
+    assert_eq!(
+        CodecError::Value(ValueError::NonFiniteFloat).code(),
+        ErrorCode::InvalidValue
+    );
+
+    assert_eq!(ErrorCode::InvalidEncoding.as_str(), "invalid_encoding");
+    assert_eq!(ErrorCode::KeyAlreadyExists.as_str(), "key_already_exists");
+    assert_eq!(ErrorCode::ALL.len(), 9);
+    for code in ErrorCode::ALL {
+        assert!(!code.as_str().is_empty());
+    }
+}
 
 #[test]
 fn package_functions_and_type_entrypoints_form_one_facade() {

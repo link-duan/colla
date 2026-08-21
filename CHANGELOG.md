@@ -5,6 +5,15 @@ package are recorded here. Both artifacts always use the same version.
 
 ## [Unreleased]
 
+### Added
+
+- Added a stable `ErrorCode` classification to the Rust `colla` crate: a
+  `#[non_exhaustive]` `ErrorCode` enum with `as_str()` and `ALL`, plus a `code()`
+  accessor on `ValueError`, `ApplyError`, `ComposeError`, `TransformError`,
+  `InvertError`, and `CodecError`. This is the single source of truth for error
+  codes across the WebAssembly facade, the Rust conformance runner, and the
+  `colla-ot` `ErrorCode` union type (now the type of `CollaError.code`).
+
 ## [0.2.0] - 2026-08-12
 
 ### Changed

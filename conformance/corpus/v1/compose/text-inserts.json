@@ -1,0 +1,12 @@
+{
+  "id": "compose/text-inserts",
+  "kind": "compose",
+  "corpusVersion": 1,
+  "note": "Two sequential Text inserts compose into one.",
+  "snapshot": { "text": "ab" },
+  "changes": [
+    { "text": [{ "insert": "X" }] },
+    { "text": [{ "retain": 1 }, { "insert": "Y" }] }
+  ],
+  "expect": { "change": { "text": [{ "insert": "XY" }] } }
+}

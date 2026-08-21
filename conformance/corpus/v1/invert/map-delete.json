@@ -1,0 +1,9 @@
+{
+  "id": "invert/map-delete",
+  "kind": "invert",
+  "corpusVersion": 1,
+  "note": "The inverse of a Map delete re-inserts the removed value.",
+  "snapshot": { "map": { "a": { "int": "5" } } },
+  "change": { "map": { "a": { "delete": null } } },
+  "expect": { "change": { "map": { "a": { "insert": { "int": "5" } } } } }
+}

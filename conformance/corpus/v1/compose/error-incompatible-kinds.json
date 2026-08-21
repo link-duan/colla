@@ -1,0 +1,11 @@
+{
+  "id": "compose/error-incompatible-kinds",
+  "kind": "compose",
+  "corpusVersion": 1,
+  "note": "Composing a Text change with a Map change is incompatible.",
+  "changes": [
+    { "text": [{ "insert": "x" }] },
+    { "map": { "a": { "insert": { "int": "1" } } } }
+  ],
+  "expectError": { "code": "incompatible_change" }
+}

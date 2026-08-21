@@ -1,0 +1,8 @@
+{
+  "id": "value-codec/int-negative",
+  "kind": "value-codec",
+  "corpusVersion": 1,
+  "note": "Negative Int encodes and round-trips canonically.",
+  "value": { "int": "-42" },
+  "canonicalBytes": "0353"
+}

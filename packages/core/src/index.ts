@@ -138,6 +138,30 @@ type ErrorPayload = {
   details?: unknown
 }
 
+/**
+ * Stable, cross-implementation error classification.
+ *
+ * The first group mirrors the `colla` core crate's `ErrorCode` (the single source
+ * of truth, asserted by the conformance corpus). The trailing codes are produced
+ * only by this JavaScript facade: `invalid_state` for operations on a disposed or
+ * consumed handle, `invalid_argument` for malformed JavaScript input, and
+ * `invalid_utf16_boundary` for UTF-16 position conversions. Maintained by hand to
+ * match the core classification; see docs/adr/0015-error-code-classification.md.
+ */
+export type ErrorCode =
+  | "invalid_encoding"
+  | "limit_exceeded"
+  | "type_mismatch"
+  | "missing_key"
+  | "key_already_exists"
+  | "out_of_bounds"
+  | "integer_overflow"
+  | "incompatible_change"
+  | "invalid_value"
+  | "invalid_state"
+  | "invalid_argument"
+  | "invalid_utf16_boundary"
+
 function deepFreeze<T>(value: T): T {
   if (value !== null && typeof value === "object" && !Object.isFrozen(value)) {
     for (const child of Object.values(value)) deepFreeze(child)
@@ -154,13 +178,13 @@ function freezeDetails(value: unknown): Readonly<Record<string, unknown>> {
 }
 
 export class CollaError extends Error {
-  readonly code: string
+  readonly code: ErrorCode
   readonly operation: string
   readonly path?: Path
   readonly details: Readonly<Record<string, unknown>>
 
   constructor(
-    code: string,
+    code: ErrorCode,
     operation: string,
     details: unknown,
     path?: Path,
@@ -173,7 +197,7 @@ export class CollaError extends Error {
     this.details = freezeDetails(details)
   }
 
-  is(code: string): boolean {
+  is(code: ErrorCode): boolean {
     return this.code === code
   }
 }
@@ -199,7 +223,7 @@ function fromWasmError(error: unknown, fallbackOperation: string, path?: Path): 
     payload = {}
   }
   return new CollaError(
-    payload.code ?? "invalid_argument",
+    (payload.code ?? "invalid_argument") as ErrorCode,
     payload.operation ?? fallbackOperation,
     payload.details ?? { reason: String(error) },
     path,

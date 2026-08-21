@@ -1,7 +1,8 @@
 # JavaScript 使用稳定错误与显式资源生命周期
 
 公共失败统一映射为 `CollaError`，稳定字段为 reason-oriented code、operation、可选 path
-和冻结 details；message、Rust enum 名及 wasm-bindgen 异常形状不构成契约。
+和冻结 details；message、Rust enum 名及 wasm-bindgen 异常形状不构成契约。code 的稳定
+分类由核心 `ErrorCode` 拥有（见 [ADR 0015](0015-error-code-classification.md)）。
 `limit_exceeded` 只来自受 `InputLimits` 约束的 Value/Change 输入入口，不属于代数错误。
 
 Value 和 Change 提供幂等 dispose 与 `Symbol.dispose`，clone 拥有独立释放权。纯

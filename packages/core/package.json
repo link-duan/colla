@@ -28,7 +28,7 @@
     "build": "node scripts/build.mjs",
     "check": "pnpm build && pnpm exec tsc -p tsconfig.json --noEmit",
     "measure": "node scripts/measure.mjs",
-    "test": "node tests/node-tracer.mjs && node tests/bundlers.mjs",
+    "test": "pnpm build && node --test --test-concurrency=1 tests/node-tracer.mjs tests/bundlers.mjs ../../conformance/runners/js/corpus.test.mjs",
     "test:e2e": "node e2e/run.mjs",
     "prepack": "pnpm build"
   },

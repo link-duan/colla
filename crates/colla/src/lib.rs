@@ -26,8 +26,8 @@ pub use change::{
     RichTextOp, TextChange, TextOp, TieBreak,
 };
 pub use error::{
-    ApplyError, CodecError, ComposeError, InvertError, TransformError, Utf16PositionError,
-    ValueError,
+    ApplyError, CodecError, ComposeError, ErrorCode, InvertError, TransformError,
+    Utf16PositionError, ValueError,
 };
 pub use input_limits::InputLimits;
 pub use op::{apply, compose, invert, transform_pair};

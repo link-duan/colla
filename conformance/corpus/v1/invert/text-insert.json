@@ -1,0 +1,9 @@
+{
+  "id": "invert/text-insert",
+  "kind": "invert",
+  "corpusVersion": 1,
+  "note": "The inverse of a Text insert is a delete.",
+  "snapshot": { "text": "ab" },
+  "change": { "text": [{ "retain": 1 }, { "insert": "X" }] },
+  "expect": { "change": { "text": [{ "retain": 1 }, { "delete": 1 }] } }
+}

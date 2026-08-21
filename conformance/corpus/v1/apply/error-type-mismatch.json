@@ -1,0 +1,9 @@
+{
+  "id": "apply/error-type-mismatch",
+  "kind": "apply",
+  "corpusVersion": 1,
+  "note": "A Text change against an Int snapshot is a type mismatch.",
+  "snapshot": { "int": "1" },
+  "change": { "text": [{ "insert": "x" }] },
+  "expectError": { "code": "type_mismatch" }
+}

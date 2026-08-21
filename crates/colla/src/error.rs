@@ -4,6 +4,46 @@ use crate::path::Path;
 use crate::value::ValueType;
 use thiserror::Error;
 
+macro_rules! error_codes {
+    ($($variant:ident => $repr:literal),+ $(,)?) => {
+        /// Stable, cross-implementation classification of a Colla error.
+        ///
+        /// This is the single source of truth for the conformance corpus and the
+        /// JavaScript facade: every error's `.code()` folds its rich variants into one
+        /// of these codes. The enum is `#[non_exhaustive]` so new codes can be added
+        /// without breaking downstream matches.
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+        #[non_exhaustive]
+        pub enum ErrorCode {
+            $(#[doc = concat!("The `", $repr, "` code.")] $variant,)+
+        }
+
+        impl ErrorCode {
+            /// Every defined error code, in declaration order.
+            pub const ALL: &'static [ErrorCode] = &[$(ErrorCode::$variant),+];
+
+            /// The stable string form of this code.
+            pub fn as_str(self) -> &'static str {
+                match self {
+                    $(ErrorCode::$variant => $repr,)+
+                }
+            }
+        }
+    };
+}
+
+error_codes! {
+    InvalidEncoding => "invalid_encoding",
+    LimitExceeded => "limit_exceeded",
+    TypeMismatch => "type_mismatch",
+    MissingKey => "missing_key",
+    KeyAlreadyExists => "key_already_exists",
+    OutOfBounds => "out_of_bounds",
+    IntegerOverflow => "integer_overflow",
+    IncompatibleChange => "incompatible_change",
+    InvalidValue => "invalid_value",
+}
+
 /// Errors produced while constructing canonical Values and typed Changes.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 #[non_exhaustive]
@@ -229,4 +269,81 @@ pub enum CodecError {
     /// Decoded content violated a canonical Value construction rule.
     #[error(transparent)]
     Value(#[from] ValueError),
+}
+
+impl ValueError {
+    /// The stable classification of this error.
+    pub fn code(&self) -> ErrorCode {
+        match self {
+            ValueError::NonFiniteFloat | ValueError::DuplicateKey(_) => ErrorCode::InvalidValue,
+            ValueError::LengthOverflow => ErrorCode::LimitExceeded,
+        }
+    }
+}
+
+impl ApplyError {
+    /// The stable classification of this error.
+    pub fn code(&self) -> ErrorCode {
+        match self {
+            ApplyError::TypeMismatch { .. } => ErrorCode::TypeMismatch,
+            ApplyError::MissingKey { .. } => ErrorCode::MissingKey,
+            ApplyError::ExistingKey { .. } => ErrorCode::KeyAlreadyExists,
+            ApplyError::IndexOutOfBounds { .. } | ApplyError::SequenceOutOfBounds { .. } => {
+                ErrorCode::OutOfBounds
+            }
+            ApplyError::IntegerOverflow { .. } => ErrorCode::IntegerOverflow,
+            ApplyError::SequenceLengthOverflow { .. } => ErrorCode::LimitExceeded,
+        }
+    }
+}
+
+impl ComposeError {
+    /// The stable classification of this error.
+    pub fn code(&self) -> ErrorCode {
+        match self {
+            ComposeError::IncompatibleKinds { .. } | ComposeError::IncompatibleMapEntry(_) => {
+                ErrorCode::IncompatibleChange
+            }
+            ComposeError::Apply(error) => error.code(),
+            ComposeError::LengthOverflow => ErrorCode::LimitExceeded,
+        }
+    }
+}
+
+impl TransformError {
+    /// The stable classification of this error.
+    pub fn code(&self) -> ErrorCode {
+        match self {
+            TransformError::IncompatibleKinds { .. }
+            | TransformError::IncompatibleMapEntry(_) => ErrorCode::IncompatibleChange,
+            TransformError::LengthOverflow => ErrorCode::LimitExceeded,
+        }
+    }
+}
+
+impl InvertError {
+    /// The stable classification of this error.
+    pub fn code(&self) -> ErrorCode {
+        match self {
+            InvertError::Apply(error) => error.code(),
+            InvertError::LengthOverflow => ErrorCode::LimitExceeded,
+        }
+    }
+}
+
+impl CodecError {
+    /// The stable classification of this error.
+    pub fn code(&self) -> ErrorCode {
+        match self {
+            CodecError::UnexpectedEof { .. }
+            | CodecError::UnknownTag { .. }
+            | CodecError::NonMinimalVarint { .. }
+            | CodecError::IntegerOutOfRange { .. }
+            | CodecError::InvalidUtf8 { .. }
+            | CodecError::NonCanonical { .. }
+            | CodecError::TrailingBytes { .. } => ErrorCode::InvalidEncoding,
+            CodecError::LimitExceeded { .. } => ErrorCode::LimitExceeded,
+            CodecError::Value(error) => error.code(),
+        }
+    }
 }

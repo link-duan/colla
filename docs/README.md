@@ -33,9 +33,11 @@ override the specifications.
 
 ## Project operations
 
-- [Roadmap](roadmap.md) — future 0.2 hardening and 1.0 stability work.
-- [Coordinated release runbook](releasing.md) — publishing the Rust crate and
-  npm package from one version and tag.
+- [Roadmap](internal/roadmap.md) — future 0.2 hardening and 1.0 stability work.
+- [Conformance corpus plan](internal/conformance.md) — planned fixture format,
+  error taxonomy, and runner contract for the shared Rust/JavaScript corpus.
+- [Coordinated release runbook](internal/releasing.md) — publishing the Rust
+  crate and npm package from one version and tag.
 - [Changelog](../CHANGELOG.md) — released history and current public changes.
 
 ## Architecture decisions
@@ -53,6 +55,8 @@ Accepted decisions:
 - [ADR-0011: RichText logical spans are separate from indexed storage](adr/0011-richtext-logical-spans-and-indexed-storage.md)
 - [ADR-0012: JavaScript Change uses Snapshot-independent typed construction](adr/0012-snapshot-independent-change-construction.md)
 - [ADR-0013: Change construction and Snapshot projection use distinct coordinates](adr/0013-change-and-projection-coordinates.md)
+- [ADR-0014: Conformance corpus uses a neutral tagged representation and unified error codes](adr/0014-conformance-corpus-format-and-runner-contract.md)
+- [ADR-0015: The core crate owns the ErrorCode classification; the TS type is maintained separately](adr/0015-error-code-classification.md)
 
 Superseded decisions remain available as historical context:
 

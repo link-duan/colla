@@ -574,16 +574,18 @@ fn wasm_error_details(code: &'static str, operation: &'static str, details: Json
 }
 
 fn codec_error(error: CodecError, operation: &'static str) -> JsValue {
+    let code = error.code().as_str();
     match error {
         CodecError::LimitExceeded {
             name,
             actual,
             limit,
         } => wasm_error_details(
-            "limit_exceeded",
+            code,
             operation,
             json!({ "limit": name, "actual": actual, "maximum": limit }),
         ),
+        CodecError::Value(error) => wasm_error(code, operation, error.to_string()),
         other => {
             let offset = match &other {
                 CodecError::UnexpectedEof { offset }
@@ -593,14 +595,13 @@ fn codec_error(error: CodecError, operation: &'static str) -> JsValue {
                 | CodecError::InvalidUtf8 { offset }
                 | CodecError::NonCanonical { offset, .. }
                 | CodecError::TrailingBytes { offset } => Some(*offset),
-                CodecError::LimitExceeded { .. } | CodecError::Value(_) => None,
                 _ => None,
             };
             let mut details = json!({ "reason": other.to_string() });
             if let Some(offset) = offset {
                 details["offset"] = json!(offset);
             }
-            wasm_error_details("invalid_encoding", operation, details)
+            wasm_error_details(code, operation, details)
         }
     }
 }
@@ -637,89 +638,85 @@ fn change_input_error(error: ChangeInputError) -> JsValue {
 }
 
 fn compose_error(error: ComposeError, operation: &'static str) -> JsValue {
+    let code = error.code().as_str();
     match error {
         ComposeError::Apply(error) => apply_error(error, operation),
         ComposeError::IncompatibleKinds { left, right } => wasm_error_details(
-            "incompatible_change",
+            code,
             operation,
             json!({ "reason": "kind_mismatch", "left": left, "right": right }),
         ),
         ComposeError::IncompatibleMapEntry(key) => wasm_error_details(
-            "incompatible_change",
+            code,
             operation,
             json!({ "reason": "map_entry_conflict", "key": key }),
         ),
-        ComposeError::LengthOverflow => wasm_error_details(
-            "incompatible_change",
-            operation,
-            json!({ "reason": "length_overflow" }),
-        ),
-        _ => wasm_error("incompatible_change", operation, error.to_string()),
+        ComposeError::LengthOverflow => {
+            wasm_error_details(code, operation, json!({ "reason": "length_overflow" }))
+        }
+        other => wasm_error(code, operation, other.to_string()),
     }
 }
 
 fn transform_error(error: TransformError, operation: &'static str) -> JsValue {
+    let code = error.code().as_str();
     match error {
         TransformError::IncompatibleKinds { left, right } => wasm_error_details(
-            "incompatible_change",
+            code,
             operation,
             json!({ "reason": "kind_mismatch", "left": left, "right": right }),
         ),
         TransformError::IncompatibleMapEntry(key) => wasm_error_details(
-            "incompatible_change",
+            code,
             operation,
             json!({ "reason": "map_entry_conflict", "key": key }),
         ),
-        TransformError::LengthOverflow => wasm_error_details(
-            "incompatible_change",
-            operation,
-            json!({ "reason": "length_overflow" }),
-        ),
-        _ => wasm_error("incompatible_change", operation, error.to_string()),
+        TransformError::LengthOverflow => {
+            wasm_error_details(code, operation, json!({ "reason": "length_overflow" }))
+        }
+        other => wasm_error(code, operation, other.to_string()),
     }
 }
 
 fn invert_error(error: InvertError, operation: &'static str) -> JsValue {
+    let code = error.code().as_str();
     match error {
         InvertError::Apply(error) => apply_error(error, operation),
-        InvertError::LengthOverflow => wasm_error_details(
-            "incompatible_change",
-            operation,
-            json!({ "reason": "length_overflow" }),
-        ),
-        _ => wasm_error("incompatible_change", operation, error.to_string()),
+        InvertError::LengthOverflow => {
+            wasm_error_details(code, operation, json!({ "reason": "length_overflow" }))
+        }
+        other => wasm_error(code, operation, other.to_string()),
     }
 }
 
 fn apply_error(error: ApplyError, operation: &'static str) -> JsValue {
+    let code = error.code().as_str();
     match error {
         ApplyError::TypeMismatch {
             expected, actual, ..
         } => wasm_error_details(
-            "type_mismatch",
+            code,
             operation,
             json!({ "expected": value_type_name(expected), "actual": value_type_name(actual) }),
         ),
         ApplyError::MissingKey { key, .. } => {
-            wasm_error_details("missing_key", operation, json!({ "key": key }))
+            wasm_error_details(code, operation, json!({ "key": key }))
         }
         ApplyError::ExistingKey { key, .. } => {
-            wasm_error_details("key_already_exists", operation, json!({ "key": key }))
+            wasm_error_details(code, operation, json!({ "key": key }))
         }
         ApplyError::IndexOutOfBounds { index, len, .. } => wasm_error_details(
-            "out_of_bounds",
+            code,
             operation,
             json!({ "target": "list", "length": len, "index": index }),
         ),
         ApplyError::SequenceOutOfBounds { .. } => wasm_error_details(
-            "out_of_bounds",
+            code,
             operation,
             json!({ "target": "sequence", "length": 0 }),
         ),
-        ApplyError::IntegerOverflow { .. } => {
-            wasm_error_details("integer_overflow", operation, json!({}))
-        }
-        _ => wasm_error("invalid_argument", operation, error.to_string()),
+        ApplyError::IntegerOverflow { .. } => wasm_error_details(code, operation, json!({})),
+        other => wasm_error(code, operation, other.to_string()),
     }
 }
 

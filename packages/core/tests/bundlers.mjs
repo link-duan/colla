@@ -5,8 +5,11 @@ import { dirname, join, resolve } from "node:path"
 import { pathToFileURL, fileURLToPath } from "node:url"
 import { execFileSync } from "node:child_process"
 import { createRequire } from "node:module"
+import { test } from "node:test"
 
 const packageDir = resolve(fileURLToPath(new URL("..", import.meta.url)))
+
+test("bundler integration", async () => {
 const packageJson = JSON.parse(await readFile(join(packageDir, "package.json"), "utf8"))
 const fixtureDir = await mkdtemp(join(tmpdir(), "colla-bundlers-"))
 const packageSpec = process.env.COLLA_PACKAGE_SPEC
@@ -135,3 +138,4 @@ try {
 } finally {
   await rm(fixtureDir, { recursive: true, force: true })
 }
+})

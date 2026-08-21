@@ -1,8 +1,8 @@
 # Colla Core Roadmap
 
 This roadmap describes future work only. Released behavior belongs in the
-[changelog](../CHANGELOG.md), while normative behavior belongs in the
-[specifications](README.md#normative-specifications).
+[changelog](../../CHANGELOG.md), while normative behavior belongs in the
+[specifications](../README.md#normative-specifications).
 
 Colla remains focused on foundational OT primitives: Core Value, Change, OT
 algebra, canonical codecs, and the official Rust and JavaScript APIs. Document,
@@ -40,7 +40,7 @@ Planned work:
 
 - complete the human-readable data model, OT, and binary format specifications;
 - publish a versioned conformance corpus and runner contract shared by Rust and
-  JavaScript;
+  JavaScript (see the [conformance corpus plan](conformance.md));
 - freeze public API, error, semantic, and wire-compatibility commitments;
 - confirm supported Rust, Node.js, bundler, and browser baselines at release
   time;
