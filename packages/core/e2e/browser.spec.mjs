@@ -39,6 +39,10 @@ test("runs the public API in a Dedicated Worker", async ({ page }) => {
 
 test("runs the public API in a Shared Worker", async ({ page }) => {
   await page.goto("/")
+  const supportsSharedWorker = await page.evaluate(
+    () => typeof SharedWorker !== "undefined",
+  )
+  test.skip(!supportsSharedWorker, "host does not support SharedWorker")
   const result = await page.evaluate(() => new Promise((resolve, reject) => {
     const worker = new SharedWorker(new URL("/shared-worker.js", location.href), {
       type: "module",
