@@ -1,0 +1,41 @@
+[package]
+name = "colla-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+arbitrary = "1"
+colla = { path = "../crates/colla" }
+
+[[bin]]
+name = "decode_value"
+path = "fuzz_targets/decode_value.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "decode_change"
+path = "fuzz_targets/decode_change.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "ot_algebra"
+path = "fuzz_targets/ot_algebra.rs"
+test = false
+doc = false
+bench = false
+
+[profile.release]
+debug = 1
+
+# Detach the fuzz crate from the main workspace so `cargo test --workspace`
+# never tries to build the nightly-only libFuzzer targets.
+[workspace]

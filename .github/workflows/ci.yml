@@ -89,6 +89,25 @@ jobs:
       - run: pnpm --filter colla-ot exec playwright install --with-deps chromium firefox webkit
       - run: pnpm test:e2e
 
+  fuzz-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: fuzz
+      - run: cargo install cargo-fuzz --version 0.13.2 --locked
+      - run: cargo fuzz run decode_value -- -max_total_time=60
+      - run: cargo fuzz run decode_change -- -max_total_time=60
+      - run: cargo fuzz run ot_algebra -- -max_total_time=60
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: fuzz-artifacts
+          path: fuzz/artifacts
+          if-no-files-found: ignore
+
   quality-baseline:
     runs-on: ubuntu-latest
     steps:
