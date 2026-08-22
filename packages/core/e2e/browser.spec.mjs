@@ -1,5 +1,19 @@
 import { expect, test } from "@playwright/test"
 
+let consoleErrors = []
+
+test.beforeEach(async ({ page }) => {
+  consoleErrors = []
+  page.on("pageerror", error => consoleErrors.push(error.message))
+  page.on("console", message => {
+    if (message.type() === "error") consoleErrors.push(message.text())
+  })
+})
+
+test.afterEach(async () => {
+  expect(consoleErrors).toEqual([])
+})
+
 test("runs the public API on the browser main thread", async ({ page }) => {
   await page.goto("/")
   await expect.poll(() => page.evaluate(() => globalThis.collaResult)).toBe("after")

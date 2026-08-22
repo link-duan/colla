@@ -13,6 +13,7 @@ export default defineConfig({
   testMatch: "browser.spec.mjs",
   outputDir: `${fixtureDir}/test-results`,
   workers: 1,
+  forbidOnly: !!process.env.CI,
   reporter: "line",
   use: {
     baseURL: "http://127.0.0.1:4173",

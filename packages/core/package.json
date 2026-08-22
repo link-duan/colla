@@ -33,12 +33,12 @@
     "prepack": "pnpm build"
   },
   "devDependencies": {
-    "@playwright/test": "1.54.2",
+    "@playwright/test": "1.62.1",
     "@rollup/plugin-node-resolve": "^16.0.1",
     "@types/node": "^24.0.0",
     "rollup": "^4.46.2",
     "typescript": "^5.9.2",
-    "vite": "^5.4.19"
+    "vite": "^8.2.2"
   },
   "license": "MIT"
 }
