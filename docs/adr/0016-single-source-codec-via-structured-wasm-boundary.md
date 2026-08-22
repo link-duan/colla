@@ -50,7 +50,7 @@ TS 退化为**薄 marshaling 层**,不再包含任何 varint / tag / 排序 / �
 
 - wire 格式的单一事实来源 = `codec/mod.rs`;`change_input.rs` 与 TS 的 `ByteWriter`/`ByteReader`
   及全部 `encode*`/`decode*`/`compareUtf8`/`writeAttrs` 删除(约 500+ 行 TS 消失)。
-- conformance corpus 的 `canonicalBytes` 从此只需证明这**一个**实现;跨语言字节分歧面被消除,
+- golden fixtures 的 `canonicalBytes` 从此只需证明这**一个**实现;跨语言字节分歧面被消除,
   而非靠两套实现的差分维持。
 - JS↔wasm 每次构造多一次边界穿越(此前是纯 TS 编码),以正确性与可维护性换取少量性能;对 1.0
   地基是正确取舍。
@@ -61,4 +61,4 @@ TS 退化为**薄 marshaling 层**,不再包含任何 varint / tag / 排序 / �
   `limit_exceeded.name` 对所有入口**双射且稳定**（`value depth`/`change depth` 合并为 `depth`，
   `text bytes` 并入 `string bytes`，命名基准 = 权威 decoder）。同时修复 `Value.fromJS` 对 richText **值**
   漏检 `max_sequence_len` 的防护缺口。命名表见 `docs/binary-format.md §6`。
-- 既有 Rust 与 JS 测试、corpus runner 作为回归 oracle:行为保持不变则全绿。
+- 既有 Rust 与 JS 测试、golden fixtures 作为回归 oracle:行为保持不变则全绿。

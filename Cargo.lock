@@ -126,15 +126,8 @@ version = "0.2.0"
 dependencies = [
  "criterion",
  "proptest",
- "thiserror",
-]
-
-[[package]]
-name = "colla-conformance"
-version = "0.2.0"
-dependencies = [
- "colla",
  "serde_json",
+ "thiserror",
 ]
 
 [[package]]

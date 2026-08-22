@@ -48,20 +48,21 @@ _Avoid_: Normal-looking form
 Canonical form，不因编码唯一就自动成立。
 _Avoid_: Canonical encoding
 
-**Conformance corpus**:
-版本化的规范输入、输出、规范字节和错误 fixtures，用于验证不同 Colla 实现遵守
-同一数据模型与 OT 语义。
-_Avoid_: Unit test snapshots
+**Golden fixtures**:
+语言中立的固定回归用例，锁定 Colla 的规范输入、输出、规范字节和稳定错误
+分类；`colla` reference implementation 与 `colla-ot` facade 共享同一份用例验证自身，
+它们是回归证据而非规范性定义，也不是不同独立实现之间的差分证明。
+_Avoid_: Conformance corpus, executable specification
 
-**Conformance fixture**:
-Conformance corpus 中的单个版本化用例，用语言中立表示描述输入及其期望的输出、
+**Golden fixture**:
+Golden fixtures 中的单个用例，用语言中立表示描述输入及其固定期望的输出、
 规范字节或稳定错误分类；它不是 Change 的规范内存表示、wire format 或构造用的
 Change Input。
-_Avoid_: Change Input, serialized Change, Change View
+_Avoid_: Conformance fixture, serialized Change, Change View
 
 **Error code**:
 跨实现稳定的错误分类（如 `type_mismatch`、`out_of_bounds`），由核心 `ErrorCode`
-拥有，供 conformance fixture 与跨语言契约断言；区别于各实现内部的富错误枚举。
+拥有，供 golden fixture 与跨语言契约断言；区别于各实现内部的富错误枚举。
 _Avoid_: error kind, error variant
 
 **String**:

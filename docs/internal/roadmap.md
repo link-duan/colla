@@ -19,7 +19,7 @@ Planned work:
 
 - refine Rust and JavaScript APIs based on real consumption, documenting all
   breaking changes and migrations;
-- expand property, malformed-input, fuzz, and cross-language conformance tests;
+- expand property, malformed-input, fuzz, and shared golden fixture coverage;
 - run Chromium, Firefox, and WebKit coverage for main-thread and Worker package
   entry points where the host supports them;
 - verify long-running memory behavior, explicit disposal, clone independence,
@@ -39,8 +39,10 @@ real-world API feedback are sufficient.
 Planned work:
 
 - complete the human-readable data model, OT, and binary format specifications;
-- publish a versioned conformance corpus and runner contract shared by Rust and
-  JavaScript (see the [conformance corpus plan](conformance.md));
+- maintain reviewed, versioned golden fixtures for canonical bytes, core
+  semantics, and public facade behavior, consumed from both the Rust reference
+  implementation and the JavaScript facade (see the
+  [golden fixtures design](golden-tests.md));
 - freeze public API, error, semantic, and wire-compatibility commitments;
 - confirm supported Rust, Node.js, bundler, and browser baselines at release
   time;

@@ -34,8 +34,8 @@ override the specifications.
 ## Project operations
 
 - [Roadmap](internal/roadmap.md) — future 0.2 hardening and 1.0 stability work.
-- [Conformance corpus plan](internal/conformance.md) — planned fixture format,
-  error taxonomy, and runner contract for the shared Rust/JavaScript corpus.
+- [Golden fixtures design](internal/golden-tests.md) — fixture format,
+  error taxonomy, and how both sides consume the shared golden fixtures.
 - [Coordinated release runbook](internal/releasing.md) — publishing the Rust
   crate and npm package from one version and tag.
 - [Changelog](../CHANGELOG.md) — released history and current public changes.
@@ -51,11 +51,11 @@ Accepted decisions:
 - [ADR-0007: One Wasm artifact provides synchronous cross-runtime entry points](adr/0007-synchronous-cross-runtime-wasm-package.md)
 - [ADR-0008: Release artifacts are the workspace acceptance boundary](adr/0008-workspace-testing-and-coordinated-release.md)
 - [ADR-0009: Pre-1.0 compatibility is promised within patch lines](adr/0009-pre-1.0-compatibility-policy.md)
-- [ADR-0010: Written specifications and conformance fixtures define the 1.0 contract](adr/0010-normative-specification-and-conformance.md)
+- [ADR-0010: Written specifications define the 1.0 contract; golden tests provide regression evidence](adr/0010-normative-specification-and-golden-tests.md)
 - [ADR-0011: RichText logical spans are separate from indexed storage](adr/0011-richtext-logical-spans-and-indexed-storage.md)
 - [ADR-0012: JavaScript Change uses Snapshot-independent typed construction](adr/0012-snapshot-independent-change-construction.md)
 - [ADR-0013: Change construction and Snapshot projection use distinct coordinates](adr/0013-change-and-projection-coordinates.md)
-- [ADR-0014: Conformance corpus uses a neutral tagged representation and unified error codes](adr/0014-conformance-corpus-format-and-runner-contract.md)
+- [ADR-0014: Golden fixtures use a neutral tagged representation and unified error codes](adr/0014-golden-fixtures-format-and-error-codes.md)
 - [ADR-0015: The core crate owns the ErrorCode classification; the TS type is maintained separately](adr/0015-error-code-classification.md)
 - [ADR-0016: The wire codec has a single implementation; the wasm boundary is structured and Rust owns encode/decode](adr/0016-single-source-codec-via-structured-wasm-boundary.md)
 

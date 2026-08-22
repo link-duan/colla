@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/colla", "crates/colla-wasm", "conformance/runners/rust"]
+members = ["crates/colla", "crates/colla-wasm"]
 default-members = ["crates/colla"]
 
 [workspace.package]

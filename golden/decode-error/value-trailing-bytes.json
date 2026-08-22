@@ -1,0 +1,6 @@
+{
+  "note": "A complete Value followed by extra bytes is rejected.",
+  "target": "value",
+  "inputBytes": "035300",
+  "expectError": { "code": "invalid_encoding", "reason": "trailing bytes" }
+}

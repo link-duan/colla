@@ -1,9 +1,0 @@
-{
-  "id": "apply/error-missing-key",
-  "kind": "apply",
-  "corpusVersion": 1,
-  "note": "Modifying an absent Map key fails with missing_key.",
-  "snapshot": { "map": { "a": { "int": "1" } } },
-  "change": { "map": { "b": { "modify": { "int": { "add": "1" } } } } },
-  "expectError": { "code": "missing_key" }
-}

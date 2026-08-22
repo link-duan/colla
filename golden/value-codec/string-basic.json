@@ -1,0 +1,5 @@
+{
+  "note": "Atomic String, distinct from Text at the type level.",
+  "value": { "string": "abc" },
+  "canonicalBytes": "0503616263"
+}

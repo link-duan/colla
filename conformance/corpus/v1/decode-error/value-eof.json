@@ -1,9 +1,0 @@
-{
-  "id": "decode-error/value-eof",
-  "kind": "decode-error",
-  "corpusVersion": 1,
-  "note": "String tag with length 3 but a truncated body is rejected.",
-  "target": "value",
-  "inputBytes": "050361",
-  "expectError": { "code": "invalid_encoding", "reason": "unexpected end of input" }
-}

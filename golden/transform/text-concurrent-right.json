@@ -1,0 +1,11 @@
+{
+  "note": "Concurrent inserts at the same position, right tie-break.",
+  "base": { "text": "ab" },
+  "changeA": { "text": [{ "insert": "X" }] },
+  "changeB": { "text": [{ "insert": "Y" }] },
+  "side": "right",
+  "expect": {
+    "aPrime": { "text": [{ "retain": 1 }, { "insert": "X" }] },
+    "bPrime": { "text": [{ "insert": "Y" }] }
+  }
+}

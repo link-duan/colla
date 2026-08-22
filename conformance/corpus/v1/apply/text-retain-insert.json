@@ -1,9 +1,0 @@
-{
-  "id": "apply/text-retain-insert",
-  "kind": "apply",
-  "corpusVersion": 1,
-  "note": "Retain then insert into Text.",
-  "snapshot": { "text": "ab" },
-  "change": { "text": [{ "retain": 1 }, { "insert": "X" }] },
-  "expect": { "value": { "text": "aXb" } }
-}

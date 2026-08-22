@@ -1,0 +1,6 @@
+{
+  "note": "Retain, delete, then insert in a List.",
+  "snapshot": { "list": [{ "int": "1" }, { "int": "2" }] },
+  "change": { "list": [{ "retain": 1 }, { "delete": 1 }, { "insert": [{ "int": "9" }] }] },
+  "expect": { "value": { "list": [{ "int": "1" }, { "int": "9" }] } }
+}

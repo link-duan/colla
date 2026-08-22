@@ -8,7 +8,7 @@ macro_rules! error_codes {
     ($($variant:ident => $repr:literal),+ $(,)?) => {
         /// Stable, cross-implementation classification of a Colla error.
         ///
-        /// This is the single source of truth for the conformance corpus and the
+        /// This is the single source of truth for the golden fixtures and the
         /// JavaScript facade: every error's `.code()` folds its rich variants into one
         /// of these codes. The enum is `#[non_exhaustive]` so new codes can be added
         /// without breaking downstream matches.

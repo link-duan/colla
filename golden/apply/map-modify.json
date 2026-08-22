@@ -1,0 +1,6 @@
+{
+  "note": "Recursively modify a Map entry with an Int add.",
+  "snapshot": { "map": { "n": { "int": "1" } } },
+  "change": { "map": { "n": { "modify": { "int": { "add": "5" } } } } },
+  "expect": { "value": { "map": { "n": { "int": "6" } } } }
+}

@@ -142,7 +142,7 @@ type ErrorPayload = {
  * Stable, cross-implementation error classification.
  *
  * The first group mirrors the `colla` core crate's `ErrorCode` (the single source
- * of truth, asserted by the conformance corpus). The trailing codes are produced
+ * of truth, asserted by the golden fixtures). The trailing codes are produced
  * only by this JavaScript facade: `invalid_state` for operations on a disposed or
  * consumed handle, `invalid_argument` for malformed JavaScript input, and
  * `invalid_utf16_boundary` for UTF-16 position conversions. Maintained by hand to
