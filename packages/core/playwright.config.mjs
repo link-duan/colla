@@ -1,8 +1,11 @@
 import { defineConfig } from "@playwright/test"
+import { readFileSync } from "node:fs"
+import { join } from "node:path"
 
-const fixtureDir = process.env.COLLA_E2E_FIXTURE_DIR
-if (fixtureDir === undefined) {
-  throw new Error("COLLA_E2E_FIXTURE_DIR is required; run pnpm test:e2e")
+const pointerFile = join(import.meta.dirname, "e2e/.fixture-dir")
+const fixtureDir = readFileSync(pointerFile, "utf8").trim()
+if (fixtureDir === "") {
+  throw new Error("fixture dir is empty; run pnpm test:e2e")
 }
 
 export default defineConfig({

@@ -4,3 +4,5 @@ node_modules/
 packages/core/dist/
 packages/core/src/internal/
 packages/core/*.tgz
+packages/core/e2e/.fixture-dir
+.pi/remote-pi

@@ -12,8 +12,10 @@ import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 
 const packageDir = resolve(import.meta.dirname, "..")
+const pointerFile = join(import.meta.dirname, ".fixture-dir")
 const temporaryRoot = await realpath(tmpdir())
 const fixtureDir = await mkdtemp(join(temporaryRoot, "colla-browser-e2e-"))
+await writeFile(pointerFile, fixtureDir)
 const packageSpec = process.env.COLLA_PACKAGE_SPEC
 
 const tracer = `
@@ -85,9 +87,9 @@ try {
 
   execFileSync("pnpm", ["exec", "playwright", "test", "--config", "playwright.config.mjs"], {
     cwd: packageDir,
-    env: { ...process.env, COLLA_E2E_FIXTURE_DIR: fixtureDir },
     stdio: "inherit",
   })
 } finally {
   await rm(fixtureDir, { recursive: true, force: true })
+  await rm(pointerFile, { force: true })
 }
