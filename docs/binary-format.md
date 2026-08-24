@@ -8,6 +8,10 @@
 本文只定义 Value 与 Change 的规范 body。magic、版本、CRC、压缩、消息类型和
 业务元数据属于调用方信封，不在核心 codec 中。
 
+字节机制（varint、zigzag、字符串、浮点、tag 派发、canonical 排序、结构性 DoS 界限）
+由 [`cocodec`](https://crates.io/crates/cocodec) 提供；本文定义 colla 领域类型到其上的
+tag 映射与解码约束。
+
 ## 1. 目标
 
 - 每个规范内存值只有一个合法字节序列。
@@ -21,7 +25,8 @@
 在 wire 中为 u64，decoder 必须检查可转换为当前平台 usize 并满足 InputLimits。
 
 字符串编码为 UTF-8 字节长度 varint，随后是原始 UTF-8。Float 固定使用 8
-字节 IEEE-754 little-endian；NaN、Infinity 和负零必须拒绝。
+字节 IEEE-754 little-endian，**原样双射**：NaN 与 Infinity 在构造为 `FiniteF64` 时被拒绝，
+负零在解码时被规范化为正零（不再拒绝）。bool 编码为单字节 `00`/`01`。
 
 Map、MapChange、Attrs、AttrPatch 的 key 必须按 Rust 字符串字典序严格递增，
 重复或乱序均为非规范编码。
@@ -29,15 +34,14 @@ Map、MapChange、Attrs、AttrPatch 的 key 必须按 Rust 字符串字典序严
 ## 3. Value tag
 
     00 Null
-    01 Bool(false)
-    02 Bool(true)
-    03 Int(zigzag varint)
-    04 Float(f64 little-endian)
-    05 String(utf8 string)
-    06 Text(utf8 string)
-    07 RichText(span count + spans)
-    08 List(count + Value*)
-    09 Map(count + (string + Value)*)
+    01 Bool(bool 单字节 00/01)
+    02 Int(zigzag varint)
+    03 Float(f64 little-endian)
+    04 String(utf8 string)
+    05 Text(utf8 string)
+    06 RichText(span count + spans)
+    07 List(count + Value*)
+    08 Map(count + (string + Value)*)
 
 RichText span tag：00 Text(string + Attrs)，01 Embed(Value + Attrs)。Attrs 是
 无 tag 的 `(count + key + AttrValue)*`。AttrValue tag：00 false、01 true、
@@ -63,14 +67,21 @@ AttrPatch 是 `(count + key + AttrChange)*`。AttrChange tag：00 Set(AttrValue)
 
 ## 5. 严格规范检查
 
-decoder 必须拒绝：非最短 varint、非法 UTF-8、未知 tag、尾随字节、乱序或重复
-key、零长度 Retain/Delete、空 Insert、相邻可合并 op、尾部纯 Retain、空类型化
-Change、Modify(Noop)、IntAdd(0)、非有限或负零 Float，以及任何 InputLimits 超限。
+解码是**结构性**的：decoder 强制的是**字节 canonical**，不再强制**语义 canonical**。
 
-RichText Snapshot 是唯一宽容例外：decoder 接受空 Text span 和属性相同的相邻 Text
-span，并在内存构造时删除或合并；重新编码产生规范 bytes。RichText Change 和其他
-Value/Change 编码仍严格拒绝非规范形式。构造 API 可以接收可规范化的操作流，但
-encoder 的输入始终已经规范。
+decoder 必须拒绝（字节 canonical，由 cocodec 保证）：非最短 varint、非法 UTF-8、
+未知 tag、尾随字节、乱序或重复 key、非 `00`/`01` 的 bool、非有限 Float、深度超限，
+以及长度前缀超过剩余输入。
+
+decoder **不再**在解码期拒绝**语义**非规范形式（零长度 Retain/Delete、空 Insert、
+相邻可合并 op、尾部纯 Retain、空类型化 Change、Modify(Noop)、IntAdd(0)、负零）。
+这些属语义规范化，由构造 API（`from_ops`/`from_entries`/`from_spans` 等）与
+上层 `normalize` 负责；encoder 的输入始终已规范，故正常路径产出的字节仍唯一。
+
+RichText 仍在解码时经 `RichText::from_spans` 合并属性相同的相邻 span、接受空 Text span，
+重新编码产生规范 bytes。
+
+InputLimits 作为**解码后**资源预算施加于解出的值（`check_input_limits`），与字节机制解耦。
 
 ## 6. API
 
