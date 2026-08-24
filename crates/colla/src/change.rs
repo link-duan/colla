@@ -21,25 +21,30 @@ pub enum TieBreak {
 }
 
 /// A checked integer addition Change.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, cocodec::Encode, cocodec::Decode)]
 pub enum IntChange {
     /// Adds the signed delta to an Int Snapshot.
+    #[cocodec(tag = 0)]
     Add(i64),
 }
 
 /// A Change applied to one Map entry.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, cocodec::Encode, cocodec::Decode)]
 pub enum MapEntryChange {
     /// Inserts a key that is absent from the base Map.
+    #[cocodec(tag = 0)]
     Insert(Value),
     /// Deletes a key that is present in the base Map.
+    #[cocodec(tag = 1)]
     Delete,
     /// Recursively modifies a key that is present in the base Map.
+    #[cocodec(tag = 2)]
     Modify(Change),
 }
 
 /// A canonical set of unique Map entry Changes.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, cocodec::Encode, cocodec::Decode)]
+#[cocodec(transparent)]
 pub struct MapChange(Arc<BTreeMap<String, MapEntryChange>>);
 
 impl Hash for MapChange {
@@ -91,20 +96,25 @@ impl MapChange {
 }
 
 /// An operation in a List Change stream.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, cocodec::Encode, cocodec::Decode)]
 pub enum ListOp {
     /// Retains this many base elements unchanged.
+    #[cocodec(tag = 0)]
     Retain(usize),
     /// Inserts Values at the current position.
+    #[cocodec(tag = 1)]
     Insert(Vec<Value>),
     /// Deletes this many base elements.
+    #[cocodec(tag = 2)]
     Delete(usize),
     /// Recursively modifies the next base element and consumes one element.
+    #[cocodec(tag = 3)]
     Modify(Change),
 }
 
 /// A canonical List operation stream.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash, cocodec::Encode, cocodec::Decode)]
+#[cocodec(transparent)]
 pub struct ListChange(Arc<Vec<ListOp>>);
 
 impl ListChange {
@@ -121,9 +131,6 @@ impl ListChange {
         validate_list_lengths(&ops)?;
         Ok(Self(Arc::new(ops)))
     }
-    pub(crate) fn from_canonical(ops: Vec<ListOp>) -> Self {
-        Self(Arc::new(ops))
-    }
     /// Returns the canonical operations.
     pub fn ops(&self) -> &[ListOp] {
         &self.0
@@ -137,18 +144,22 @@ impl ListChange {
 /// An operation in a Text Change stream.
 ///
 /// Retain and Delete lengths count Unicode scalar values.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, cocodec::Encode, cocodec::Decode)]
 pub enum TextOp {
     /// Retains this many Unicode scalars unchanged.
+    #[cocodec(tag = 0)]
     Retain(usize),
     /// Inserts UTF-8 text at the current position.
+    #[cocodec(tag = 1)]
     Insert(String),
     /// Deletes this many Unicode scalars from the base Text.
+    #[cocodec(tag = 2)]
     Delete(usize),
 }
 
 /// A canonical Text operation stream.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash, cocodec::Encode, cocodec::Decode)]
+#[cocodec(transparent)]
 pub struct TextChange(Arc<Vec<TextOp>>);
 
 impl TextChange {
@@ -178,9 +189,6 @@ impl TextChange {
         validate_text_lengths(&ops)?;
         Ok(Self(Arc::new(ops)))
     }
-    pub(crate) fn from_canonical(ops: Vec<TextOp>) -> Self {
-        Self(Arc::new(ops))
-    }
     /// Returns the canonical operations.
     pub fn ops(&self) -> &[TextOp] {
         &self.0
@@ -193,9 +201,10 @@ impl TextChange {
 
 /// A rich-text retain keeps `len` sequence units and applies `attrs` to each
 /// retained character or embed. An empty patch is a plain retain.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, cocodec::Encode, cocodec::Decode)]
 pub enum RichTextOp {
     /// Retains content and applies `attrs` to every retained scalar or embed.
+    #[cocodec(tag = 0)]
     Retain {
         /// Logical length in Unicode scalars and atomic embeds.
         len: usize,
@@ -203,6 +212,7 @@ pub enum RichTextOp {
         attrs: AttrPatch,
     },
     /// Inserts text or one atomic embed with the supplied attributes.
+    #[cocodec(tag = 1)]
     Insert {
         /// Text or embed content.
         content: RichContent,
@@ -210,11 +220,13 @@ pub enum RichTextOp {
         attrs: Attrs,
     },
     /// Deletes this many Unicode scalars or atomic embeds.
+    #[cocodec(tag = 2)]
     Delete(usize),
 }
 
 /// A canonical RichText operation stream.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash, cocodec::Encode, cocodec::Decode)]
+#[cocodec(transparent)]
 pub struct RichTextChange(Arc<Vec<RichTextOp>>);
 
 impl RichTextChange {
@@ -230,9 +242,6 @@ impl RichTextChange {
         validate_rich_text_lengths(&ops)?;
         Ok(Self(Arc::new(ops)))
     }
-    pub(crate) fn from_canonical(ops: Vec<RichTextOp>) -> Self {
-        Self(Arc::new(ops))
-    }
     /// Returns the canonical operations.
     pub fn ops(&self) -> &[RichTextOp] {
         &self.0
@@ -243,23 +252,30 @@ impl RichTextChange {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 /// The closed recursive operation model. Values are observed through
 /// `Change::kind`; construction goes through canonical constructors.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, cocodec::Encode, cocodec::Decode)]
 pub enum ChangeKind {
     /// Identity Change.
+    #[cocodec(tag = 0)]
     Noop,
     /// Replaces the complete target Value, including its type.
+    #[cocodec(tag = 1)]
     Replace(Value),
     /// Changes Map entries.
+    #[cocodec(tag = 2)]
     Map(MapChange),
     /// Changes a List sequence.
+    #[cocodec(tag = 3)]
     List(ListChange),
     /// Changes collaborative Text.
+    #[cocodec(tag = 4)]
     Text(TextChange),
     /// Changes RichText content and attributes.
+    #[cocodec(tag = 5)]
     RichText(RichTextChange),
     /// Changes an Int with checked addition.
+    #[cocodec(tag = 6)]
     Int(IntChange),
 }
 
@@ -267,7 +283,8 @@ pub enum ChangeKind {
 ///
 /// Construction itself is Snapshot-independent. Compatibility with a concrete
 /// Snapshot is checked by [`crate::apply`].
-#[derive(Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, PartialEq, Eq, Hash, cocodec::Encode, cocodec::Decode)]
+#[cocodec(transparent)]
 pub struct Change(Arc<ChangeKind>);
 
 impl std::fmt::Debug for Change {

@@ -13,6 +13,7 @@ name = "ot_bench"
 harness = false
 
 [dependencies]
+cocodec = { path = "../../../cocodec/crates/cocodec" }
 thiserror = "2"
 
 [dev-dependencies]

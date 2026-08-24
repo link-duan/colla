@@ -39,10 +39,29 @@ impl fmt::Debug for FiniteF64 {
     }
 }
 
+impl cocodec::Encode for FiniteF64 {
+    fn encode<W: cocodec::Write>(&self, w: &mut W) -> Result<(), cocodec::Error> {
+        cocodec::WriteExt::write_f64(w, self.get())
+    }
+}
+
+impl cocodec::Decode for FiniteF64 {
+    fn decode<R: cocodec::Read>(d: &mut cocodec::Decoder<R>) -> Result<Self, cocodec::Error> {
+        let offset = cocodec::Decoder::offset(d);
+        let value = d.f64()?;
+        // FiniteF64::new rejects non-finite and normalizes -0.0 -> +0.0.
+        FiniteF64::new(value).map_err(|_| cocodec::Error::NonCanonical {
+            offset,
+            reason: "non-finite float",
+        })
+    }
+}
+
 /// Collaborative text addressed by Unicode scalar positions.
 ///
 /// Unlike an atomic String Value, Text supports character-level OT.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, cocodec::Encode, cocodec::Decode)]
+#[cocodec(transparent)]
 pub struct Text(Arc<str>);
 
 impl Text {
@@ -68,7 +87,8 @@ impl Text {
 }
 
 /// An immutable ordered collection of Values.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, cocodec::Encode, cocodec::Decode)]
+#[cocodec(transparent)]
 pub struct List(Arc<Vec<Value>>);
 
 impl List {
@@ -99,7 +119,8 @@ impl List {
 }
 
 /// An immutable map from unique string keys to Values.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, cocodec::Encode, cocodec::Decode)]
+#[cocodec(transparent)]
 pub struct Map(Arc<BTreeMap<String, Value>>);
 
 impl Hash for Map {
@@ -181,32 +202,42 @@ pub enum ValueType {
 }
 
 /// The closed recursive content model stored by [`Value`].
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, cocodec::Encode, cocodec::Decode)]
 pub enum ValueKind {
     /// Null value.
+    #[cocodec(tag = 0)]
     Null,
     /// Boolean value.
+    #[cocodec(tag = 1)]
     Bool(bool),
     /// Signed 64-bit integer value.
+    #[cocodec(tag = 2)]
     Int(i64),
     /// Canonical finite floating-point value.
+    #[cocodec(tag = 3)]
     Float(FiniteF64),
     /// Atomic UTF-8 string value.
+    #[cocodec(tag = 4)]
     String(Arc<str>),
     /// Collaborative text value.
+    #[cocodec(tag = 5)]
     Text(Text),
     /// Collaborative RichText value.
+    #[cocodec(tag = 6)]
     RichText(RichText),
     /// Ordered List value.
+    #[cocodec(tag = 7)]
     List(List),
     /// String-keyed Map value.
+    #[cocodec(tag = 8)]
     Map(Map),
 }
 
 /// An immutable, structurally shared Core Value.
 ///
 /// A Value may be used as a complete Snapshot or nested inside another Value.
-#[derive(Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, PartialEq, Eq, Hash, cocodec::Encode, cocodec::Decode)]
+#[cocodec(transparent)]
 pub struct Value(Arc<ValueKind>);
 
 impl fmt::Debug for Value {

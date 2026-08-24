@@ -121,9 +121,26 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c8d4a3bb8b1e0c1050499d1815f5ab16d04f0959b233085fb31653fbfc9d98f9"
 
 [[package]]
+name = "cocodec"
+version = "0.1.0"
+dependencies = [
+ "cocodec-derive",
+]
+
+[[package]]
+name = "cocodec-derive"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+]
+
+[[package]]
 name = "colla"
 version = "0.2.0"
 dependencies = [
+ "cocodec",
  "criterion",
  "proptest",
  "serde_json",
