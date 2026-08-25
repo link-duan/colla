@@ -5,8 +5,7 @@ use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 use crate::attrs::{AttrPatch, Attrs};
-use crate::error::{CodecError, ValueError};
-use crate::input_limits::InputLimits;
+use crate::error::ValueError;
 use crate::richtext::RichContent;
 use crate::value::Value;
 
@@ -21,25 +20,30 @@ pub enum TieBreak {
 }
 
 /// A checked integer addition Change.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, cocodec::Encode, cocodec::Decode)]
 pub enum IntChange {
     /// Adds the signed delta to an Int Snapshot.
+    #[cocodec(tag = 0)]
     Add(i64),
 }
 
 /// A Change applied to one Map entry.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, cocodec::Encode, cocodec::Decode)]
 pub enum MapEntryChange {
     /// Inserts a key that is absent from the base Map.
+    #[cocodec(tag = 0)]
     Insert(Value),
     /// Deletes a key that is present in the base Map.
+    #[cocodec(tag = 1)]
     Delete,
     /// Recursively modifies a key that is present in the base Map.
+    #[cocodec(tag = 2)]
     Modify(Change),
 }
 
 /// A canonical set of unique Map entry Changes.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, cocodec::Encode, cocodec::Decode)]
+#[cocodec(transparent)]
 pub struct MapChange(Arc<BTreeMap<String, MapEntryChange>>);
 
 impl Hash for MapChange {
@@ -91,20 +95,25 @@ impl MapChange {
 }
 
 /// An operation in a List Change stream.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, cocodec::Encode, cocodec::Decode)]
 pub enum ListOp {
     /// Retains this many base elements unchanged.
+    #[cocodec(tag = 0)]
     Retain(usize),
     /// Inserts Values at the current position.
+    #[cocodec(tag = 1)]
     Insert(Vec<Value>),
     /// Deletes this many base elements.
+    #[cocodec(tag = 2)]
     Delete(usize),
     /// Recursively modifies the next base element and consumes one element.
+    #[cocodec(tag = 3)]
     Modify(Change),
 }
 
 /// A canonical List operation stream.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash, cocodec::Encode, cocodec::Decode)]
+#[cocodec(transparent)]
 pub struct ListChange(Arc<Vec<ListOp>>);
 
 impl ListChange {
@@ -121,9 +130,6 @@ impl ListChange {
         validate_list_lengths(&ops)?;
         Ok(Self(Arc::new(ops)))
     }
-    pub(crate) fn from_canonical(ops: Vec<ListOp>) -> Self {
-        Self(Arc::new(ops))
-    }
     /// Returns the canonical operations.
     pub fn ops(&self) -> &[ListOp] {
         &self.0
@@ -137,18 +143,22 @@ impl ListChange {
 /// An operation in a Text Change stream.
 ///
 /// Retain and Delete lengths count Unicode scalar values.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, cocodec::Encode, cocodec::Decode)]
 pub enum TextOp {
     /// Retains this many Unicode scalars unchanged.
+    #[cocodec(tag = 0)]
     Retain(usize),
     /// Inserts UTF-8 text at the current position.
+    #[cocodec(tag = 1)]
     Insert(String),
     /// Deletes this many Unicode scalars from the base Text.
+    #[cocodec(tag = 2)]
     Delete(usize),
 }
 
 /// A canonical Text operation stream.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash, cocodec::Encode, cocodec::Decode)]
+#[cocodec(transparent)]
 pub struct TextChange(Arc<Vec<TextOp>>);
 
 impl TextChange {
@@ -178,9 +188,6 @@ impl TextChange {
         validate_text_lengths(&ops)?;
         Ok(Self(Arc::new(ops)))
     }
-    pub(crate) fn from_canonical(ops: Vec<TextOp>) -> Self {
-        Self(Arc::new(ops))
-    }
     /// Returns the canonical operations.
     pub fn ops(&self) -> &[TextOp] {
         &self.0
@@ -193,9 +200,10 @@ impl TextChange {
 
 /// A rich-text retain keeps `len` sequence units and applies `attrs` to each
 /// retained character or embed. An empty patch is a plain retain.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, cocodec::Encode, cocodec::Decode)]
 pub enum RichTextOp {
     /// Retains content and applies `attrs` to every retained scalar or embed.
+    #[cocodec(tag = 0)]
     Retain {
         /// Logical length in Unicode scalars and atomic embeds.
         len: usize,
@@ -203,6 +211,7 @@ pub enum RichTextOp {
         attrs: AttrPatch,
     },
     /// Inserts text or one atomic embed with the supplied attributes.
+    #[cocodec(tag = 1)]
     Insert {
         /// Text or embed content.
         content: RichContent,
@@ -210,11 +219,13 @@ pub enum RichTextOp {
         attrs: Attrs,
     },
     /// Deletes this many Unicode scalars or atomic embeds.
+    #[cocodec(tag = 2)]
     Delete(usize),
 }
 
 /// A canonical RichText operation stream.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash, cocodec::Encode, cocodec::Decode)]
+#[cocodec(transparent)]
 pub struct RichTextChange(Arc<Vec<RichTextOp>>);
 
 impl RichTextChange {
@@ -230,9 +241,6 @@ impl RichTextChange {
         validate_rich_text_lengths(&ops)?;
         Ok(Self(Arc::new(ops)))
     }
-    pub(crate) fn from_canonical(ops: Vec<RichTextOp>) -> Self {
-        Self(Arc::new(ops))
-    }
     /// Returns the canonical operations.
     pub fn ops(&self) -> &[RichTextOp] {
         &self.0
@@ -243,23 +251,30 @@ impl RichTextChange {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 /// The closed recursive operation model. Values are observed through
 /// `Change::kind`; construction goes through canonical constructors.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, cocodec::Encode, cocodec::Decode)]
 pub enum ChangeKind {
     /// Identity Change.
+    #[cocodec(tag = 0)]
     Noop,
     /// Replaces the complete target Value, including its type.
+    #[cocodec(tag = 1)]
     Replace(Value),
     /// Changes Map entries.
+    #[cocodec(tag = 2)]
     Map(MapChange),
     /// Changes a List sequence.
+    #[cocodec(tag = 3)]
     List(ListChange),
     /// Changes collaborative Text.
+    #[cocodec(tag = 4)]
     Text(TextChange),
     /// Changes RichText content and attributes.
+    #[cocodec(tag = 5)]
     RichText(RichTextChange),
     /// Changes an Int with checked addition.
+    #[cocodec(tag = 6)]
     Int(IntChange),
 }
 
@@ -267,7 +282,8 @@ pub enum ChangeKind {
 ///
 /// Construction itself is Snapshot-independent. Compatibility with a concrete
 /// Snapshot is checked by [`crate::apply`].
-#[derive(Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, PartialEq, Eq, Hash, cocodec::Encode, cocodec::Decode)]
+#[cocodec(transparent)]
 pub struct Change(Arc<ChangeKind>);
 
 impl std::fmt::Debug for Change {
@@ -309,114 +325,6 @@ impl Change {
             ChangeKind::RichText(_) => "RichText",
             ChangeKind::Int(_) => "Int",
         }
-    }
-    pub(crate) fn check_input_limits(&self, limits: &InputLimits) -> Result<(), CodecError> {
-        let mut stack = vec![(self, 1usize)];
-        let mut nodes = 0usize;
-        while let Some((change, depth)) = stack.pop() {
-            nodes += 1;
-            check_limit("change nodes", nodes, limits.max_change_nodes)?;
-            check_limit("depth", depth, limits.max_depth)?;
-            match change.kind() {
-                ChangeKind::Noop | ChangeKind::Int(_) => {}
-                ChangeKind::Replace(value) => value.check_input_limits(limits)?,
-                ChangeKind::Map(map) => {
-                    check_limit("container length", map.len(), limits.max_container_len)?;
-                    for (key, entry) in map.iter() {
-                        check_limit("string bytes", key.len(), limits.max_string_bytes)?;
-                        match entry {
-                            MapEntryChange::Insert(value) => value.check_input_limits(limits)?,
-                            MapEntryChange::Delete => {}
-                            MapEntryChange::Modify(child) => stack.push((child, depth + 1)),
-                        }
-                    }
-                }
-                ChangeKind::List(list) => {
-                    check_limit("sequence ops", list.ops().len(), limits.max_sequence_ops)?;
-                    let mut input_len = 0usize;
-                    let mut output_len = 0usize;
-                    for op in list.ops() {
-                        match op {
-                            ListOp::Insert(values) => {
-                                check_limit(
-                                    "container length",
-                                    values.len(),
-                                    limits.max_container_len,
-                                )?;
-                                for value in values {
-                                    value.check_input_limits(limits)?;
-                                }
-                                output_len = add_len(output_len, values.len(), limits)?;
-                            }
-                            ListOp::Modify(child) => {
-                                input_len = add_len(input_len, 1, limits)?;
-                                output_len = add_len(output_len, 1, limits)?;
-                                stack.push((child, depth + 1));
-                            }
-                            ListOp::Retain(len) => {
-                                input_len = add_len(input_len, *len, limits)?;
-                                output_len = add_len(output_len, *len, limits)?;
-                            }
-                            ListOp::Delete(len) => {
-                                input_len = add_len(input_len, *len, limits)?;
-                            }
-                        }
-                    }
-                }
-                ChangeKind::Text(text) => {
-                    check_limit("sequence ops", text.ops().len(), limits.max_sequence_ops)?;
-                    let mut input_len = 0usize;
-                    let mut output_len = 0usize;
-                    for op in text.ops() {
-                        match op {
-                            TextOp::Insert(value) => {
-                                check_limit("string bytes", value.len(), limits.max_string_bytes)?;
-                                output_len = add_len(output_len, value.chars().count(), limits)?;
-                            }
-                            TextOp::Retain(len) => {
-                                input_len = add_len(input_len, *len, limits)?;
-                                output_len = add_len(output_len, *len, limits)?;
-                            }
-                            TextOp::Delete(len) => {
-                                input_len = add_len(input_len, *len, limits)?;
-                            }
-                        }
-                    }
-                }
-                ChangeKind::RichText(rich) => {
-                    check_limit("sequence ops", rich.ops().len(), limits.max_sequence_ops)?;
-                    let mut input_len = 0usize;
-                    let mut output_len = 0usize;
-                    for op in rich.ops() {
-                        match op {
-                            RichTextOp::Retain { len, attrs } => {
-                                input_len = add_len(input_len, *len, limits)?;
-                                output_len = add_len(output_len, *len, limits)?;
-                                check_attr_patch(attrs, limits)?;
-                            }
-                            RichTextOp::Insert { content, attrs } => {
-                                check_attrs(attrs, limits)?;
-                                output_len = add_len(output_len, content.len(), limits)?;
-                                match content {
-                                    RichContent::Text(text) => check_limit(
-                                        "string bytes",
-                                        text.as_str().len(),
-                                        limits.max_string_bytes,
-                                    )?,
-                                    RichContent::Embed(value) => {
-                                        value.check_input_limits(limits)?
-                                    }
-                                }
-                            }
-                            RichTextOp::Delete(len) => {
-                                input_len = add_len(input_len, *len, limits)?;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        Ok(())
     }
 }
 
@@ -467,52 +375,6 @@ impl From<IntChange> for Change {
             other => Self(Arc::new(ChangeKind::Int(other))),
         }
     }
-}
-
-fn check_attrs(attrs: &Attrs, limits: &InputLimits) -> Result<(), CodecError> {
-    check_limit("container length", attrs.len(), limits.max_container_len)?;
-    for (key, value) in attrs.iter() {
-        check_limit("string bytes", key.len(), limits.max_string_bytes)?;
-        if let crate::AttrValue::String(value) = value {
-            check_limit("string bytes", value.len(), limits.max_string_bytes)?;
-        }
-    }
-    Ok(())
-}
-
-fn check_attr_patch(patch: &AttrPatch, limits: &InputLimits) -> Result<(), CodecError> {
-    check_limit("container length", patch.len(), limits.max_container_len)?;
-    for (key, change) in patch.iter() {
-        check_limit("string bytes", key.len(), limits.max_string_bytes)?;
-        if let crate::AttrChange::Set(crate::AttrValue::String(value)) = change {
-            check_limit("string bytes", value.len(), limits.max_string_bytes)?;
-        }
-    }
-    Ok(())
-}
-
-fn check_limit(name: &'static str, actual: usize, limit: usize) -> Result<(), CodecError> {
-    if actual > limit {
-        Err(CodecError::LimitExceeded {
-            name,
-            actual,
-            limit,
-        })
-    } else {
-        Ok(())
-    }
-}
-
-fn add_len(current: usize, amount: usize, limits: &InputLimits) -> Result<usize, CodecError> {
-    let value = current
-        .checked_add(amount)
-        .ok_or(CodecError::LimitExceeded {
-            name: "sequence length",
-            actual: usize::MAX,
-            limit: limits.max_sequence_len,
-        })?;
-    check_limit("sequence length", value, limits.max_sequence_len)?;
-    Ok(value)
 }
 
 #[derive(Default)]

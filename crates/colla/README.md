@@ -166,27 +166,26 @@ location and a stable reference when embed state must collaborate independently.
 convert Snapshot positions for JavaScript or editor integration. UTF-16
 positions inside surrogate pairs are rejected.
 
-## Canonical codec and input limits
+## Canonical codec
 
 ```rust
-use colla::{InputLimits, Value};
+use colla::Value;
 
 let value = Value::text("hello");
 let bytes = value.encode();
 assert_eq!(Value::decode(&bytes)?, value);
-
-let limits = InputLimits {
-    max_string_bytes: 4,
-    ..InputLimits::default()
-};
-assert!(Value::decode_with_limits(&bytes, &limits).is_err());
 # Ok::<(), colla::CodecError>(())
 ```
 
-`Value::encode` and `Change::encode` produce the canonical binary body format.
-Decode rejects malformed, trailing, excessive, or non-canonical input.
-`InputLimits` are a receiver policy for untrusted input; they do not define the
-maximum valid in-memory Value or Change and are not applied to algebra results.
+`Value::encode` and `Change::encode` produce the canonical binary body format
+(byte mechanics come from [`cocodec`](https://crates.io/crates/cocodec)). Decode
+rejects malformed, trailing, or non-canonical input and is bounded by cocodec's
+built-in defenses (a fixed recursion depth and no pre-allocation from untrusted
+lengths); it takes no configurable limits.
+
+`InputLimits` is a receiver policy for untrusted **structured** input (the
+JavaScript binding's `fromJS` path); it does not define the maximum valid
+in-memory Value or Change and is not applied to byte decoding or algebra results.
 
 The body format does not include a protocol version, document ID, author,
 operation identity, compression, or checksum. Applications must provide their

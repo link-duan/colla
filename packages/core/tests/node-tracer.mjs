@@ -90,10 +90,10 @@ try {
         error.details.limit === "string bytes" && error.details.maximum === 2,
     )
     const limitedBytes = Value.fromJS("abcd").encode()
-    assert.throws(
-      () => Value.decode(limitedBytes, { limits: { maxStringBytes: 3 } }),
-      error => error instanceof CollaError && error.code === "limit_exceeded",
-    )
+    // Byte decoding no longer enforces a receiver budget; it just round-trips.
+    const roundTripped = Value.decode(limitedBytes)
+    assert.deepEqual(roundTripped.toJS(), "abcd")
+    roundTripped.dispose()
 
     const invalidValues = [
       NaN,
@@ -135,7 +135,7 @@ try {
     assert.equal(decodedText.kind(), "text")
     assert.deepEqual(
       collaborativeText.encode(),
-      Uint8Array.from([6, 6, 65, 240, 159, 152, 128, 66]),
+      Uint8Array.from([5, 6, 65, 240, 159, 152, 128, 66]),
     )
     assert.equal(resolveCodePointPosition(collaborativeText, [], 0), 0)
     assert.equal(resolveCodePointPosition(collaborativeText, [], 1), 1)
@@ -180,10 +180,9 @@ try {
       textChange.encode(),
       Uint8Array.from([2, 1, 5, 116, 105, 116, 108, 101, 2, 4, 3, 2, 1, 0, 1, 1, 1, 89]),
     )
-    assert.throws(
-      () => Change.decode(textChange.encode(), { limits: { maxSequenceLength: 1 } }),
-      error => error instanceof CollaError && error.code === "limit_exceeded",
-    )
+    const decodedTextChange = Change.decode(textChange.encode())
+    assert.deepEqual(decodedTextChange.encode(), textChange.encode())
+    decodedTextChange.dispose()
     assert.throws(() => escapedText.insert("late"), error =>
       error instanceof CollaError && error.code === "invalid_state")
     const textNext = apply(textBase, textChange)
@@ -287,11 +286,11 @@ try {
     assert.equal(richData.spans[1].value.id, "one")
     assert.ok(Object.isFrozen(richData.spans[1].value))
     const richValueGolden = Uint8Array.from([
-      7, 3, 0, 6, 65, 240, 159, 152, 128, 66, 4, 4, 98, 111, 108, 100, 1, 5, 99,
-      111, 117, 110, 116, 2, 4, 5, 108, 97, 98, 101, 108, 4, 4, 98, 97, 115, 101,
-      7, 111, 112, 97, 99, 105, 116, 121, 3, 0, 0, 0, 0, 0, 0, 224, 63, 1, 9, 1,
-      2, 105, 100, 5, 3, 111, 110, 101, 2, 4, 98, 111, 108, 100, 1, 4, 107, 105,
-      110, 100, 4, 7, 109, 101, 110, 116, 105, 111, 110, 0, 1, 67, 0,
+      6, 3, 0, 6, 65, 240, 159, 152, 128, 66, 4, 4, 98, 111, 108, 100, 0, 1, 5, 99,
+      111, 117, 110, 116, 1, 4, 5, 108, 97, 98, 101, 108, 3, 4, 98, 97, 115, 101, 7,
+      111, 112, 97, 99, 105, 116, 121, 2, 0, 0, 0, 0, 0, 0, 224, 63, 1, 8, 1, 2, 105,
+      100, 4, 3, 111, 110, 101, 2, 4, 98, 111, 108, 100, 0, 1, 4, 107, 105, 110, 100,
+      3, 7, 109, 101, 110, 116, 105, 111, 110, 0, 1, 67, 0,
     ])
     assert.deepEqual(richBase.encode(), richValueGolden)
     const rustRichBase = Value.decode(richValueGolden)
@@ -317,11 +316,11 @@ try {
       })
     })
     assert.deepEqual(richChange.encode(), Uint8Array.from([
-      5, 5, 0, 2, 0, 1, 0, 1, 88, 2, 5, 99, 111, 108, 111, 114, 4, 3, 114, 101,
-      100, 6, 105, 116, 97, 108, 105, 99, 1, 2, 1, 0, 1, 2, 4, 98, 111, 108, 100, 1,
-      5, 99, 111, 108, 111, 114, 0, 4, 3, 114, 101, 100, 1, 1, 9, 1, 2, 105, 100,
-      5, 3, 116, 119, 111, 2, 5, 99, 111, 108, 111, 114, 4, 3, 114, 101, 100, 4,
-      107, 105, 110, 100, 4, 4, 99, 104, 105, 112,
+      5, 5, 0, 2, 0, 1, 0, 1, 88, 2, 5, 99, 111, 108, 111, 114, 3, 3, 114, 101, 100,
+      6, 105, 116, 97, 108, 105, 99, 0, 1, 2, 1, 0, 1, 2, 4, 98, 111, 108, 100, 1, 5,
+      99, 111, 108, 111, 114, 0, 3, 3, 114, 101, 100, 1, 1, 8, 1, 2, 105, 100, 4, 3,
+      116, 119, 111, 2, 5, 99, 111, 108, 111, 114, 3, 3, 114, 101, 100, 4, 107, 105,
+      110, 100, 3, 4, 99, 104, 105, 112,
     ]))
     assert.throws(() => escapedPatch.set("late", true), error =>
       error instanceof CollaError && error.code === "invalid_state" &&
@@ -401,14 +400,14 @@ try {
     })
     const algebraCombined = compose(algebraFirst, algebraSecond)
     const combinedGolden = Uint8Array.from([
-      2, 6, 5, 99, 111, 117, 110, 116, 2, 6, 10, 5, 105, 116, 101, 109, 115, 2,
-      3, 2, 1, 1, 5, 1, 120, 2, 1, 4, 109, 101, 116, 97, 2, 2, 2, 5, 111, 119,
-      110, 101, 114, 0, 5, 4, 116, 101, 97, 109, 6, 115, 116, 97, 116, 117, 115,
-      2, 1, 5, 9, 112, 117, 98, 108, 105, 115, 104, 101, 100, 7, 114, 101, 112,
-      108, 97, 99, 101, 2, 1, 5, 5, 102, 105, 110, 97, 108, 4, 114, 105, 99, 104,
-      2, 5, 2, 0, 1, 1, 5, 99, 111, 108, 111, 114, 0, 4, 3, 114, 101, 100, 1, 0,
-      1, 88, 2, 4, 98, 111, 108, 100, 1, 5, 99, 111, 108, 111, 114, 4, 3, 114,
-      101, 100, 5, 116, 105, 116, 108, 101, 2, 4, 2, 1, 1, 88, 2, 1,
+      2, 6, 5, 99, 111, 117, 110, 116, 2, 6, 0, 10, 5, 105, 116, 101, 109, 115, 2,
+      3, 2, 1, 1, 4, 1, 120, 2, 1, 4, 109, 101, 116, 97, 2, 2, 2, 5, 111, 119, 110,
+      101, 114, 0, 4, 4, 116, 101, 97, 109, 6, 115, 116, 97, 116, 117, 115, 2, 1, 4,
+      9, 112, 117, 98, 108, 105, 115, 104, 101, 100, 7, 114, 101, 112, 108, 97, 99,
+      101, 2, 1, 4, 5, 102, 105, 110, 97, 108, 4, 114, 105, 99, 104, 2, 5, 2, 0, 1,
+      1, 5, 99, 111, 108, 111, 114, 0, 3, 3, 114, 101, 100, 1, 0, 1, 88, 2, 4, 98,
+      111, 108, 100, 0, 1, 5, 99, 111, 108, 111, 114, 3, 3, 114, 101, 100, 5, 116,
+      105, 116, 108, 101, 2, 4, 2, 1, 1, 88, 2, 1,
     ])
     assert.deepEqual(algebraCombined.encode(), combinedGolden)
     const rustCombined = Change.decode(combinedGolden)
@@ -419,14 +418,7 @@ try {
     const algebraSequential = apply(algebraMiddle, algebraSecond)
     assert.deepEqual(algebraFinal.toJS(), algebraSequential.toJS())
     const algebraInverse = invert(algebraCombined, algebraBase)
-    assert.deepEqual(algebraInverse.encode(), Uint8Array.from([
-      2, 6, 5, 99, 111, 117, 110, 116, 2, 6, 9, 5, 105, 116, 101, 109, 115, 2,
-      3, 2, 1, 1, 5, 1, 97, 2, 1, 4, 109, 101, 116, 97, 2, 2, 2, 5, 111, 119,
-      110, 101, 114, 1, 6, 115, 116, 97, 116, 117, 115, 2, 1, 5, 5, 100, 114,
-      97, 102, 116, 7, 114, 101, 112, 108, 97, 99, 101, 2, 1, 5, 3, 111, 108, 100,
-      4, 114, 105, 99, 104, 2, 5, 2, 0, 1, 1, 5, 99, 111, 108, 111, 114, 1, 2,
-      1, 5, 116, 105, 116, 108, 101, 2, 4, 2, 1, 1, 97, 2, 1,
-    ]))
+    assert.deepEqual(algebraInverse.encode(), Uint8Array.from([2,6,5,99,111,117,110,116,2,6,0,9,5,105,116,101,109,115,2,3,2,1,1,4,1,97,2,1,4,109,101,116,97,2,2,2,5,111,119,110,101,114,1,6,115,116,97,116,117,115,2,1,4,5,100,114,97,102,116,7,114,101,112,108,97,99,101,2,1,4,3,111,108,100,4,114,105,99,104,2,5,2,0,1,1,5,99,111,108,111,114,1,2,1,5,116,105,116,108,101,2,4,2,1,1,97,2,1]))
     const algebraRestored = apply(algebraFinal, algebraInverse)
     assert.deepEqual(algebraRestored.toJS(), algebraBase.toJS())
 
@@ -445,21 +437,8 @@ try {
     const algebraRightBytes = algebraRight.encode()
     const algebraPair = transformPair(algebraFirst, algebraRight, { order: "left-first" })
     assert.ok(Object.isFrozen(algebraPair))
-    assert.deepEqual(algebraPair[0].encode(), Uint8Array.from([
-      2, 6, 5, 99, 111, 117, 110, 116, 2, 6, 4, 5, 105, 116, 101, 109, 115, 2,
-      3, 2, 0, 1, 1, 1, 5, 1, 120, 4, 109, 101, 116, 97, 2, 2, 1, 5, 111, 119,
-      110, 101, 114, 0, 5, 4, 116, 101, 97, 109, 7, 114, 101, 112, 108, 97, 99,
-      101, 2, 1, 5, 6, 109, 105, 100, 100, 108, 101, 4, 114, 105, 99, 104, 2, 5,
-      2, 0, 1, 0, 1, 0, 1, 88, 1, 4, 98, 111, 108, 100, 1, 5, 116, 105, 116,
-      108, 101, 2, 4, 2, 0, 1, 1, 1, 88,
-    ]))
-    assert.deepEqual(algebraPair[1].encode(), Uint8Array.from([
-      2, 5, 5, 99, 111, 117, 110, 116, 2, 6, 8, 5, 105, 116, 101, 109, 115, 2,
-      3, 2, 0, 2, 1, 1, 5, 1, 121, 4, 109, 101, 116, 97, 2, 2, 1, 8, 114, 101,
-      118, 105, 101, 119, 101, 114, 0, 5, 2, 113, 97, 4, 114, 105, 99, 104, 2, 5,
-      2, 0, 2, 0, 1, 0, 1, 89, 1, 6, 105, 116, 97, 108, 105, 99, 1, 5, 116,
-      105, 116, 108, 101, 2, 4, 2, 0, 2, 1, 1, 89,
-    ]))
+    assert.deepEqual(algebraPair[0].encode(), Uint8Array.from([2,6,5,99,111,117,110,116,2,6,0,4,5,105,116,101,109,115,2,3,2,0,1,1,1,4,1,120,4,109,101,116,97,2,2,1,5,111,119,110,101,114,0,4,4,116,101,97,109,7,114,101,112,108,97,99,101,2,1,4,6,109,105,100,100,108,101,4,114,105,99,104,2,5,2,0,1,0,1,0,1,88,1,4,98,111,108,100,0,1,5,116,105,116,108,101,2,4,2,0,1,1,1,88]))
+    assert.deepEqual(algebraPair[1].encode(), Uint8Array.from([2,5,5,99,111,117,110,116,2,6,0,8,5,105,116,101,109,115,2,3,2,0,2,1,1,4,1,121,4,109,101,116,97,2,2,1,8,114,101,118,105,101,119,101,114,0,4,2,113,97,4,114,105,99,104,2,5,2,0,2,0,1,0,1,89,1,6,105,116,97,108,105,99,0,1,5,116,105,116,108,101,2,4,2,0,2,1,1,89]))
     const algebraAfterFirst = apply(algebraBase, algebraFirst)
     const algebraAfterRight = apply(algebraBase, algebraRight)
     const algebraLeftThen = apply(algebraAfterFirst, algebraPair[1])
@@ -659,12 +638,7 @@ try {
     assert.throws(() => escapedMap.insert("late", true), error =>
       error instanceof CollaError && error.code === "invalid_state" &&
       error.details.reason === "scope_closed")
-    assert.deepEqual(structuredChange.encode(), Uint8Array.from([
-      2, 2, 5, 105, 116, 101, 109, 115, 2, 3, 3, 1, 1, 5, 1, 120, 2, 1, 3, 1, 5,
-      1, 66, 4, 109, 101, 116, 97, 2, 2, 2, 5, 111, 119, 110, 101, 114, 0, 5, 4,
-      116, 101, 97, 109, 6, 115, 116, 97, 116, 117, 115, 2, 1, 5, 9, 112, 117, 98,
-      108, 105, 115, 104, 101, 100,
-    ]))
+    assert.deepEqual(structuredChange.encode(), Uint8Array.from([2,2,5,105,116,101,109,115,2,3,3,1,1,4,1,120,2,1,3,1,4,1,66,4,109,101,116,97,2,2,2,5,111,119,110,101,114,0,4,4,116,101,97,109,6,115,116,97,116,117,115,2,1,4,9,112,117,98,108,105,115,104,101,100]))
     const structuredNext = apply(structuredBase, structuredChange)
     assert.deepEqual(structuredNext.toJS(), Object.assign(Object.create(null), {
       items: ["x", "B"],
@@ -870,10 +844,9 @@ try {
     const cloneNext = apply(clone, independentChangeClone)
     assert.equal(cloneNext.toJS(), "published value larger than receiver input policy")
 
-    assert.throws(
-      () => Change.decode(changeBytes, { limits: { maxChangeNodes: 0 } }),
-      error => error instanceof CollaError && error.code === "limit_exceeded",
-    )
+    const decodedChangeAgain = Change.decode(changeBytes)
+    assert.deepEqual(decodedChangeAgain.encode(), changeBytes)
+    decodedChangeAgain.dispose()
 
     assert.throws(() => Change.decode(Uint8Array.of(255)), error =>
       error instanceof CollaError && error.code === "invalid_encoding" &&
@@ -889,7 +862,9 @@ try {
         error instanceof CollaError && error.code === "invalid_encoding" &&
         error.operation === "value_decode")
     }
-    assert.throws(() => Change.decode(Uint8Array.of(4, 2, 0, 1, 0, 2)), error =>
+    // A MapChange whose keys are not strictly increasing is still rejected
+    // (byte-canonical map ordering is enforced by cocodec).
+    assert.throws(() => Change.decode(Uint8Array.of(2, 2, 1, 98, 1, 1, 97, 1)), error =>
       error instanceof CollaError && error.code === "invalid_encoding" &&
       error.operation === "change_decode")
 

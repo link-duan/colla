@@ -58,8 +58,8 @@ impl ValueHandle {
     }
 
     #[wasm_bindgen(js_name = decode)]
-    pub fn decode(bytes: &[u8], limits: &str) -> Result<Self, JsValue> {
-        Value::decode_with_limits(bytes, &parse_limits(limits, "value_decode")?)
+    pub fn decode(bytes: &[u8]) -> Result<Self, JsValue> {
+        Value::decode(bytes)
             .map(|value| Self { value })
             .map_err(|error| codec_error(error, "value_decode"))
     }
@@ -152,8 +152,8 @@ impl ChangeHandle {
     }
 
     #[wasm_bindgen(js_name = decode)]
-    pub fn decode(bytes: &[u8], limits: &str) -> Result<Self, JsValue> {
-        Change::decode_with_limits(bytes, &parse_limits(limits, "change_decode")?)
+    pub fn decode(bytes: &[u8]) -> Result<Self, JsValue> {
+        Change::decode(bytes)
             .map(|change| Self { change })
             .map_err(|error| codec_error(error, "change_decode"))
     }

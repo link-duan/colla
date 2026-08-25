@@ -815,12 +815,8 @@ function validateChangeInput(input: ChangeInput, operation: string): void {
   visit(input, "change")
 }
 
-const INTERNAL_LIMITS_JSON = JSON.stringify(
-  Object.fromEntries(inputLimitNames.map(name => [name, Number.MAX_SAFE_INTEGER])),
-)
-
 function valueDataFromBytes(bytes: Uint8Array): ValueData {
-  const handle = ValueHandle.decode(bytes, INTERNAL_LIMITS_JSON)
+  const handle = ValueHandle.decode(bytes)
   try {
     return handle.toJs() as ValueData
   } finally {
@@ -856,13 +852,12 @@ export class Value {
     }
   }
 
-  static decode(bytes: Uint8Array, options?: InputOptions): Value {
+  static decode(bytes: Uint8Array): Value {
     if (!(bytes instanceof Uint8Array)) {
       throw invalidArgument("value_decode", "bytes", "expected Uint8Array")
     }
     try {
-      const limits = normalizeInputLimits(options, "value_decode")
-      return new Value(ValueHandle.decode(bytes, JSON.stringify(limits)))
+      return new Value(ValueHandle.decode(bytes))
     } catch (error) {
       throw fromWasmError(error, "value_decode")
     }
@@ -967,13 +962,12 @@ export class Change {
     return Change.fromJS(buildChangeInput(edit), options)
   }
 
-  static decode(bytes: Uint8Array, options?: InputOptions): Change {
+  static decode(bytes: Uint8Array): Change {
     if (!(bytes instanceof Uint8Array)) {
       throw invalidArgument("change_decode", "bytes", "expected Uint8Array")
     }
     try {
-      const limits = normalizeInputLimits(options, "change_decode")
-      return new Change(ChangeHandle.decode(bytes, JSON.stringify(limits)))
+      return new Change(ChangeHandle.decode(bytes))
     } catch (error) {
       throw fromWasmError(error, "change_decode")
     }

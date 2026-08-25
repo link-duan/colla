@@ -7,17 +7,34 @@ package are recorded here. Both artifacts always use the same version.
 
 ### Changed
 
+- **BREAKING (wire format).** Adopted [`cocodec`](https://crates.io/crates/cocodec)
+  as the canonical binary codec. Value/Change tags were renumbered (`Bool` is no
+  longer a two-tag hack; `Int`/`String`/`Text`/`RichText`/`List`/`Map` shift down
+  by one) and byte layouts changed, so bytes produced by 0.2.x no longer decode.
+  colla is early-stage with no external consumers, so the break is taken now.
+- **Decoding is now structural.** Byte decoding no longer enforces *semantic*
+  canonicalization (zero-length ops, empty inserts, mergeable adjacent ops,
+  `Modify(Noop)`, trailing retains, negative zero). These are the job of the
+  construction APIs (`from_ops`/`from_entries`/`from_spans`) and `normalize`.
+  `-0.0` is normalized to `+0.0` on decode; RichText still merges adjacent
+  equal-attribute spans via `from_spans`. Byte-canonical rules (minimal varint,
+  UTF-8, unknown tags, ordering, trailing bytes) are still enforced.
 - Unified the `limit_exceeded` `details.limit` names into a stable, bijective
-  set (one name per `InputLimits` field) across every entry point: `value
-  depth`/`change depth` are now `depth`, and Text values report `string bytes`
-  instead of `text bytes`. Callers can map `details.limit` back to the exact
-  limit they configured. The pre-/post-canonical enforcement *semantics* of
-  `fromJS` vs `decode` are intentionally unchanged.
+  set (one name per `InputLimits` field). These now apply only to the structured
+  `fromJS` path (see Removed).
 - Collapsed the canonical binary codec to a single implementation. The
   `colla-ot` facade no longer contains a hand-written byte encoder/decoder; it
   now marshals structured values across the WebAssembly boundary and the Rust
   `colla` codec is the sole implementation of the wire format. Observable
   behavior (canonical bytes, `toJS` shapes, error codes) is unchanged.
+
+### Removed
+
+- **BREAKING.** Byte decoding no longer accepts `InputLimits`. `decode_with_limits`
+  is removed and `Value::decode`/`Change::decode` (and the wasm/JS `decode`) take
+  no limits argument; decoding is bounded solely by cocodec's built-in defenses
+  (a fixed recursion depth and no pre-allocation from untrusted lengths).
+  `InputLimits` now bounds only the structured `fromJS` input path.
 
 ### Added
 
@@ -33,7 +50,7 @@ package are recorded here. Both artifacts always use the same version.
 - `Value.fromJS` now enforces `maxSequenceLength` on richText values. A crafted
   input with few spans of near-`maxStringBytes` text could previously drive the
   total length past a caller-configured `maxSequenceLength` undetected; it is
-  now rejected with `limit_exceeded` (`sequence length`), matching `decode`.
+  now rejected with `limit_exceeded` (`sequence length`).
 
 ## [0.2.0] - 2026-08-12
 

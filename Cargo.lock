@@ -121,9 +121,30 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c8d4a3bb8b1e0c1050499d1815f5ab16d04f0959b233085fb31653fbfc9d98f9"
 
 [[package]]
-name = "colla"
-version = "0.2.0"
+name = "cocodec"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1c2a2f465d62091a6b2d29e198405b48b98bbf29765e27f091a08b62abf09748"
 dependencies = [
+ "cocodec-derive",
+]
+
+[[package]]
+name = "cocodec-derive"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f8c55fe98c907e4cad9c3473f278cb0a6f7c45e5d6acad8eb55dd367048c56d4"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+]
+
+[[package]]
+name = "colla"
+version = "0.3.0"
+dependencies = [
+ "cocodec",
  "criterion",
  "proptest",
  "serde_json",
@@ -132,7 +153,7 @@ dependencies = [
 
 [[package]]
 name = "colla-wasm"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "colla",
  "js-sys",

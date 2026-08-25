@@ -8,15 +8,19 @@ use crate::error::ValueError;
 use crate::value::FiniteF64;
 
 /// An atomic RichText attribute value.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, cocodec::Encode, cocodec::Decode)]
 pub enum AttrValue {
     /// Boolean attribute value.
+    #[cocodec(tag = 0)]
     Bool(bool),
     /// Signed 64-bit integer attribute value.
+    #[cocodec(tag = 1)]
     Int(i64),
     /// Canonical finite floating-point attribute value.
+    #[cocodec(tag = 2)]
     Float(FiniteF64),
     /// UTF-8 string attribute value.
+    #[cocodec(tag = 3)]
     String(Arc<str>),
 }
 
@@ -53,7 +57,8 @@ impl From<&str> for AttrValue {
 }
 
 /// An immutable, canonically ordered set of RichText attributes.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, cocodec::Encode, cocodec::Decode)]
+#[cocodec(transparent)]
 pub struct Attrs(Arc<BTreeMap<String, AttrValue>>);
 
 impl Hash for Attrs {
@@ -125,16 +130,19 @@ impl Attrs {
 }
 
 /// A change to one RichText attribute key.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, cocodec::Encode, cocodec::Decode)]
 pub enum AttrChange {
     /// Assigns or overwrites the attribute value.
+    #[cocodec(tag = 0)]
     Set(AttrValue),
     /// Removes the attribute if present.
+    #[cocodec(tag = 1)]
     Remove,
 }
 
 /// An immutable, canonically ordered RichText attribute patch.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, cocodec::Encode, cocodec::Decode)]
+#[cocodec(transparent)]
 pub struct AttrPatch(Arc<BTreeMap<String, AttrChange>>);
 
 impl Hash for AttrPatch {

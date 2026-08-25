@@ -189,12 +189,67 @@ impl Hash for RichTextChunk {
 }
 
 /// Text or one atomic embed carried by a RichText span or insertion.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, cocodec::Encode, cocodec::Decode)]
 pub enum RichContent {
     /// UTF-8 text addressed by Unicode scalar positions.
+    #[cocodec(tag = 0)]
     Text(RichTextChunk),
     /// One atomic embedded Core Value with logical length one.
+    #[cocodec(tag = 1)]
     Embed(Value),
+}
+
+// ---- cocodec Encode/Decode for RichText's cached types --------------------
+// These wrap cached-length data, so they encode only the essential content and
+// rebuild the cache on decode via the validating constructors.
+
+impl cocodec::Encode for RichTextChunk {
+    fn encode<W: cocodec::Write>(&self, w: &mut W) -> Result<(), cocodec::Error> {
+        cocodec::WriteExt::write_str(w, self.as_str())
+    }
+}
+impl cocodec::Decode for RichTextChunk {
+    fn decode<R: cocodec::Read>(d: &mut cocodec::Decoder<R>) -> Result<Self, cocodec::Error> {
+        Ok(RichTextChunk::new(cocodec::Decoder::str(d)?))
+    }
+}
+
+impl cocodec::Encode for RichSpan {
+    fn encode<W: cocodec::Write>(&self, w: &mut W) -> Result<(), cocodec::Error> {
+        cocodec::Encode::encode(self.content(), w)?;
+        cocodec::Encode::encode(self.attrs(), w)
+    }
+}
+impl cocodec::Decode for RichSpan {
+    fn decode<R: cocodec::Read>(d: &mut cocodec::Decoder<R>) -> Result<Self, cocodec::Error> {
+        let content = <RichContent as cocodec::Decode>::decode(d)?;
+        let attrs = <Attrs as cocodec::Decode>::decode(d)?;
+        Ok(RichSpan::from_parts(content, attrs))
+    }
+}
+
+impl cocodec::Encode for RichText {
+    fn encode<W: cocodec::Write>(&self, w: &mut W) -> Result<(), cocodec::Error> {
+        cocodec::WriteExt::write_varint(w, self.span_count() as u64)?;
+        for span in self.iter_spans() {
+            cocodec::Encode::encode(span, w)?;
+        }
+        Ok(())
+    }
+}
+impl cocodec::Decode for RichText {
+    fn decode<R: cocodec::Read>(d: &mut cocodec::Decoder<R>) -> Result<Self, cocodec::Error> {
+        let offset = cocodec::Decoder::offset(d);
+        let count = cocodec::Decoder::length(d)?;
+        let mut spans = Vec::new();
+        for _ in 0..count {
+            spans.push(<RichSpan as cocodec::Decode>::decode(d)?);
+        }
+        RichText::from_spans(spans).map_err(|_| cocodec::Error::NonCanonical {
+            offset,
+            reason: "invalid rich text",
+        })
+    }
 }
 
 impl RichContent {
