@@ -34,7 +34,8 @@ JSON、历史格式兼容、原子 Move 或业务 Schema。
 Value 根节点可以是任意类型。
 
 Value 通过受控构造器保证局部合法。深度、节点数、文本和容器大小不是 Value
-类型的固定语义上限。`InputLimits` 只约束外部 Value/Change 输入，至少覆盖 Value
+类型的固定语义上限。字节解码由 cocodec 的内建防御（固定递归深度 + 不预分配）兜底，
+不接收可配置 limits；`InputLimits` 只约束结构化 `fromJS` 输入路径，至少覆盖 Value
 节点数、Change 节点数、递归深度、容器长度、字符串字节数、序列 op 数和序列
 逻辑长度。
 
@@ -136,11 +137,12 @@ List 元素的 Modify。并发 RichText 属性修改中，不同 key 合并；�
 - 相邻同类 Retain/Delete/Insert 必须合并。
 - 尾部纯 Retain 必须移除。
 - Text/RichText 相邻且属性兼容的文本 Insert 必须合并。
-- Map/Attrs key 严格递增且唯一。
-- 空类型化 Change、Modify(Noop)、Add(0) 必须折叠为 Noop。
-- decoder 通常拒绝而不是修复非规范编码。为兼容历史和外部实现，RichText
-  snapshot decoder 允许空 Text span 和相邻可合并 Text spans，并在构造内存值时
-  删除或合并它们；RichText Change 仍要求规范操作序列。
+- Map/Attrs key 严格递增且唯一（字节 canonical，解码强制）。
+- 空类型化 Change、Modify(Noop)、Add(0) 应折叠为 Noop（语义 canonical，由构造器 /
+  `normalize` 负责，**解码不再强制**）。
+- 解码是结构性的：强制字节 canonical（最短 varint、UTF-8、未知 tag、key 序、trailing），
+  不再在解码期拒绝语义非规范形式。RichText snapshot 仍在 `from_spans` 合并相邻可合并
+  Text spans、接受空 Text span。
 
 ## 8. API 轮廓
 
@@ -150,8 +152,8 @@ List 元素的 Modify。并发 RichText 属性修改中，不同 key 合并；�
     invert(&change, &base)
 
 对应的低层 inherent API 为 `change.apply_to(&base)`、
-`first.compose(&second)` 和 `change.invert(&base)`。`InputLimits` 只用于外部
-Value/Change 输入，不参与代数操作。
+`first.compose(&second)` 和 `change.invert(&base)`。`InputLimits` 只用于结构化
+`fromJS` 输入，不参与字节解码或代数操作。
 
 Apply 返回新的不可变 Value；失败时基准值不变。公共代数 trait 不开放，
 因为 Value/Change 是封闭类型。
