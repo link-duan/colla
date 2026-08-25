@@ -21,9 +21,11 @@ encode/decode + InputLimits 解码期计量）。同时抽出了独立通用库
   相邻可合并 op、Modify(Noop)、负零等。这些语义规范化归构造 API 与 `normalize`
   （契合 cocodec 的字节/语义 canonical 分界）。`-0.0` 解码时由 `FiniteF64::new` 归一为
   `+0.0`（不再拒绝）。RichText 仍在 `from_spans` 时合并相邻同属性 span。
-- **InputLimits 保留为解码后预算**：`decode_*` 仍接收 `&InputLimits`，通过
-  `check_input_limits` 在解出的值上施加（结构安全由 cocodec 的 MAX_DEPTH + 不预分配兜底）。
-  API 与 wasm/JS 边界不变。
+- **字节解码不再接受 InputLimits**：`decode_*` 仅由 cocodec 内建防御（固定 MAX_DEPTH +
+  不预分配）兜底，签名与 cocodec 一致。删除 `decode_with_limits` 与领域类型上的
+  `check_input_limits`。`InputLimits` 类型保留，但**只约束结构化输入**（JS 绑定的
+  `fromJS` 路径），不再施加于字节解码。wasm `decode(bytes, limits)` → `decode(bytes)`，
+  TS/JS 同步去掉 limits 参数。
 
 ## 结果
 

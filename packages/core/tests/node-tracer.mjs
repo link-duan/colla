@@ -90,10 +90,10 @@ try {
         error.details.limit === "string bytes" && error.details.maximum === 2,
     )
     const limitedBytes = Value.fromJS("abcd").encode()
-    assert.throws(
-      () => Value.decode(limitedBytes, { limits: { maxStringBytes: 3 } }),
-      error => error instanceof CollaError && error.code === "limit_exceeded",
-    )
+    // Byte decoding no longer enforces a receiver budget; it just round-trips.
+    const roundTripped = Value.decode(limitedBytes)
+    assert.deepEqual(roundTripped.toJS(), "abcd")
+    roundTripped.dispose()
 
     const invalidValues = [
       NaN,
@@ -180,10 +180,9 @@ try {
       textChange.encode(),
       Uint8Array.from([2, 1, 5, 116, 105, 116, 108, 101, 2, 4, 3, 2, 1, 0, 1, 1, 1, 89]),
     )
-    assert.throws(
-      () => Change.decode(textChange.encode(), { limits: { maxSequenceLength: 1 } }),
-      error => error instanceof CollaError && error.code === "limit_exceeded",
-    )
+    const decodedTextChange = Change.decode(textChange.encode())
+    assert.deepEqual(decodedTextChange.encode(), textChange.encode())
+    decodedTextChange.dispose()
     assert.throws(() => escapedText.insert("late"), error =>
       error instanceof CollaError && error.code === "invalid_state")
     const textNext = apply(textBase, textChange)
@@ -845,10 +844,9 @@ try {
     const cloneNext = apply(clone, independentChangeClone)
     assert.equal(cloneNext.toJS(), "published value larger than receiver input policy")
 
-    assert.throws(
-      () => Change.decode(changeBytes, { limits: { maxChangeNodes: 0 } }),
-      error => error instanceof CollaError && error.code === "limit_exceeded",
-    )
+    const decodedChangeAgain = Change.decode(changeBytes)
+    assert.deepEqual(decodedChangeAgain.encode(), changeBytes)
+    decodedChangeAgain.dispose()
 
     assert.throws(() => Change.decode(Uint8Array.of(255)), error =>
       error instanceof CollaError && error.code === "invalid_encoding" &&

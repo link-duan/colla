@@ -5,8 +5,7 @@ use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
-use crate::error::{CodecError, ValueError};
-use crate::input_limits::InputLimits;
+use crate::error::ValueError;
 use crate::path::{Path, PathSeg};
 use crate::richtext::RichText;
 
@@ -376,93 +375,4 @@ impl Value {
         Some(current)
     }
 
-    pub(crate) fn check_input_limits(&self, limits: &InputLimits) -> Result<(), CodecError> {
-        let mut stack = vec![(self, 1usize)];
-        let mut nodes = 0usize;
-        while let Some((value, depth)) = stack.pop() {
-            nodes += 1;
-            if nodes > limits.max_value_nodes {
-                return Err(CodecError::LimitExceeded {
-                    name: "value nodes",
-                    actual: nodes,
-                    limit: limits.max_value_nodes,
-                });
-            }
-            if depth > limits.max_depth {
-                return Err(CodecError::LimitExceeded {
-                    name: "depth",
-                    actual: depth,
-                    limit: limits.max_depth,
-                });
-            }
-            match value.kind() {
-                ValueKind::String(s) => {
-                    check_len("string bytes", s.len(), limits.max_string_bytes)?
-                }
-                ValueKind::Text(t) => {
-                    check_len("string bytes", t.as_str().len(), limits.max_string_bytes)?
-                }
-                ValueKind::List(list) => {
-                    check_len("container length", list.len(), limits.max_container_len)?;
-                    for child in list.as_slice().iter().rev() {
-                        stack.push((child, depth + 1));
-                    }
-                }
-                ValueKind::Map(map) => {
-                    check_len("container length", map.len(), limits.max_container_len)?;
-                    for (key, child) in map.iter() {
-                        check_len("string bytes", key.len(), limits.max_string_bytes)?;
-                        stack.push((child, depth + 1));
-                    }
-                }
-                ValueKind::RichText(rich) => {
-                    check_len(
-                        "container length",
-                        rich.span_count(),
-                        limits.max_container_len,
-                    )?;
-                    check_len("sequence length", rich.len(), limits.max_sequence_len)?;
-                    for span in rich.iter_spans().rev() {
-                        match span.content() {
-                            crate::richtext::RichContent::Text(text) => {
-                                check_len(
-                                    "string bytes",
-                                    text.as_str().len(),
-                                    limits.max_string_bytes,
-                                )?;
-                            }
-                            crate::richtext::RichContent::Embed(child) => {
-                                stack.push((child, depth + 1));
-                            }
-                        }
-                        check_len(
-                            "container length",
-                            span.attrs().len(),
-                            limits.max_container_len,
-                        )?;
-                        for (key, value) in span.attrs().iter() {
-                            check_len("string bytes", key.len(), limits.max_string_bytes)?;
-                            if let crate::AttrValue::String(value) = value {
-                                check_len("string bytes", value.len(), limits.max_string_bytes)?;
-                            }
-                        }
-                    }
-                }
-                _ => {}
-            }
-        }
-        Ok(())
-    }
-}
-
-fn check_len(name: &'static str, actual: usize, limit: usize) -> Result<(), CodecError> {
-    if actual > limit {
-        Err(CodecError::LimitExceeded {
-            name,
-            actual,
-            limit,
-        })
-    } else {
-        Ok(())
-    }
 }

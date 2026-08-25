@@ -1,10 +1,9 @@
 use colla::{
-    codec, Change, CodecError, InputLimits, MapChange, MapEntryChange, TextChange, TextOp, Value,
+    codec, Change, CodecError, MapChange, MapEntryChange, TextChange, TextOp, Value,
 };
 
 #[test]
 fn value_and_change_roundtrip() {
-    let limits = InputLimits::default();
     let value = Value::map([
         ("i", Value::int(i64::MIN)),
         ("f", Value::float(1.5).unwrap()),
@@ -14,7 +13,7 @@ fn value_and_change_roundtrip() {
     .unwrap();
     let bytes = value.encode();
     assert_eq!(Value::decode(&bytes).unwrap(), value);
-    assert_eq!(codec::decode_value(&bytes, &limits).unwrap(), value);
+    assert_eq!(codec::decode_value(&bytes).unwrap(), value);
 
     let change = Change::from(
         MapChange::from_entries([(
@@ -27,7 +26,7 @@ fn value_and_change_roundtrip() {
     );
     let bytes = change.encode();
     assert_eq!(Change::decode(&bytes).unwrap(), change);
-    assert_eq!(codec::decode_change(&bytes, &limits).unwrap(), change);
+    assert_eq!(codec::decode_change(&bytes).unwrap(), change);
 }
 
 #[test]
@@ -108,13 +107,11 @@ fn decoder_rejects_huge_lengths_without_panicking() {
 }
 
 #[test]
-fn input_limits_reject_large_logical_changes() {
+fn transform_still_works_without_decode_limits() {
+    // Byte decoding no longer enforces InputLimits; large logical changes decode
+    // fine and transform normally.
     let change = Change::from(TextChange::from_ops(vec![TextOp::Delete(9)]).unwrap());
-    let limits = InputLimits {
-        max_sequence_len: 8,
-        ..InputLimits::default()
-    };
-    assert!(Change::decode_with_limits(&change.encode(), &limits).is_err());
+    assert_eq!(Change::decode(&change.encode()).unwrap(), change);
     assert_eq!(
         colla::transform_pair(&change, &Change::noop(), colla::TieBreak::LeftFirst).unwrap(),
         (change, Change::noop())

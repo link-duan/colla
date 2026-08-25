@@ -87,30 +87,30 @@ InputLimits 作为**解码后**资源预算施加于解出的值（`check_input_
 
     value.encode() -> Vec<u8>
     Value::decode(&[u8]) -> Result<Value, CodecError>
-    Value::decode_with_limits(&[u8], &InputLimits) -> Result<Value, CodecError>
     change.encode() -> Vec<u8>
     Change::decode(&[u8]) -> Result<Change, CodecError>
-    Change::decode_with_limits(&[u8], &InputLimits) -> Result<Change, CodecError>
 
 `codec::encode_value`、`codec::decode_value`、`codec::encode_change` 和
-`codec::decode_change` 作为等价底层入口保留。InputLimits 只是接收方的输入资源策略，
-不定义 Value/Change 的合法大小，也不限制编码或代数结果。
+`codec::decode_change` 作为等价底层入口保留。
 
-每个入口对**它实际收到的输入**设限：`decode*` 约束 canonical 字节流（post-canonical），
-结构化入口 `Value::fromJS`/`Change::fromJS` 约束调用方传入的**原始未规范化结构**
-（pre-canonical，例如 `sequence ops` 按原始 op 数计）。因此**触发点与判定可因入口而异**，
-这是有意的——各自忠实防护自己那侧的输入开销。但 `limit_exceeded` 的 `name` 字段对所有入口
-**双射且稳定**：每个 `InputLimits` 字段恰好对应一个名字，调用方可据此反查是哪个上限被触发。
+**字节解码不接收可配置 limits**：它只由 cocodec 的内建防御兜底——固定递归深度
+（`depth` 超限报 `limit_exceeded`）与「不按不可信长度预分配」。放大攻击被「不能声称
+你交付不出的量」免费拆解。
 
-| `InputLimits` 字段 | `name` |
-|---|---|
-| `max_depth` | `depth` |
-| `max_value_nodes` | `value nodes` |
-| `max_change_nodes` | `change nodes` |
-| `max_string_bytes` | `string bytes` |
-| `max_container_len` | `container length` |
-| `max_sequence_ops` | `sequence ops` |
-| `max_sequence_len` | `sequence length` |
+`InputLimits` 只约束**结构化输入**构造路径（JS 绑定的 `Value::fromJS`/`Change::fromJS`，
+计量调用方传入的原始未规范化 JS 结构，例如 `sequence ops` 按原始 op 数计），
+不定义 Value/Change 的合法大小，也不施加于字节解码或代数结果。`limit_exceeded` 的 `name`
+字段稳定，调用方可据此反查触发的上限：
+
+| `InputLimits` 字段 | `name` | 施加路径 |
+|---|---|---|
+| `max_depth` | `depth` | fromJS + 字节解码（cocodec 固定深度）|
+| `max_value_nodes` | `value nodes` | fromJS |
+| `max_change_nodes` | `change nodes` | fromJS |
+| `max_string_bytes` | `string bytes` | fromJS |
+| `max_container_len` | `container length` | fromJS |
+| `max_sequence_ops` | `sequence ops` | fromJS |
+| `max_sequence_len` | `sequence length` | fromJS |
 
 操作元数据不在 body 内。调用方必须在外部维护文档 ID、版本、作者、时间和
 operation ID 等字段。

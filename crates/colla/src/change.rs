@@ -5,8 +5,7 @@ use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 use crate::attrs::{AttrPatch, Attrs};
-use crate::error::{CodecError, ValueError};
-use crate::input_limits::InputLimits;
+use crate::error::ValueError;
 use crate::richtext::RichContent;
 use crate::value::Value;
 
@@ -327,114 +326,6 @@ impl Change {
             ChangeKind::Int(_) => "Int",
         }
     }
-    pub(crate) fn check_input_limits(&self, limits: &InputLimits) -> Result<(), CodecError> {
-        let mut stack = vec![(self, 1usize)];
-        let mut nodes = 0usize;
-        while let Some((change, depth)) = stack.pop() {
-            nodes += 1;
-            check_limit("change nodes", nodes, limits.max_change_nodes)?;
-            check_limit("depth", depth, limits.max_depth)?;
-            match change.kind() {
-                ChangeKind::Noop | ChangeKind::Int(_) => {}
-                ChangeKind::Replace(value) => value.check_input_limits(limits)?,
-                ChangeKind::Map(map) => {
-                    check_limit("container length", map.len(), limits.max_container_len)?;
-                    for (key, entry) in map.iter() {
-                        check_limit("string bytes", key.len(), limits.max_string_bytes)?;
-                        match entry {
-                            MapEntryChange::Insert(value) => value.check_input_limits(limits)?,
-                            MapEntryChange::Delete => {}
-                            MapEntryChange::Modify(child) => stack.push((child, depth + 1)),
-                        }
-                    }
-                }
-                ChangeKind::List(list) => {
-                    check_limit("sequence ops", list.ops().len(), limits.max_sequence_ops)?;
-                    let mut input_len = 0usize;
-                    let mut output_len = 0usize;
-                    for op in list.ops() {
-                        match op {
-                            ListOp::Insert(values) => {
-                                check_limit(
-                                    "container length",
-                                    values.len(),
-                                    limits.max_container_len,
-                                )?;
-                                for value in values {
-                                    value.check_input_limits(limits)?;
-                                }
-                                output_len = add_len(output_len, values.len(), limits)?;
-                            }
-                            ListOp::Modify(child) => {
-                                input_len = add_len(input_len, 1, limits)?;
-                                output_len = add_len(output_len, 1, limits)?;
-                                stack.push((child, depth + 1));
-                            }
-                            ListOp::Retain(len) => {
-                                input_len = add_len(input_len, *len, limits)?;
-                                output_len = add_len(output_len, *len, limits)?;
-                            }
-                            ListOp::Delete(len) => {
-                                input_len = add_len(input_len, *len, limits)?;
-                            }
-                        }
-                    }
-                }
-                ChangeKind::Text(text) => {
-                    check_limit("sequence ops", text.ops().len(), limits.max_sequence_ops)?;
-                    let mut input_len = 0usize;
-                    let mut output_len = 0usize;
-                    for op in text.ops() {
-                        match op {
-                            TextOp::Insert(value) => {
-                                check_limit("string bytes", value.len(), limits.max_string_bytes)?;
-                                output_len = add_len(output_len, value.chars().count(), limits)?;
-                            }
-                            TextOp::Retain(len) => {
-                                input_len = add_len(input_len, *len, limits)?;
-                                output_len = add_len(output_len, *len, limits)?;
-                            }
-                            TextOp::Delete(len) => {
-                                input_len = add_len(input_len, *len, limits)?;
-                            }
-                        }
-                    }
-                }
-                ChangeKind::RichText(rich) => {
-                    check_limit("sequence ops", rich.ops().len(), limits.max_sequence_ops)?;
-                    let mut input_len = 0usize;
-                    let mut output_len = 0usize;
-                    for op in rich.ops() {
-                        match op {
-                            RichTextOp::Retain { len, attrs } => {
-                                input_len = add_len(input_len, *len, limits)?;
-                                output_len = add_len(output_len, *len, limits)?;
-                                check_attr_patch(attrs, limits)?;
-                            }
-                            RichTextOp::Insert { content, attrs } => {
-                                check_attrs(attrs, limits)?;
-                                output_len = add_len(output_len, content.len(), limits)?;
-                                match content {
-                                    RichContent::Text(text) => check_limit(
-                                        "string bytes",
-                                        text.as_str().len(),
-                                        limits.max_string_bytes,
-                                    )?,
-                                    RichContent::Embed(value) => {
-                                        value.check_input_limits(limits)?
-                                    }
-                                }
-                            }
-                            RichTextOp::Delete(len) => {
-                                input_len = add_len(input_len, *len, limits)?;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        Ok(())
-    }
 }
 
 impl From<MapChange> for Change {
@@ -484,52 +375,6 @@ impl From<IntChange> for Change {
             other => Self(Arc::new(ChangeKind::Int(other))),
         }
     }
-}
-
-fn check_attrs(attrs: &Attrs, limits: &InputLimits) -> Result<(), CodecError> {
-    check_limit("container length", attrs.len(), limits.max_container_len)?;
-    for (key, value) in attrs.iter() {
-        check_limit("string bytes", key.len(), limits.max_string_bytes)?;
-        if let crate::AttrValue::String(value) = value {
-            check_limit("string bytes", value.len(), limits.max_string_bytes)?;
-        }
-    }
-    Ok(())
-}
-
-fn check_attr_patch(patch: &AttrPatch, limits: &InputLimits) -> Result<(), CodecError> {
-    check_limit("container length", patch.len(), limits.max_container_len)?;
-    for (key, change) in patch.iter() {
-        check_limit("string bytes", key.len(), limits.max_string_bytes)?;
-        if let crate::AttrChange::Set(crate::AttrValue::String(value)) = change {
-            check_limit("string bytes", value.len(), limits.max_string_bytes)?;
-        }
-    }
-    Ok(())
-}
-
-fn check_limit(name: &'static str, actual: usize, limit: usize) -> Result<(), CodecError> {
-    if actual > limit {
-        Err(CodecError::LimitExceeded {
-            name,
-            actual,
-            limit,
-        })
-    } else {
-        Ok(())
-    }
-}
-
-fn add_len(current: usize, amount: usize, limits: &InputLimits) -> Result<usize, CodecError> {
-    let value = current
-        .checked_add(amount)
-        .ok_or(CodecError::LimitExceeded {
-            name: "sequence length",
-            actual: usize::MAX,
-            limit: limits.max_sequence_len,
-        })?;
-    check_limit("sequence length", value, limits.max_sequence_len)?;
-    Ok(value)
 }
 
 #[derive(Default)]

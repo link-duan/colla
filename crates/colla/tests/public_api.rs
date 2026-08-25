@@ -1,6 +1,6 @@
 use colla::{
     apply, compose, invert, transform_pair, ApplyError, Change, ChangeKind, CodecError,
-    ComposeError, ErrorCode, InputLimits, IntChange, InvertError, ListChange, ListOp, MapChange,
+    ComposeError, ErrorCode, IntChange, InvertError, ListChange, ListOp, MapChange,
     MapEntryChange, Path, RichTextChange, TextChange, TextOp, TieBreak, TransformError, Value,
     ValueError, ValueType,
 };
@@ -171,17 +171,9 @@ fn package_functions_and_type_entrypoints_form_one_facade() {
 
     let bytes = combined.encode();
     assert_eq!(Change::decode(&bytes).unwrap(), combined);
-    assert_eq!(
-        Change::decode_with_limits(&bytes, &InputLimits::default()).unwrap(),
-        combined
-    );
 
     let value_bytes = after_first.encode();
     assert_eq!(Value::decode(&value_bytes).unwrap(), after_first);
-    assert_eq!(
-        Value::decode_with_limits(&value_bytes, &InputLimits::default()).unwrap(),
-        after_first
-    );
 }
 
 #[test]
@@ -218,19 +210,15 @@ fn typed_constructors_accept_iterators_and_convert_into_change() {
 }
 
 #[test]
-fn operation_results_are_independent_of_receiver_input_limits() {
+fn operation_results_decode_without_a_receiver_budget() {
+    // Byte decoding is bounded only by cocodec's built-in defenses; an operation
+    // result round-trips regardless of any receiver policy.
     let base = Value::text("a");
     let change = Change::from(
         TextChange::from_ops(vec![TextOp::Retain(1), TextOp::Insert("bc".into())]).unwrap(),
     );
     let result = apply(&base, &change).unwrap();
     let bytes = result.encode();
-    let limits = InputLimits {
-        max_string_bytes: 1,
-        ..InputLimits::default()
-    };
-
-    assert!(Value::decode_with_limits(&bytes, &limits).is_err());
     assert_eq!(Value::decode(&bytes).unwrap(), result);
 }
 
