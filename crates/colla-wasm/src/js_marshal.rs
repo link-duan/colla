@@ -111,7 +111,7 @@ impl<'a> Counter<'a> {
                 self.check_limit("string bytes", text.len(), self.limits.max_string_bytes)?;
                 Ok(Value::text(text))
             }
-            Some("richText") => {
+            Some("richtext") => {
                 let spans = get(object, "spans", ctx)?;
                 let spans: &Array = spans.unchecked_ref();
                 let count = spans.length() as usize;
@@ -328,7 +328,7 @@ impl<'a> Counter<'a> {
                 }
                 Ok(TextChange::from_ops(ops)?.into())
             }
-            "richText" => {
+            "richtext" => {
                 let items = array_field(object, "ops", ctx)?;
                 let count = items.length() as usize;
                 self.check_limit("sequence ops", count, self.limits.max_sequence_ops)?;
@@ -483,7 +483,7 @@ fn marker(object: &Object, ctx: &str) -> Result<Option<&'static str>, InputError
         Reflect::get(object, &JsValue::from_str("type")).map_err(|_| argument(ctx, "type"))?;
     match value.as_string().as_deref() {
         Some("text") => Ok(Some("text")),
-        Some("richText") => Ok(Some("richText")),
+        Some("richtext") => Ok(Some("richtext")),
         Some("embed") => Ok(Some("embed")),
         Some(_) => Ok(Some("")),
         None => Ok(None),
@@ -533,7 +533,7 @@ impl SequenceLengths {
 ///
 /// Maps become frozen null-prototype objects (so `__proto__` is a data key and
 /// `deepStrictEqual` against `Object.create(null)` holds); lists become frozen
-/// arrays; tag objects (`text`/`richText`/spans) are frozen normal objects.
+/// arrays; tag objects (`text`/`richtext`/spans) are frozen normal objects.
 pub(crate) fn value_to_js(value: &Value) -> JsValue {
     match value.kind() {
         ValueKind::Null => JsValue::NULL,
@@ -585,7 +585,7 @@ pub(crate) fn value_to_js(value: &Value) -> JsValue {
             let spans_object: &Object = spans.unchecked_ref();
             Object::freeze(spans_object);
             let object = Object::new();
-            set(&object, "type", &JsValue::from_str("richText"));
+            set(&object, "type", &JsValue::from_str("richtext"));
             set(&object, "spans", &spans);
             freeze(object)
         }

@@ -283,7 +283,7 @@ try {
     )
 
     const richBase = ValueHandle.fromJS(richInput)
-    assert.equal(richBase.kind(), "richText")
+    assert.equal(richBase.kind(), "richtext")
     const richData = richBase.toJS()
     assert.equal(richData.spans[0].attrs.count, 2n)
     assert.equal(richData.spans[0].attrs.opacity, 0.5)
@@ -565,9 +565,9 @@ try {
       "map.delete",
       "map.set",
       "map.set",
-      "richText.format",
-      "richText.insertEmbed",
-      "richText.delete",
+      "richtext.format",
+      "richtext.insertEmbed",
+      "richtext.delete",
       "text.insert",
       "text.delete",
     ])
@@ -608,7 +608,7 @@ try {
         .delete(1))))
     })
     const richPositionView = inspectChange(richPositionChange, inspectBase)
-    assert.equal(richPositionView[0].type, "richText.insertText")
+    assert.equal(richPositionView[0].type, "richtext.insertText")
     assert.equal(richPositionView[0].at, 3)
     assert.equal(richPositionView[0].attrs, undefined)
     assert.deepEqual(richPositionView[1].range, { from: 3, to: 4 })
@@ -724,7 +724,7 @@ try {
       ],
     }, change => change.text(value => value.retain(2).insert("X").delete(1)))
     assertBuilderEquivalent({
-      type: "richText",
+      type: "richtext",
       ops: [
         {
           type: "retain",
@@ -803,7 +803,7 @@ try {
     )
     assert.throws(
       () => Change.fromJS({
-        type: "richText",
+        type: "richtext",
         ops: [{ type: "insert", content: { type: "text", text: "x", value: null } }],
       }),
       error => error instanceof CollaError && error.code === "invalid_argument",

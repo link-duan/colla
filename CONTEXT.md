@@ -29,12 +29,18 @@ _Avoid_: Patch, event, command
 
 **Change Input**:
 JavaScript 构造 Change 使用的递归 typed input；它不是 Change 的规范内存表示、
-Change View 或 wire format。
-_Avoid_: Change Data, serialized Change, Change View
+Change View、Edit Steps 或 wire format。
+_Avoid_: Change Data, serialized Change, Change View, Edit Steps
 
 **Change View**:
-结合 Change 与其 Snapshot 派生的只读投影；它不是 Change 的规范表示或构造输入。
-_Avoid_: Change Input, serialized Change
+结合 Change 与其 Snapshot 派生、将操作流展开为定位编辑事件的只读投影；它不是 Change
+的规范表示或构造输入。
+_Avoid_: Change Input, serialized Change, Edit Steps
+
+**Edit Steps**:
+结合 Change 与其 Snapshot 派生、保留 Core Change 原生操作边界的只读编辑投影；根 Path
+相对 Snapshot，List Modify 内嵌步骤相对被修改元素。
+_Avoid_: Change Input, serialized Change, Change View
 
 **Path**:
 相对于特定 Snapshot 的临时 Map key/List index 导航地址，不属于 Change。

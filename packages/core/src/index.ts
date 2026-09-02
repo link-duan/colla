@@ -2,6 +2,7 @@ import {
   applyHandles,
   ChangeHandle,
   composeHandles,
+  convertChangeToEditStepsHandle,
   inspectChangeHandle,
   invertHandle,
   resolveCodePointPositionHandle,
@@ -18,7 +19,7 @@ export type ValueKind =
   | "float"
   | "string"
   | "text"
-  | "richText"
+  | "richtext"
   | "list"
   | "map"
 
@@ -47,7 +48,7 @@ export type RichTextSpan =
   | { readonly type: "text"; readonly text: string; readonly attrs?: AttrsData }
   | { readonly type: "embed"; readonly value: Value; readonly attrs?: AttrsData }
 export interface RichText {
-  readonly type: "richText"
+  readonly type: "richtext"
   readonly spans: readonly RichTextSpan[]
 }
 
@@ -57,7 +58,7 @@ export type ChangeInput =
   | { readonly type: "map"; readonly entries: readonly MapChangeEntryInput[] }
   | { readonly type: "list"; readonly ops: readonly ListChangeOpInput[] }
   | { readonly type: "text"; readonly ops: readonly TextChangeOpInput[] }
-  | { readonly type: "richText"; readonly ops: readonly RichTextChangeOpInput[] }
+  | { readonly type: "richtext"; readonly ops: readonly RichTextChangeOpInput[] }
   | { readonly type: "int"; readonly delta: bigint }
 
 export type MapChangeEntryInput =
@@ -86,6 +87,34 @@ export type RichTextChangeOpInput =
   | { readonly type: "retain"; readonly length: number; readonly patch?: AttrPatchInput }
   | { readonly type: "insert"; readonly content: RichTextSpan }
   | { readonly type: "delete"; readonly length: number }
+
+export type MapEditOp =
+  | { readonly type: "insert"; readonly value: Value }
+  | { readonly type: "delete" }
+
+export type ListEditOp =
+  | { readonly type: "retain"; readonly length: number }
+  | { readonly type: "insert"; readonly values: readonly Value[] }
+  | { readonly type: "delete"; readonly length: number }
+  | { readonly type: "modify"; readonly steps: readonly EditStep[] }
+
+export type TextEditOp =
+  | { readonly type: "retain"; readonly length: number }
+  | { readonly type: "insert"; readonly text: string }
+  | { readonly type: "delete"; readonly length: number }
+
+export type RichTextEditOp =
+  | { readonly type: "retain"; readonly length: number; readonly patch?: AttrPatchView }
+  | { readonly type: "insert"; readonly span: RichTextSpan }
+  | { readonly type: "delete"; readonly length: number }
+
+export type EditStep =
+  | { readonly type: "replace"; readonly path: Path; readonly value: Value }
+  | { readonly type: "int"; readonly path: Path; readonly delta: bigint }
+  | { readonly type: "map"; readonly path: Path; readonly op: MapEditOp }
+  | { readonly type: "list"; readonly path: Path; readonly ops: readonly ListEditOp[] }
+  | { readonly type: "text"; readonly path: Path; readonly ops: readonly TextEditOp[] }
+  | { readonly type: "richtext"; readonly path: Path; readonly ops: readonly RichTextEditOp[] }
 
 export interface InputLimits {
   readonly maxDepth: number
@@ -373,7 +402,7 @@ export function richText(spans: readonly RichTextSpan[]): RichText {
       ? { type: "text" as const, text: span.text, ...(attrs === undefined ? {} : { attrs }) }
       : { type: "embed" as const, value: span.value, ...(attrs === undefined ? {} : { attrs }) })
   })
-  return Object.freeze({ type: "richText", spans: Object.freeze(frozen) })
+  return Object.freeze({ type: "richtext", spans: Object.freeze(frozen) })
 }
 
 const inputLimitNames = Object.keys(DEFAULT_INPUT_LIMITS) as (keyof InputLimits)[]
@@ -519,7 +548,7 @@ function validateValue(input: Value, operation: string): void {
         assertWellFormedString(textValue, operation)
         return
       }
-      if (marker?.[1] === "richText") {
+      if (marker?.[1] === "richtext") {
         if (entries.length !== 2 || !entries.some(([key]) => key === "spans")) {
           throw new CollaError("invalid_value", operation, { reason: "invalid RichText marker" })
         }
@@ -714,9 +743,9 @@ function validateChangeInput(input: ChangeInput, operation: string): void {
           })
           break
         }
-        case "richText": {
+        case "richtext": {
           if (fields.size !== 2 || !fields.has("ops")) {
-            throw invalidArgument(operation, context, "richText requires ops")
+            throw invalidArgument(operation, context, "richtext requires ops")
           }
           const ops = changeInputArray(fields.get("ops"), operation, `${context}.ops`)
           ops.forEach((op, index) => {
@@ -768,7 +797,7 @@ function validateChangeInput(input: ChangeInput, operation: string): void {
             } else if (item.get("type") === "delete" && item.size === 2 && item.has("length")) {
               changeInputLength(item.get("length"), operation, `${opContext}.length`)
             } else {
-              throw invalidArgument(operation, opContext, "invalid richText operation")
+              throw invalidArgument(operation, opContext, "invalid richtext operation")
             }
           })
           break
@@ -1017,10 +1046,10 @@ export type ChangeViewEntry =
   | (ChangeViewEntryBase & { readonly type: "list.delete"; readonly range: Range })
   | (ChangeViewEntryBase & { readonly type: "text.insert"; readonly at: number; readonly text: string })
   | (ChangeViewEntryBase & { readonly type: "text.delete"; readonly range: Range })
-  | (ChangeViewEntryBase & { readonly type: "richText.insertText"; readonly at: number; readonly text: string; readonly attrs?: AttrsData })
-  | (ChangeViewEntryBase & { readonly type: "richText.insertEmbed"; readonly at: number; readonly embed: Value; readonly attrs?: AttrsData })
-  | (ChangeViewEntryBase & { readonly type: "richText.delete"; readonly range: Range })
-  | (ChangeViewEntryBase & { readonly type: "richText.format"; readonly range: Range; readonly patch: AttrPatchView })
+  | (ChangeViewEntryBase & { readonly type: "richtext.insertText"; readonly at: number; readonly text: string; readonly attrs?: AttrsData })
+  | (ChangeViewEntryBase & { readonly type: "richtext.insertEmbed"; readonly at: number; readonly embed: Value; readonly attrs?: AttrsData })
+  | (ChangeViewEntryBase & { readonly type: "richtext.delete"; readonly range: Range })
+  | (ChangeViewEntryBase & { readonly type: "richtext.format"; readonly range: Range; readonly patch: AttrPatchView })
 
 export type ChangeView = readonly ChangeViewEntry[]
 
@@ -1137,7 +1166,7 @@ class RootChangeScope extends ChangeBuildScope implements ChangeBuilder {
     this.#assertUnselected()
     const scope = new RichTextChangeScope()
     const ops = runBuildCallback(scope, edit, () => scope.finish())
-    return this.#select(Object.freeze({ type: "richText", ops }))
+    return this.#select(Object.freeze({ type: "richtext", ops }))
   }
 
   intAdd(delta: bigint): this {
@@ -1466,6 +1495,122 @@ function viewPatch(entries: RawChangeViewEntry["patch"]): AttrPatchView {
   return Object.freeze(patch)
 }
 
+type RawMapEditOp =
+  | { type: "insert"; valueBytes: number[] }
+  | { type: "delete" }
+
+type RawListEditOp =
+  | { type: "retain"; length: number }
+  | { type: "insert"; valuesBytes: number[][] }
+  | { type: "delete"; length: number }
+  | { type: "modify"; steps: RawEditStep[] }
+
+type RawTextEditOp =
+  | { type: "retain"; length: number }
+  | { type: "insert"; text: string }
+  | { type: "delete"; length: number }
+
+type RawRichTextSpan =
+  | { type: "text"; text: string; attrs?: AttrEntry[] }
+  | { type: "embed"; valueBytes: number[]; attrs?: AttrEntry[] }
+
+type RawRichTextEditOp =
+  | { type: "retain"; length: number; patch?: RawChangeViewEntry["patch"] }
+  | { type: "insert"; span: RawRichTextSpan }
+  | { type: "delete"; length: number }
+
+type RawEditStep =
+  | { type: "replace"; path: (string | number)[]; valueBytes: number[] }
+  | { type: "int"; path: (string | number)[]; delta: string }
+  | { type: "map"; path: (string | number)[]; op: RawMapEditOp }
+  | { type: "list"; path: (string | number)[]; ops: RawListEditOp[] }
+  | { type: "text"; path: (string | number)[]; ops: RawTextEditOp[] }
+  | { type: "richtext"; path: (string | number)[]; ops: RawRichTextEditOp[] }
+
+function editStepsFromRaw(raw: readonly RawEditStep[]): readonly EditStep[] {
+  const steps = raw.map((step): EditStep => {
+    const path = [...step.path]
+    switch (step.type) {
+      case "replace":
+        return { type: step.type, path, value: viewValue(step.valueBytes) }
+      case "int":
+        return { type: step.type, path, delta: BigInt(step.delta) }
+      case "map":
+        return {
+          type: step.type,
+          path,
+          op: step.op.type === "delete"
+            ? { type: "delete" }
+            : { type: "insert", value: viewValue(step.op.valueBytes) },
+        }
+      case "list":
+        return {
+          type: step.type,
+          path,
+          ops: step.ops.map((op): ListEditOp => {
+            switch (op.type) {
+              case "retain": return { type: op.type, length: op.length }
+              case "insert": return { type: op.type, values: op.valuesBytes.map(viewValue) }
+              case "delete": return { type: op.type, length: op.length }
+              case "modify": return { type: op.type, steps: editStepsFromRaw(op.steps) }
+            }
+          }),
+        }
+      case "text":
+        return {
+          type: step.type,
+          path,
+          ops: step.ops.map((op): TextEditOp => op.type === "insert"
+            ? { type: op.type, text: op.text }
+            : { type: op.type, length: op.length }),
+        }
+      case "richtext":
+        return {
+          type: step.type,
+          path,
+          ops: step.ops.map((op): RichTextEditOp => {
+            if (op.type === "retain") {
+              return op.patch === undefined
+                ? { type: op.type, length: op.length }
+                : { type: op.type, length: op.length, patch: viewPatch(op.patch) }
+            }
+            if (op.type === "delete") return { type: op.type, length: op.length }
+            const attrs = viewAttrs(op.span.attrs)
+            const span: RichTextSpan = op.span.type === "text"
+              ? {
+                  type: "text",
+                  text: op.span.text,
+                  ...(attrs === undefined ? {} : { attrs }),
+                }
+              : {
+                  type: "embed",
+                  value: viewValue(op.span.valueBytes),
+                  ...(attrs === undefined ? {} : { attrs }),
+                }
+            return { type: op.type, span }
+          }),
+        }
+    }
+  })
+  return deepFreeze(steps)
+}
+
+export function convertChangeToEditSteps(
+  change: Change,
+  base: ValueHandle,
+): readonly EditStep[] {
+  const operation = "convert_change_to_edit_steps"
+  try {
+    const raw = JSON.parse(convertChangeToEditStepsHandle(
+      Change._handle(change, operation),
+      ValueHandle._handle(base, operation),
+    )) as RawEditStep[]
+    return editStepsFromRaw(raw)
+  } catch (error) {
+    throw fromWasmError(error, operation)
+  }
+}
+
 export function inspectChange(change: Change, base: ValueHandle): ChangeView {
   const operation = "inspect_change"
   try {
@@ -1490,7 +1635,7 @@ export function inspectChange(change: Change, base: ValueHandle): ChangeView {
         case "list.delete": return Object.freeze({ type: entry.type, path, range: viewRange(entry) })
         case "text.insert": return Object.freeze({ type: entry.type, path, at: entry.at ?? 0, text: entry.text ?? "" })
         case "text.delete": return Object.freeze({ type: entry.type, path, range: viewRange(entry) })
-        case "richText.insertText": {
+        case "richtext.insertText": {
           const attrs = viewAttrs(entry.attrs)
           return Object.freeze({
             type: entry.type,
@@ -1500,7 +1645,7 @@ export function inspectChange(change: Change, base: ValueHandle): ChangeView {
             ...(attrs === undefined ? {} : { attrs }),
           })
         }
-        case "richText.insertEmbed": {
+        case "richtext.insertEmbed": {
           const attrs = viewAttrs(entry.attrs)
           return Object.freeze({
             type: entry.type,
@@ -1510,8 +1655,8 @@ export function inspectChange(change: Change, base: ValueHandle): ChangeView {
             ...(attrs === undefined ? {} : { attrs }),
           })
         }
-        case "richText.delete": return Object.freeze({ type: entry.type, path, range: viewRange(entry) })
-        case "richText.format": return Object.freeze({
+        case "richtext.delete": return Object.freeze({ type: entry.type, path, range: viewRange(entry) })
+        case "richtext.format": return Object.freeze({
           type: entry.type,
           path,
           range: viewRange(entry),

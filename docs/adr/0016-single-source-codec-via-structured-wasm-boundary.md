@@ -37,7 +37,7 @@ TS 退化为**薄 marshaling 层**,不再包含任何 varint / tag / 排序 / �
   `ChangeHandle.fromJs(jsValue, limitsJson)` / `toJs()`。`decode`/`encode`(bytes)保持不变。
 - **`Value` 判别**:`null`→Null;`boolean`→Bool;**`bigint`→Int**(超 i64 → `invalid_value`);
   **`number`→恒为 Float**(须有限,整数值 number 不视作 int);`string`→String;数组→List;
-  `{type:"text",value}`→Text;`{type:"richText",spans}`→RichText;其余 plain object→Map;
+  `{type:"text",value}`→Text;`{type:"richtext",spans}`→RichText;其余 plain object→Map;
   其它 → `invalid_value` "unsupported Value"。
 - **i64 跨界**:Int/IntChange.delta/AttrValue.Int 一律用 JS `BigInt` 承载,双向零精度损失。
 - **`toJs` 输出**:Int→`bigint`,Float→`number`,与公开 `Value`/`ChangeData` 形状一致。
@@ -56,6 +56,9 @@ TS 退化为**薄 marshaling 层**,不再包含任何 varint / tag / 排序 / �
 - JS↔wasm 每次构造多一次边界穿越(此前是纯 TS 编码),以正确性与可维护性换取少量性能;对 1.0
   地基是正确取舍。
 - marshaling 桥不定义 wire 字节,不违反「核心只做 OT primitives、版本协商归信封」的章程。
+- **Edit Steps 投影也经过结构化边界**：Wasm 先用 `apply(base, change)` 验证 Snapshot
+  兼容性，再返回保留 Core Change 操作边界、Value 使用规范编码承载的结构化 JSON；
+  TypeScript 只负责恢复 `Value`/`bigint`/attrs 与递归冻结，不复制 Change 遍历语义。
 - **限额命名双射 + 语义分歧有意保留**：`fromJs` 在**未规范化的原始输入**上逐层校
   `InputLimits`（`sequence ops` 按原始 op 数、节点/深度按原始累加），`decode` 则在 canonical 结果上
   校验（post-canonical）——两侧各自防护自己那种输入，**语义分歧有意保留**（issue #22）。但

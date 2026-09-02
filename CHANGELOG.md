@@ -7,6 +7,11 @@ package are recorded here. Both artifacts always use the same version.
 
 ### Changed
 
+- **BREAKING (JavaScript API).** Unified every RichText discriminator to
+  `"richtext"`: `ValueKind`, `RichText.type`, `ChangeInput.type`, Change View
+  entry types, Edit Steps, and Wasm error details. The former `"richText"`
+  discriminator is removed without a compatibility alias. TypeScript/Rust
+  symbol names such as `RichText`, `richText()`, and `.richText()` are unchanged.
 - **BREAKING (JavaScript API).** Renamed the Wasm-backed `Value` class to
   `ValueHandle`. Unified `ValueInput` and `ValueData` as the recursive `Value`
   type, together with the corresponding `ValueMap`, `Text`, `RichTextSpan`, and
@@ -46,6 +51,10 @@ package are recorded here. Both artifacts always use the same version.
 
 ### Added
 
+- Added `convertChangeToEditSteps(change, base)`, a recursively frozen,
+  Snapshot-relative projection that preserves Map/List/Text/RichText operation
+  boundaries. Text and RichText consumed lengths are exposed as UTF-16 code
+  units, while List `modify.steps` are relative to the current element root.
 - Added a stable `ErrorCode` classification to the Rust `colla` crate: a
   `#[non_exhaustive]` `ErrorCode` enum with `as_str()` and `ALL`, plus a `code()`
   accessor on `ValueError`, `ApplyError`, `ComposeError`, `TransformError`,

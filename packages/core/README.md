@@ -35,7 +35,7 @@ The recursive `Value` type covers null, booleans, signed 64-bit `bigint`, finite
 numbers, strings, arrays, plain records, `text()` markers, and `richText()`
 markers. `ValueHandle.fromJS()` accepts a `Value`; `get()` and `toJS()` return
 the same type. Returned values are recursively frozen, and map output uses
-null-prototype records.
+null-prototype records. The RichText marker uses `type: "richtext"`.
 
 Ordinary strings are atomic. Use `text()` when character-level OT is required.
 RichText embeds are atomic Core Values and count as one sequence unit.
@@ -128,8 +128,9 @@ using change = Change.build(change => {
 })
 ```
 
-UTF-16 positions inside a surrogate pair are rejected. `inspectChange()` uses
-Snapshot-relative UTF-16 positions for JavaScript-facing views.
+UTF-16 positions inside a surrogate pair are rejected. `inspectChange()` and
+`convertChangeToEditSteps()` use Snapshot-relative UTF-16 positions for
+JavaScript-facing projections.
 
 ## Codec and algebra
 
@@ -139,6 +140,7 @@ import {
   ValueHandle,
   apply,
   compose,
+  convertChangeToEditSteps,
   inspectChange,
   invert,
   transformPair,
@@ -156,6 +158,7 @@ const [leftPrime, rightPrime] = transformPair(first, concurrent, {
   order: "left-first",
 })
 const view = inspectChange(combined, value)
+const steps = convertChangeToEditSteps(combined, value)
 
 leftPrime.dispose()
 rightPrime.dispose()
@@ -164,6 +167,14 @@ rightPrime.dispose()
 `encode()` returns fresh JavaScript-owned canonical bytes. Algebra never
 consumes its inputs. `ChangeView` is a read-only projection for inspection; it
 is neither Change construction data nor a persistence format.
+
+`convertChangeToEditSteps()` is the editor-oriented projection. It retains
+List, Text, and RichText operation streams instead of flattening them into
+positioned events. Map insert/delete steps use the child key path, Map modify
+recurses, and List modify contains element-relative nested steps. The returned
+array, steps, paths, operations, patches, and Values are recursively frozen.
+Edit Steps are runtime projections, not Change input or a wire/persistence
+format.
 
 ## Input limits and errors
 

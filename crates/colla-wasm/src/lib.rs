@@ -243,6 +243,206 @@ pub fn inspect_change_handle(change: &ChangeHandle, base: &ValueHandle) -> Resul
         .map_err(|error| wasm_error("invalid_value", "inspect_change", error.to_string()))
 }
 
+#[wasm_bindgen(js_name = convertChangeToEditStepsHandle)]
+pub fn convert_change_to_edit_steps_handle(
+    change: &ChangeHandle,
+    base: &ValueHandle,
+) -> Result<String, JsValue> {
+    const OPERATION: &str = "convert_change_to_edit_steps";
+    apply(&base.value, &change.change).map_err(|error| apply_error(error, OPERATION))?;
+    let mut steps = Vec::new();
+    let mut path = Path::new();
+    edit_steps_at(&change.change, &base.value, &mut path, &mut steps)?;
+    serde_json::to_string(&steps)
+        .map_err(|error| wasm_error("invalid_value", OPERATION, error.to_string()))
+}
+
+fn edit_steps_at(
+    change: &Change,
+    base: &Value,
+    path: &mut Path,
+    steps: &mut Vec<JsonValue>,
+) -> Result<(), JsValue> {
+    const OPERATION: &str = "convert_change_to_edit_steps";
+    match change.kind() {
+        ChangeKind::Noop => {}
+        ChangeKind::Replace(value) => steps.push(json!({
+            "type": "replace",
+            "path": path_json_value(path),
+            "valueBytes": value.encode(),
+        })),
+        ChangeKind::Int(IntChange::Add(delta)) => steps.push(json!({
+            "type": "int",
+            "path": path_json_value(path),
+            "delta": delta.to_string(),
+        })),
+        ChangeKind::Map(change) => {
+            let ValueKind::Map(base) = base.kind() else {
+                return Err(projection_type_error(path, ValueType::Map, base, OPERATION));
+            };
+            for (key, entry) in change.iter() {
+                path.push(PathSeg::Key(key.clone()));
+                match entry {
+                    MapEntryChange::Insert(value) => steps.push(json!({
+                        "type": "map",
+                        "path": path_json_value(path),
+                        "op": { "type": "insert", "valueBytes": value.encode() },
+                    })),
+                    MapEntryChange::Delete => steps.push(json!({
+                        "type": "map",
+                        "path": path_json_value(path),
+                        "op": { "type": "delete" },
+                    })),
+                    MapEntryChange::Modify(child) => {
+                        let child_base = base.get(key).ok_or_else(|| {
+                            wasm_error_details("missing_key", OPERATION, json!({ "key": key }))
+                        })?;
+                        edit_steps_at(child, child_base, path, steps)?;
+                    }
+                }
+                path.pop();
+            }
+        }
+        ChangeKind::List(change) => {
+            let ValueKind::List(base) = base.kind() else {
+                return Err(projection_type_error(
+                    path,
+                    ValueType::List,
+                    base,
+                    OPERATION,
+                ));
+            };
+            let mut index = 0usize;
+            let mut ops = Vec::with_capacity(change.ops().len());
+            for op in change.ops() {
+                match op {
+                    ListOp::Retain(len) => {
+                        ops.push(json!({ "type": "retain", "length": len }));
+                        index += len;
+                    }
+                    ListOp::Insert(values) => ops.push(json!({
+                        "type": "insert",
+                        "valuesBytes": values.iter().map(Value::encode).collect::<Vec<_>>(),
+                    })),
+                    ListOp::Delete(len) => {
+                        ops.push(json!({ "type": "delete", "length": len }));
+                        index += len;
+                    }
+                    ListOp::Modify(child) => {
+                        let child_base = base.get(index).ok_or_else(|| {
+                            wasm_error_details(
+                                "out_of_bounds",
+                                OPERATION,
+                                json!({ "target": "list", "length": base.len(), "index": index }),
+                            )
+                        })?;
+                        let mut child_steps = Vec::new();
+                        let mut child_path = Path::new();
+                        edit_steps_at(child, child_base, &mut child_path, &mut child_steps)?;
+                        ops.push(json!({ "type": "modify", "steps": child_steps }));
+                        index += 1;
+                    }
+                }
+            }
+            steps.push(json!({
+                "type": "list",
+                "path": path_json_value(path),
+                "ops": ops,
+            }));
+        }
+        ChangeKind::Text(change) => {
+            let ValueKind::Text(base) = base.kind() else {
+                return Err(projection_type_error(
+                    path,
+                    ValueType::Text,
+                    base,
+                    OPERATION,
+                ));
+            };
+            let mut cursor = base.as_str().chars();
+            let mut ops = Vec::with_capacity(change.ops().len());
+            for op in change.ops() {
+                match op {
+                    TextOp::Retain(len) => {
+                        ops.push(json!({
+                            "type": "retain",
+                            "length": consume_text_utf16(&mut cursor, *len),
+                        }));
+                    }
+                    TextOp::Insert(text) => {
+                        ops.push(json!({ "type": "insert", "text": text }));
+                    }
+                    TextOp::Delete(len) => {
+                        ops.push(json!({
+                            "type": "delete",
+                            "length": consume_text_utf16(&mut cursor, *len),
+                        }));
+                    }
+                }
+            }
+            steps.push(json!({
+                "type": "text",
+                "path": path_json_value(path),
+                "ops": ops,
+            }));
+        }
+        ChangeKind::RichText(change) => {
+            let ValueKind::RichText(base) = base.kind() else {
+                return Err(projection_type_error(
+                    path,
+                    ValueType::RichText,
+                    base,
+                    OPERATION,
+                ));
+            };
+            let mut spans = base.iter_spans();
+            let mut cursor = None;
+            let mut ops = Vec::with_capacity(change.ops().len());
+            for op in change.ops() {
+                match op {
+                    RichTextOp::Retain { len, attrs } => {
+                        let mut entry = json!({
+                            "type": "retain",
+                            "length": consume_rich_utf16(&mut spans, &mut cursor, *len),
+                        });
+                        if !attrs.is_empty() {
+                            entry["patch"] = attr_patch_json(attrs);
+                        }
+                        ops.push(entry);
+                    }
+                    RichTextOp::Insert { content, attrs } => {
+                        let span = match content {
+                            RichContent::Text(text) => json!({
+                                "type": "text",
+                                "text": text.as_str(),
+                                "attrs": attrs_json(attrs),
+                            }),
+                            RichContent::Embed(value) => json!({
+                                "type": "embed",
+                                "valueBytes": value.encode(),
+                                "attrs": attrs_json(attrs),
+                            }),
+                        };
+                        ops.push(json!({ "type": "insert", "span": span }));
+                    }
+                    RichTextOp::Delete(len) => {
+                        ops.push(json!({
+                            "type": "delete",
+                            "length": consume_rich_utf16(&mut spans, &mut cursor, *len),
+                        }));
+                    }
+                }
+            }
+            steps.push(json!({
+                "type": "richtext",
+                "path": path_json_value(path),
+                "ops": ops,
+            }));
+        }
+    }
+    Ok(())
+}
+
 fn inspect_change_at(
     change: &Change,
     base: &Value,
@@ -389,7 +589,7 @@ fn inspect_change_at(
                         let end = index + len;
                         if !attrs.is_empty() {
                             entries.push(json!({
-                                "type": "richText.format",
+                                "type": "richtext.format",
                                 "path": path_json_value(path),
                                 "from": rich_utf16_prefix(base, index),
                                 "to": rich_utf16_prefix(base, end),
@@ -400,14 +600,14 @@ fn inspect_change_at(
                     }
                     RichTextOp::Insert { content, attrs } => match content {
                         RichContent::Text(text) => entries.push(json!({
-                            "type": "richText.insertText",
+                            "type": "richtext.insertText",
                             "path": path_json_value(path),
                             "at": rich_utf16_prefix(base, index),
                             "text": text.as_str(),
                             "attrs": attrs_json(attrs),
                         })),
                         RichContent::Embed(value) => entries.push(json!({
-                            "type": "richText.insertEmbed",
+                            "type": "richtext.insertEmbed",
                             "path": path_json_value(path),
                             "at": rich_utf16_prefix(base, index),
                             "embedBytes": value.encode(),
@@ -417,7 +617,7 @@ fn inspect_change_at(
                     RichTextOp::Delete(len) => {
                         let end = index + len;
                         entries.push(json!({
-                            "type": "richText.delete",
+                            "type": "richtext.delete",
                             "path": path_json_value(path),
                             "from": rich_utf16_prefix(base, index),
                             "to": rich_utf16_prefix(base, end),
@@ -449,7 +649,7 @@ pub fn resolve_code_point_position_handle(
         actual => Err(wasm_error_details(
             "type_mismatch",
             "resolve_code_point_position",
-            json!({ "expected": ["text", "richText"], "actual": value_kind_name(actual) }),
+            json!({ "expected": ["text", "richtext"], "actual": value_kind_name(actual) }),
         )),
     }
 }
@@ -472,7 +672,7 @@ pub fn resolve_utf16_position_handle(
         actual => Err(wasm_error_details(
             "type_mismatch",
             "resolve_utf16_position",
-            json!({ "expected": ["text", "richText"], "actual": value_kind_name(actual) }),
+            json!({ "expected": ["text", "richtext"], "actual": value_kind_name(actual) }),
         )),
     }
 }
@@ -485,7 +685,7 @@ fn value_kind_name(kind: &ValueKind) -> &'static str {
         ValueKind::Float(_) => "float",
         ValueKind::String(_) => "string",
         ValueKind::Text(_) => "text",
-        ValueKind::RichText(_) => "richText",
+        ValueKind::RichText(_) => "richtext",
         ValueKind::List(_) => "list",
         ValueKind::Map(_) => "map",
     }
@@ -504,9 +704,18 @@ fn path_json_value(path: &Path) -> JsonValue {
 }
 
 fn inspect_type_error(path: &Path, expected: ValueType, actual: &Value) -> JsValue {
+    projection_type_error(path, expected, actual, "inspect_change")
+}
+
+fn projection_type_error(
+    path: &Path,
+    expected: ValueType,
+    actual: &Value,
+    operation: &'static str,
+) -> JsValue {
     wasm_error_details(
         "type_mismatch",
-        "inspect_change",
+        operation,
         json!({
             "expected": value_type_name(expected),
             "actual": value_type_name(actual.value_type()),
@@ -519,9 +728,60 @@ fn text_utf16_prefix(text: &str, index: usize) -> usize {
     text.chars().take(index).map(char::len_utf16).sum()
 }
 
+fn consume_text_utf16(cursor: &mut std::str::Chars<'_>, len: usize) -> usize {
+    (0..len)
+        .map(|_| cursor.next().expect("validated Text range").len_utf16())
+        .sum()
+}
+
 fn rich_utf16_prefix(rich: &RichText, index: usize) -> usize {
     rich.code_point_to_utf16(index)
         .expect("validated RichText code point position")
+}
+
+enum RichUtf16Cursor<'a> {
+    Text(std::str::Chars<'a>),
+    Embed,
+}
+
+fn consume_rich_utf16<'a, I>(
+    spans: &mut I,
+    cursor: &mut Option<RichUtf16Cursor<'a>>,
+    mut len: usize,
+) -> usize
+where
+    I: Iterator<Item = &'a colla::RichSpan>,
+{
+    let mut utf16_len = 0usize;
+    while len > 0 {
+        if cursor.is_none() {
+            let span = spans.next().expect("validated RichText range");
+            *cursor = Some(match span.content() {
+                RichContent::Text(text) => RichUtf16Cursor::Text(text.as_str().chars()),
+                RichContent::Embed(_) => RichUtf16Cursor::Embed,
+            });
+        }
+
+        let exhausted = match cursor.as_mut().expect("initialized RichText cursor") {
+            RichUtf16Cursor::Text(characters) => match characters.next() {
+                Some(character) => {
+                    utf16_len += character.len_utf16();
+                    len -= 1;
+                    false
+                }
+                None => true,
+            },
+            RichUtf16Cursor::Embed => {
+                utf16_len += 1;
+                len -= 1;
+                true
+            }
+        };
+        if exhausted {
+            *cursor = None;
+        }
+    }
+    utf16_len
 }
 
 fn attr_value_json(value: &AttrValue) -> JsonValue {
@@ -736,7 +996,7 @@ fn value_type_name(value_type: ValueType) -> &'static str {
         ValueType::Float => "float",
         ValueType::String => "string",
         ValueType::Text => "text",
-        ValueType::RichText => "richText",
+        ValueType::RichText => "richtext",
         ValueType::List => "list",
         ValueType::Map => "map",
     }
@@ -918,7 +1178,7 @@ fn rich_position_error(error: Utf16PositionError, operation: &'static str) -> Js
         | Utf16PositionError::Utf16OutOfBounds { position, len } => wasm_error_details(
             "out_of_bounds",
             operation,
-            json!({ "target": "richText", "length": len, "index": position }),
+            json!({ "target": "richtext", "length": len, "index": position }),
         ),
         other => wasm_error("invalid_argument", operation, other.to_string()),
     }
