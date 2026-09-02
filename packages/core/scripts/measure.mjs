@@ -16,7 +16,10 @@ if (process.argv[2] === "--init") {
   process.exit(0)
 }
 
-execFileSync("pnpm", ["build"], { cwd: packageDir, stdio: "inherit" })
+execFileSync("pnpm", ["build"], {
+  cwd: packageDir,
+  stdio: ["inherit", process.stderr, process.stderr],
+})
 
 const {
   Change,
@@ -48,6 +51,80 @@ function compressedSizes(bytes) {
     gzip: gzipSync(bytes).byteLength,
     brotli: brotliCompressSync(bytes).byteLength,
   }
+}
+
+function formatBytes(bytes) {
+  const units = ["B", "KiB", "MiB", "GiB"]
+  let value = bytes
+  let unitIndex = 0
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024
+    unitIndex += 1
+  }
+  return `${value.toFixed(unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`
+}
+
+function formatMilliseconds(milliseconds) {
+  const digits = milliseconds >= 10 ? 2 : milliseconds >= 1 ? 3 : 4
+  return `${milliseconds.toFixed(digits)} ms`
+}
+
+function formatMarkdown(result, json) {
+  const sizeRows = [
+    ["Wasm binary", result.sizes.wasm],
+    ["Browser base64 module", result.sizes.browserBase64],
+    ["npm tarball", result.sizes.npmTarball],
+  ].map(([name, sizes]) =>
+    `| ${name} | ${formatBytes(sizes.raw)} | ${formatBytes(sizes.gzip)} | ${formatBytes(sizes.brotli)} |`)
+
+  const timingRows = [
+    ["Synchronous initialization", result.milliseconds.synchronousInitialization],
+    ["Value.fromJS + toJS", result.milliseconds.valueFromJS],
+    ["Change builder", result.milliseconds.builder],
+    ["Apply", result.milliseconds.apply],
+    ["Compose", result.milliseconds.compose],
+    ["Transform pair", result.milliseconds.transformPair],
+  ].map(([name, milliseconds]) => `| ${name} | ${formatMilliseconds(milliseconds)} |`)
+
+  return [
+    "## Quality baseline",
+    "",
+    `**colla-ot ${result.version}** · ${result.environment.node} · ${result.environment.platform}/${result.environment.arch}`,
+    "",
+    "### Artifact sizes",
+    "",
+    "| Artifact | Raw | Gzip | Brotli |",
+    "| --- | ---: | ---: | ---: |",
+    ...sizeRows,
+    "",
+    "### Performance",
+    "",
+    "| Measurement | Median time |",
+    "| --- | ---: |",
+    ...timingRows,
+    "",
+    "Initialization is measured across fresh imports. Operation timings are median milliseconds per call.",
+    "",
+    "<details>",
+    "<summary>Raw JSON</summary>",
+    "",
+    "```json",
+    json.trimEnd(),
+    "```",
+    "",
+    "</details>",
+    "",
+  ].join("\n")
+}
+
+async function writeOutput(flag, contents) {
+  const index = process.argv.indexOf(flag)
+  if (index < 0) return
+  const path = process.argv[index + 1]
+  if (!path) throw new Error(`${flag} requires a path`)
+  const output = resolve(process.cwd(), path)
+  await mkdir(dirname(output), { recursive: true })
+  await writeFile(output, contents)
 }
 
 const input = {
@@ -104,7 +181,7 @@ const fixtureDir = await mkdtemp(join(tmpdir(), "colla-measure-"))
 try {
   execFileSync("pnpm", ["pack", "--pack-destination", fixtureDir], {
     cwd: packageDir,
-    stdio: "inherit",
+    stdio: ["inherit", process.stderr, process.stderr],
   })
   const tarballName = `${packageJson.name.replace(/^@/, "").replace("/", "-")}-${packageJson.version}.tgz`
   const tarball = await readFile(join(fixtureDir, tarballName))
@@ -129,13 +206,11 @@ try {
       ...timings,
     },
   }
-  const outputIndex = process.argv.indexOf("--output")
-  if (outputIndex >= 0) {
-    const output = resolve(process.cwd(), process.argv[outputIndex + 1])
-    await mkdir(dirname(output), { recursive: true })
-    await writeFile(output, `${JSON.stringify(result, null, 2)}\n`)
-  }
-  console.log(JSON.stringify(result, null, 2))
+  const json = `${JSON.stringify(result, null, 2)}\n`
+  const markdown = formatMarkdown(result, json)
+  await writeOutput("--output", json)
+  await writeOutput("--markdown-output", markdown)
+  process.stdout.write(markdown)
 } finally {
   await rm(fixtureDir, { recursive: true, force: true })
 }

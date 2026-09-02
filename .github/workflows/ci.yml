@@ -126,12 +126,11 @@ jobs:
       - run: cargo install wasm-pack --version 0.14.0 --locked
       - run: pnpm install --frozen-lockfile
       - run: pnpm check:versions
-      - run: pnpm --filter colla-ot measure --output "$GITHUB_WORKSPACE/artifacts/quality-baseline.json"
-      - run: |
-          echo '## Quality baseline' >> "$GITHUB_STEP_SUMMARY"
-          echo '```json' >> "$GITHUB_STEP_SUMMARY"
-          cat artifacts/quality-baseline.json >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
+      - name: Measure quality baseline
+        run: |
+          pnpm --filter colla-ot measure \
+            --output "$GITHUB_WORKSPACE/artifacts/quality-baseline.json" \
+            --markdown-output "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v7
         with:
           name: quality-baseline
