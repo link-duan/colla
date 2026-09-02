@@ -1,8 +1,8 @@
 use colla::{
     apply, compose, invert, transform_pair, ApplyError, Change, ChangeKind, CodecError,
-    ComposeError, ErrorCode, IntChange, InvertError, ListChange, ListOp, MapChange,
-    MapEntryChange, Path, RichTextChange, TextChange, TextOp, TieBreak, TransformError, Value,
-    ValueError, ValueType,
+    ComposeError, ErrorCode, IntChange, InvertError, ListChange, ListOp, MapChange, MapEntryChange,
+    Path, RichTextChange, TextChange, TextOp, TieBreak, TransformError, Value, ValueError,
+    ValueType,
 };
 
 #[test]

@@ -1,6 +1,4 @@
-use colla::{
-    codec, Change, CodecError, MapChange, MapEntryChange, TextChange, TextOp, Value,
-};
+use colla::{codec, Change, CodecError, MapChange, MapEntryChange, TextChange, TextOp, Value};
 
 #[test]
 fn value_and_change_roundtrip() {
@@ -31,7 +29,7 @@ fn value_and_change_roundtrip() {
 
 #[test]
 fn rich_text_roundtrips() {
-    use colla::{Attrs, RichText, RichSpan};
+    use colla::{Attrs, RichSpan, RichText};
     let value = Value::rich_text(
         RichText::from_spans(vec![
             RichSpan::text("hello ", Attrs::default()),

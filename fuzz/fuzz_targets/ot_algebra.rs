@@ -210,16 +210,15 @@ fn gen_map_change(u: &mut Unstructured, map: &colla::Map, depth: u32) -> arbitra
 }
 
 fn assert_codec_roundtrips(value: &Value, change: &Change) {
-    let limits = colla::InputLimits::default();
     let value_bytes = encode_value(value);
     assert_eq!(
-        &decode_value(&value_bytes, &limits).expect("value re-decode"),
+        &decode_value(&value_bytes).expect("value re-decode"),
         value,
         "value codec round-trip",
     );
     let change_bytes = encode_change(change);
     assert_eq!(
-        &decode_change(&change_bytes, &limits).expect("change re-decode"),
+        &decode_change(&change_bytes).expect("change re-decode"),
         change,
         "change codec round-trip",
     );
