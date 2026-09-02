@@ -7,6 +7,14 @@ package are recorded here. Both artifacts always use the same version.
 
 ### Changed
 
+- **BREAKING (JavaScript API).** Renamed the Wasm-backed `Value` class to
+  `ValueHandle`. Unified `ValueInput` and `ValueData` as the recursive `Value`
+  type, together with the corresponding `ValueMap`, `Text`, `RichTextSpan`, and
+  `RichText` types. No compatibility aliases are provided: replace
+  `Value.fromJS`/`Value.decode` with `ValueHandle.fromJS`/`ValueHandle.decode`
+  and use `Value` for both structured input and materialized output.
+  `CollaError.details.reason` now uses the unified terminology as well (for
+  example, `cyclic Value` and `unsupported Value`).
 - **BREAKING (wire format).** Adopted [`cocodec`](https://crates.io/crates/cocodec)
   as the canonical binary codec. Value/Change tags were renumbered (`Bool` is no
   longer a two-tag hack; `Int`/`String`/`Text`/`RichText`/`List`/`Map` shift down
@@ -47,7 +55,7 @@ package are recorded here. Both artifacts always use the same version.
 
 ### Fixed
 
-- `Value.fromJS` now enforces `maxSequenceLength` on richText values. A crafted
+- `ValueHandle.fromJS` now enforces `maxSequenceLength` on richText values. A crafted
   input with few spans of near-`maxStringBytes` text could previously drive the
   total length past a caller-configured `maxSequenceLength` undetected; it is
   now rejected with `limit_exceeded` (`sequence length`).

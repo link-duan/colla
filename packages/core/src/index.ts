@@ -7,7 +7,7 @@ import {
   resolveCodePointPositionHandle,
   resolveUtf16PositionHandle,
   transformPairHandles,
-  ValueHandle,
+  ValueHandle as WasmValueHandle,
 } from "./internal/colla_wasm.js"
 
 export type Path = readonly (string | number)[]
@@ -22,59 +22,38 @@ export type ValueKind =
   | "list"
   | "map"
 
-export type ValueInput =
+export type Value =
   | null
   | boolean
   | bigint
   | number
   | string
-  | TextInput
-  | RichTextInput
-  | readonly ValueInput[]
-  | ValueInputMap
-export interface ValueInputMap {
-  readonly [key: string]: ValueInput
+  | Text
+  | RichText
+  | readonly Value[]
+  | ValueMap
+export interface ValueMap {
+  readonly [key: string]: Value
 }
-export interface TextData {
+export interface Text {
   readonly type: "text"
   readonly value: string
 }
-export type TextInput = TextData
 export type AttrValueData = boolean | bigint | number | string
 export interface AttrsData {
   readonly [key: string]: AttrValueData
 }
-export type RichTextSpanData =
+export type RichTextSpan =
   | { readonly type: "text"; readonly text: string; readonly attrs?: AttrsData }
-  | { readonly type: "embed"; readonly value: ValueData; readonly attrs?: AttrsData }
-export type RichTextSpanInput =
-  | { readonly type: "text"; readonly text: string; readonly attrs?: AttrsData }
-  | { readonly type: "embed"; readonly value: ValueInput; readonly attrs?: AttrsData }
-export interface RichTextData {
+  | { readonly type: "embed"; readonly value: Value; readonly attrs?: AttrsData }
+export interface RichText {
   readonly type: "richText"
-  readonly spans: readonly RichTextSpanData[]
-}
-export interface RichTextInput {
-  readonly type: "richText"
-  readonly spans: readonly RichTextSpanInput[]
-}
-export type ValueData =
-  | null
-  | boolean
-  | bigint
-  | number
-  | string
-  | TextData
-  | RichTextData
-  | readonly ValueData[]
-  | ValueDataMap
-export interface ValueDataMap {
-  readonly [key: string]: ValueData
+  readonly spans: readonly RichTextSpan[]
 }
 
 export type ChangeInput =
   | { readonly type: "noop" }
-  | { readonly type: "replace"; readonly value: ValueInput }
+  | { readonly type: "replace"; readonly value: Value }
   | { readonly type: "map"; readonly entries: readonly MapChangeEntryInput[] }
   | { readonly type: "list"; readonly ops: readonly ListChangeOpInput[] }
   | { readonly type: "text"; readonly ops: readonly TextChangeOpInput[] }
@@ -82,13 +61,13 @@ export type ChangeInput =
   | { readonly type: "int"; readonly delta: bigint }
 
 export type MapChangeEntryInput =
-  | { readonly key: string; readonly type: "insert"; readonly value: ValueInput }
+  | { readonly key: string; readonly type: "insert"; readonly value: Value }
   | { readonly key: string; readonly type: "delete" }
   | { readonly key: string; readonly type: "modify"; readonly change: ChangeInput }
 
 export type ListChangeOpInput =
   | { readonly type: "retain"; readonly length: number }
-  | { readonly type: "insert"; readonly values: readonly ValueInput[] }
+  | { readonly type: "insert"; readonly values: readonly Value[] }
   | { readonly type: "delete"; readonly length: number }
   | { readonly type: "modify"; readonly change: ChangeInput }
 
@@ -105,7 +84,7 @@ export type AttrPatchInput = Readonly<Record<
 
 export type RichTextChangeOpInput =
   | { readonly type: "retain"; readonly length: number; readonly patch?: AttrPatchInput }
-  | { readonly type: "insert"; readonly content: RichTextSpanInput }
+  | { readonly type: "insert"; readonly content: RichTextSpan }
   | { readonly type: "delete"; readonly length: number }
 
 export interface InputLimits {
@@ -230,7 +209,7 @@ function fromWasmError(error: unknown, fallbackOperation: string, path?: Path): 
   )
 }
 
-const valueFinalizer = new FinalizationRegistry<ValueHandle>(handle => handle.free())
+const valueFinalizer = new FinalizationRegistry<WasmValueHandle>(handle => handle.free())
 const changeFinalizer = new FinalizationRegistry<ChangeHandle>(handle => handle.free())
 
 const I64_MIN = -(1n << 63n)
@@ -266,7 +245,7 @@ function assertWellFormedString(value: string, operation: string): string {
   return value
 }
 
-export function text(value: string): TextInput {
+export function text(value: string): Text {
   if (typeof value !== "string") throw invalidArgument("text", "value", "expected a string")
   return Object.freeze({ type: "text", value: assertWellFormedString(value, "text") })
 }
@@ -336,10 +315,10 @@ function sameAttrs(left: readonly AttrEntry[], right: readonly AttrEntry[]): boo
 
 type NormalizedRichSpan =
   | { type: "text"; text: string; attrs: AttrEntry[] }
-  | { type: "embed"; value: ValueInput; attrs: AttrEntry[] }
+  | { type: "embed"; value: Value; attrs: AttrEntry[] }
 
 function normalizedRichSpans(
-  spans: readonly RichTextSpanInput[],
+  spans: readonly RichTextSpan[],
   operation: string,
   limits?: InputLimits,
 ): NormalizedRichSpan[] {
@@ -375,7 +354,7 @@ function normalizedRichSpans(
       }
       const valueEntry = entries.find(([key]) => key === "value")
       if (valueEntry === undefined) throw new CollaError("invalid_value", operation, { reason: "RichText Embed span requires value" })
-      result.push({ type: "embed", value: valueEntry[1] as ValueInput, attrs })
+      result.push({ type: "embed", value: valueEntry[1] as Value, attrs })
     } else {
       throw new CollaError("invalid_value", operation, { reason: "unknown RichText span type" })
     }
@@ -386,7 +365,7 @@ function normalizedRichSpans(
   return result
 }
 
-export function richText(spans: readonly RichTextSpanInput[]): RichTextInput {
+export function richText(spans: readonly RichTextSpan[]): RichText {
   const normalized = normalizedRichSpans(spans, "rich_text")
   const frozen = normalized.map(span => {
     const attrs = attrsData(span.attrs)
@@ -488,10 +467,10 @@ function compareUtf8(left: string, right: string): number {
   return a.length - b.length
 }
 
-function validateValueInput(input: ValueInput, operation: string): void {
+function validateValue(input: Value, operation: string): void {
   const active = new WeakSet<object>()
 
-  const visit = (value: ValueInput): void => {
+  const visit = (value: Value): void => {
     if (value === null || typeof value === "boolean") {
       return
     }
@@ -515,12 +494,12 @@ function validateValueInput(input: ValueInput, operation: string): void {
     }
     if (Array.isArray(value)) {
       if (active.has(value)) {
-        throw new CollaError("invalid_value", operation, { reason: "cyclic ValueInput" })
+        throw new CollaError("invalid_value", operation, { reason: "cyclic Value" })
       }
       const values = ownArrayDataValues(value, operation)
       active.add(value)
       try {
-        for (const child of values) visit(child as ValueInput)
+        for (const child of values) visit(child as Value)
       } finally {
         active.delete(value)
       }
@@ -531,26 +510,26 @@ function validateValueInput(input: ValueInput, operation: string): void {
       const marker = entries.find(([key]) => key === "type")
       if (marker?.[1] === "text") {
         if (entries.length !== 2 || !entries.some(([key]) => key === "value")) {
-          throw new CollaError("invalid_value", operation, { reason: "invalid TextInput marker" })
+          throw new CollaError("invalid_value", operation, { reason: "invalid Text marker" })
         }
         const textValue = entries.find(([key]) => key === "value")?.[1]
         if (typeof textValue !== "string") {
-          throw new CollaError("invalid_value", operation, { reason: "TextInput value must be a string" })
+          throw new CollaError("invalid_value", operation, { reason: "Text value must be a string" })
         }
         assertWellFormedString(textValue, operation)
         return
       }
       if (marker?.[1] === "richText") {
         if (entries.length !== 2 || !entries.some(([key]) => key === "spans")) {
-          throw new CollaError("invalid_value", operation, { reason: "invalid RichTextInput marker" })
+          throw new CollaError("invalid_value", operation, { reason: "invalid RichText marker" })
         }
         if (active.has(value)) {
-          throw new CollaError("invalid_value", operation, { reason: "cyclic ValueInput" })
+          throw new CollaError("invalid_value", operation, { reason: "cyclic Value" })
         }
         active.add(value)
         try {
           const spans = normalizedRichSpans(
-            entries.find(([key]) => key === "spans")?.[1] as readonly RichTextSpanInput[],
+            entries.find(([key]) => key === "spans")?.[1] as readonly RichTextSpan[],
             operation,
           )
           for (const span of spans) {
@@ -562,18 +541,18 @@ function validateValueInput(input: ValueInput, operation: string): void {
         return
       }
       if (active.has(value)) {
-        throw new CollaError("invalid_value", operation, { reason: "cyclic ValueInput" })
+        throw new CollaError("invalid_value", operation, { reason: "cyclic Value" })
       }
       for (const [key] of entries) assertWellFormedString(key, operation)
       active.add(value)
       try {
-        for (const [, child] of entries) visit(child as ValueInput)
+        for (const [, child] of entries) visit(child as Value)
       } finally {
         active.delete(value)
       }
       return
     }
-    throw new CollaError("invalid_value", operation, { reason: "unsupported ValueInput" })
+    throw new CollaError("invalid_value", operation, { reason: "unsupported Value" })
   }
 
   visit(input)
@@ -652,7 +631,7 @@ function validateChangeInput(input: ChangeInput, operation: string): void {
           if (fields.size !== 2 || !fields.has("value")) {
             throw invalidArgument(operation, context, "replace requires value")
           }
-          validateValueInput(fields.get("value") as ValueInput, operation)
+          validateValue(fields.get("value") as Value, operation)
           break
         }
         case "map": {
@@ -673,7 +652,7 @@ function validateChangeInput(input: ChangeInput, operation: string): void {
             if (typeof key !== "string") throw invalidArgument(operation, `${entryContext}.key`, "expected a string")
             assertWellFormedString(key, operation)
             if (item.get("type") === "insert" && item.size === 3 && item.has("value")) {
-              validateValueInput(item.get("value") as ValueInput, operation)
+              validateValue(item.get("value") as Value, operation)
             } else if (item.get("type") === "delete" && item.size === 2) {
               // structurally valid
             } else if (item.get("type") === "modify" && item.size === 3 && item.has("change")) {
@@ -702,7 +681,7 @@ function validateChangeInput(input: ChangeInput, operation: string): void {
               changeInputLength(item.get("length"), operation, `${opContext}.length`)
             } else if (item.get("type") === "insert" && item.size === 2 && item.has("values")) {
               const values = changeInputArray(item.get("values"), operation, `${opContext}.values`)
-              values.forEach(value => validateValueInput(value as ValueInput, operation))
+              values.forEach(value => validateValue(value as Value, operation))
             } else if (item.get("type") === "delete" && item.size === 2 && item.has("length")) {
               changeInputLength(item.get("length"), operation, `${opContext}.length`)
             } else if (item.get("type") === "modify" && item.size === 2 && item.has("change")) {
@@ -781,7 +760,7 @@ function validateChangeInput(input: ChangeInput, operation: string): void {
                 !content.has("text") &&
                 content.size <= 3
               ) {
-                validateValueInput(content.get("value") as ValueInput, operation)
+                validateValue(content.get("value") as Value, operation)
               } else {
                 throw invalidArgument(operation, contentContext, "invalid RichText content")
               }
@@ -815,10 +794,10 @@ function validateChangeInput(input: ChangeInput, operation: string): void {
   visit(input, "change")
 }
 
-function valueDataFromBytes(bytes: Uint8Array): ValueData {
-  const handle = ValueHandle.decode(bytes)
+function valueFromBytes(bytes: Uint8Array): Value {
+  const handle = WasmValueHandle.decode(bytes)
   try {
-    return handle.toJs() as ValueData
+    return handle.toJs() as Value
   } finally {
     handle.free()
   }
@@ -834,30 +813,30 @@ function pathJson(path: Path, operation: string): string {
   return JSON.stringify(segments)
 }
 
-export class Value {
-  #handle: ValueHandle | undefined
+export class ValueHandle {
+  #handle: WasmValueHandle | undefined
 
-  private constructor(handle: ValueHandle) {
+  private constructor(handle: WasmValueHandle) {
     this.#handle = handle
     valueFinalizer.register(this, handle, this)
   }
 
-  static fromJS(input: ValueInput, options?: InputOptions): Value {
+  static fromJS(input: Value, options?: InputOptions): ValueHandle {
     try {
       const limits = normalizeInputLimits(options, "value_from_js")
-      validateValueInput(input, "value_from_js")
-      return new Value(ValueHandle.fromJs(input, JSON.stringify(limits)))
+      validateValue(input, "value_from_js")
+      return new ValueHandle(WasmValueHandle.fromJs(input, JSON.stringify(limits)))
     } catch (error) {
       throw fromWasmError(error, "value_from_js")
     }
   }
 
-  static decode(bytes: Uint8Array): Value {
+  static decode(bytes: Uint8Array): ValueHandle {
     if (!(bytes instanceof Uint8Array)) {
       throw invalidArgument("value_decode", "bytes", "expected Uint8Array")
     }
     try {
-      return new Value(ValueHandle.decode(bytes))
+      return new ValueHandle(WasmValueHandle.decode(bytes))
     } catch (error) {
       throw fromWasmError(error, "value_decode")
     }
@@ -879,25 +858,25 @@ export class Value {
     }
   }
 
-  get(path: Path): ValueData {
+  get(path: Path): Value {
     try {
       const bytes = this.#get("value_get").getBytes(pathJson(path, "value_get"))
-      return valueDataFromBytes(new Uint8Array(bytes))
+      return valueFromBytes(new Uint8Array(bytes))
     } catch (error) {
       throw fromWasmError(error, "value_get", path)
     }
   }
 
-  toJS(): ValueData {
-    return this.#get("value_to_js").toJs() as ValueData
+  toJS(): Value {
+    return this.#get("value_to_js").toJs() as Value
   }
 
   encode(): Uint8Array {
     return new Uint8Array(this.#get("value_encode").encode())
   }
 
-  clone(): Value {
-    return new Value(this.#get("value_clone").cloneHandle())
+  clone(): ValueHandle {
+    return new ValueHandle(this.#get("value_clone").cloneHandle())
   }
 
   dispose(): void {
@@ -912,24 +891,24 @@ export class Value {
     this.dispose()
   }
 
-  #get(operation: string): ValueHandle {
+  #get(operation: string): WasmValueHandle {
     if (this.#handle === undefined) {
-      throw invalidState(operation, "Value", "disposed")
+      throw invalidState(operation, "ValueHandle", "disposed")
     }
     return this.#handle
   }
 
   /** @internal */
-  static _handle(value: Value, operation: string): ValueHandle {
-    if (!(value instanceof Value)) {
-      throw invalidArgument(operation, "value", "expected Value")
+  static _handle(value: ValueHandle, operation: string): WasmValueHandle {
+    if (!(value instanceof ValueHandle)) {
+      throw invalidArgument(operation, "value", "expected ValueHandle")
     }
     return value.#get(operation)
   }
 
   /** @internal */
-  static _fromHandle(handle: ValueHandle): Value {
-    return new Value(handle)
+  static _fromHandle(handle: WasmValueHandle): ValueHandle {
+    return new ValueHandle(handle)
   }
 
 }
@@ -1029,17 +1008,17 @@ export type AttrPatchView = Readonly<Record<string,
 >>
 
 export type ChangeViewEntry =
-  | (ChangeViewEntryBase & { readonly type: "value.replace"; readonly value: ValueData })
+  | (ChangeViewEntryBase & { readonly type: "value.replace"; readonly value: Value })
   | (ChangeViewEntryBase & { readonly type: "int.add"; readonly delta: bigint })
-  | (ChangeViewEntryBase & { readonly type: "map.set"; readonly key: string; readonly value: ValueData })
+  | (ChangeViewEntryBase & { readonly type: "map.set"; readonly key: string; readonly value: Value })
   | (ChangeViewEntryBase & { readonly type: "map.delete"; readonly key: string })
-  | (ChangeViewEntryBase & { readonly type: "list.insert"; readonly index: number; readonly values: readonly ValueData[] })
-  | (ChangeViewEntryBase & { readonly type: "list.set"; readonly index: number; readonly value: ValueData })
+  | (ChangeViewEntryBase & { readonly type: "list.insert"; readonly index: number; readonly values: readonly Value[] })
+  | (ChangeViewEntryBase & { readonly type: "list.set"; readonly index: number; readonly value: Value })
   | (ChangeViewEntryBase & { readonly type: "list.delete"; readonly range: Range })
   | (ChangeViewEntryBase & { readonly type: "text.insert"; readonly at: number; readonly text: string })
   | (ChangeViewEntryBase & { readonly type: "text.delete"; readonly range: Range })
   | (ChangeViewEntryBase & { readonly type: "richText.insertText"; readonly at: number; readonly text: string; readonly attrs?: AttrsData })
-  | (ChangeViewEntryBase & { readonly type: "richText.insertEmbed"; readonly at: number; readonly embed: ValueData; readonly attrs?: AttrsData })
+  | (ChangeViewEntryBase & { readonly type: "richText.insertEmbed"; readonly at: number; readonly embed: Value; readonly attrs?: AttrsData })
   | (ChangeViewEntryBase & { readonly type: "richText.delete"; readonly range: Range })
   | (ChangeViewEntryBase & { readonly type: "richText.format"; readonly range: Range; readonly patch: AttrPatchView })
 
@@ -1047,7 +1026,7 @@ export type ChangeView = readonly ChangeViewEntry[]
 
 export interface ChangeBuilder {
   noop(): this
-  replace(value: ValueInput): this
+  replace(value: Value): this
   map(edit: (map: MapChangeBuilder) => unknown): this
   list(edit: (list: ListChangeBuilder) => unknown): this
   text(edit: (text: TextChangeBuilder) => unknown): this
@@ -1056,14 +1035,14 @@ export interface ChangeBuilder {
 }
 
 export interface MapChangeBuilder {
-  insert(key: string, value: ValueInput): this
+  insert(key: string, value: Value): this
   delete(key: string): this
   modify(key: string, edit: (change: ChangeBuilder) => unknown): this
 }
 
 export interface ListChangeBuilder {
   retain(length: number): this
-  insert(values: readonly ValueInput[]): this
+  insert(values: readonly Value[]): this
   delete(length: number): this
   modify(edit: (change: ChangeBuilder) => unknown): this
 }
@@ -1077,7 +1056,7 @@ export interface TextChangeBuilder {
 export interface RichTextChangeBuilder {
   retain(length: number, edit?: (patch: AttrPatchBuilder) => unknown): this
   insertText(text: string, attrs?: AttrsData): this
-  insertEmbed(value: ValueInput, attrs?: AttrsData): this
+  insertEmbed(value: Value, attrs?: AttrsData): this
   delete(length: number): this
 }
 
@@ -1129,7 +1108,7 @@ class RootChangeScope extends ChangeBuildScope implements ChangeBuilder {
     return this.#select(Object.freeze({ type: "noop" }))
   }
 
-  replace(value: ValueInput): this {
+  replace(value: Value): this {
     return this.#select(Object.freeze({ type: "replace", value }))
   }
 
@@ -1190,7 +1169,7 @@ class RootChangeScope extends ChangeBuildScope implements ChangeBuilder {
 class MapChangeScope extends ChangeBuildScope implements MapChangeBuilder {
   readonly #entries: MapChangeEntryInput[] = []
 
-  insert(key: string, value: ValueInput): this {
+  insert(key: string, value: Value): this {
     this.assertActive()
     this.#entries.push(Object.freeze({ key, type: "insert", value }))
     return this
@@ -1225,14 +1204,14 @@ class ListChangeScope extends ChangeBuildScope implements ListChangeBuilder {
     return this
   }
 
-  insert(values: readonly ValueInput[]): this {
+  insert(values: readonly Value[]): this {
     this.assertActive()
     if (!Array.isArray(values)) {
       throw invalidArgument("change_build", "values", "expected an array")
     }
     this.#ops.push(Object.freeze({
       type: "insert",
-      values: Object.freeze([...ownArrayDataValues(values, "change_build")]) as readonly ValueInput[],
+      values: Object.freeze([...ownArrayDataValues(values, "change_build")]) as readonly Value[],
     }))
     return this
   }
@@ -1334,7 +1313,7 @@ class RichTextChangeScope extends ChangeBuildScope implements RichTextChangeBuil
     return this
   }
 
-  insertEmbed(value: ValueInput, attrs?: AttrsData): this {
+  insertEmbed(value: Value, attrs?: AttrsData): this {
     this.assertActive()
     const content = Object.freeze({
       type: "embed" as const,
@@ -1369,11 +1348,11 @@ function indexArgument(value: unknown, operation: string, argument: string): num
   return value
 }
 
-export function apply(base: Value, change: Change): Value {
+export function apply(base: ValueHandle, change: Change): ValueHandle {
   try {
-    return Value._fromHandle(
+    return ValueHandle._fromHandle(
       applyHandles(
-        Value._handle(base, "apply"),
+        ValueHandle._handle(base, "apply"),
         Change._handle(change, "apply"),
       ),
     )
@@ -1393,11 +1372,11 @@ export function compose(first: Change, second: Change): Change {
   }
 }
 
-export function invert(change: Change, base: Value): Change {
+export function invert(change: Change, base: ValueHandle): Change {
   try {
     return Change._fromHandle(invertHandle(
       Change._handle(change, "invert"),
-      Value._handle(base, "invert"),
+      ValueHandle._handle(base, "invert"),
     ))
   } catch (error) {
     throw fromWasmError(error, "invert")
@@ -1459,8 +1438,8 @@ type RawChangeViewEntry = {
   patch?: ({ key: string; action: "remove" } | ({ action: "set" } & AttrEntry))[]
 }
 
-function viewValue(bytes: number[] | undefined): ValueData {
-  return valueDataFromBytes(Uint8Array.from(bytes ?? []))
+function viewValue(bytes: number[] | undefined): Value {
+  return valueFromBytes(Uint8Array.from(bytes ?? []))
 }
 
 function viewRange(entry: RawChangeViewEntry): Range {
@@ -1487,12 +1466,12 @@ function viewPatch(entries: RawChangeViewEntry["patch"]): AttrPatchView {
   return Object.freeze(patch)
 }
 
-export function inspectChange(change: Change, base: Value): ChangeView {
+export function inspectChange(change: Change, base: ValueHandle): ChangeView {
   const operation = "inspect_change"
   try {
     const raw = JSON.parse(inspectChangeHandle(
       Change._handle(change, operation),
-      Value._handle(base, operation),
+      ValueHandle._handle(base, operation),
     )) as RawChangeViewEntry[]
     const view = raw.map((entry): ChangeViewEntry => {
       const path = Object.freeze([...entry.path])
@@ -1547,7 +1526,7 @@ export function inspectChange(change: Change, base: Value): ChangeView {
 }
 
 export function resolveCodePointPosition(
-  value: Value,
+  value: ValueHandle,
   path: Path,
   utf16Position: number,
 ): number {
@@ -1555,7 +1534,7 @@ export function resolveCodePointPosition(
   const position = indexArgument(utf16Position, operation, "utf16Position")
   try {
     return resolveCodePointPositionHandle(
-      Value._handle(value, operation),
+      ValueHandle._handle(value, operation),
       pathJson(path, operation),
       position,
     )
@@ -1565,7 +1544,7 @@ export function resolveCodePointPosition(
 }
 
 export function resolveUtf16Position(
-  value: Value,
+  value: ValueHandle,
   path: Path,
   codePointPosition: number,
 ): number {
@@ -1573,7 +1552,7 @@ export function resolveUtf16Position(
   const position = indexArgument(codePointPosition, operation, "codePointPosition")
   try {
     return resolveUtf16PositionHandle(
-      Value._handle(value, operation),
+      ValueHandle._handle(value, operation),
       pathJson(path, operation),
       position,
     )

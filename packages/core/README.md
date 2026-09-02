@@ -17,9 +17,9 @@ no public initialization function or Wasm bundler plugin is required.
 ## Values
 
 ```ts
-import { Value, richText, text } from "colla-ot"
+import { ValueHandle, richText, text } from "colla-ot"
 
-using value = Value.fromJS({
+using value = ValueHandle.fromJS({
   count: 1n,
   title: text("Draft"),
   body: richText([
@@ -31,10 +31,11 @@ using value = Value.fromJS({
 console.log(value.toJS())
 ```
 
-`ValueInput` accepts null, booleans, signed 64-bit `bigint`, finite numbers,
-strings, arrays, plain records, `text()` markers, and `richText()` markers.
-`ValueData` returned by `get()` and `toJS()` is recursively frozen; map output
-uses null-prototype records.
+The recursive `Value` type covers null, booleans, signed 64-bit `bigint`, finite
+numbers, strings, arrays, plain records, `text()` markers, and `richText()`
+markers. `ValueHandle.fromJS()` accepts a `Value`; `get()` and `toJS()` return
+the same type. Returned values are recursively frozen, and map output uses
+null-prototype records.
 
 Ordinary strings are atomic. Use `text()` when character-level OT is required.
 RichText embeds are atomic Core Values and count as one sequence unit.
@@ -74,9 +75,9 @@ input. It does not own a Wasm handle, apply or compose intermediate changes,
 parse paths, perform map upserts, or convert coordinates.
 
 ```ts
-import { Change, Value, apply, text } from "colla-ot"
+import { Change, ValueHandle, apply, text } from "colla-ot"
 
-using before = Value.fromJS({
+using before = ValueHandle.fromJS({
   count: 1n,
   title: text("Draft"),
 })
@@ -111,13 +112,13 @@ systems.
 ```ts
 import {
   Change,
-  Value,
+  ValueHandle,
   resolveCodePointPosition,
   resolveUtf16Position,
   text,
 } from "colla-ot"
 
-using value = Value.fromJS(text("A😀B"))
+using value = ValueHandle.fromJS(text("A😀B"))
 
 resolveCodePointPosition(value, [], 3) // 2
 resolveUtf16Position(value, [], 2)     // 3
@@ -135,7 +136,7 @@ Snapshot-relative UTF-16 positions for JavaScript-facing views.
 ```ts
 import {
   Change,
-  Value,
+  ValueHandle,
   apply,
   compose,
   inspectChange,
@@ -143,7 +144,7 @@ import {
   transformPair,
 } from "colla-ot"
 
-using value = Value.decode(valueBytes)
+using value = ValueHandle.decode(valueBytes)
 using first = Change.decode(firstBytes)
 using second = Change.decode(secondBytes)
 using concurrent = Change.decode(concurrentBytes)
@@ -169,11 +170,9 @@ is neither Change construction data nor a persistence format.
 `InputOptions` may override `DEFAULT_INPUT_LIMITS` at untrusted input
 boundaries:
 
-- `Value.fromJS(input, { limits })`
-- `Value.decode(bytes, { limits })`
+- `ValueHandle.fromJS(input, { limits })`
 - `Change.fromJS(input, { limits })`
 - `Change.build(edit, { limits })`
-- `Change.decode(bytes, { limits })`
 
 Change construction limits are counted against raw input before normalization,
 so empty operations cannot bypass resource policy. Algebra, coordinate
@@ -183,10 +182,10 @@ Failures throw `CollaError`. Match its stable `code`, `operation`, optional
 `path`, and frozen `details` fields rather than message text.
 
 ```ts
-import { CollaError, Value } from "colla-ot"
+import { CollaError, ValueHandle } from "colla-ot"
 
 try {
-  Value.decode(bytes)
+  ValueHandle.decode(bytes)
 } catch (error) {
   if (error instanceof CollaError && error.is("invalid_encoding")) {
     console.error(error.operation, error.details)
@@ -196,7 +195,7 @@ try {
 
 ## Resource lifecycle
 
-`Value` and `Change` are Wasm-backed handles. Call `dispose()` or use
+`ValueHandle` and `Change` are Wasm-backed handles. Call `dispose()` or use
 `Symbol.dispose` as soon as ownership ends. Disposal is idempotent, and clones
 have independent ownership. `FinalizationRegistry` is only a fallback for
 missed cleanup.

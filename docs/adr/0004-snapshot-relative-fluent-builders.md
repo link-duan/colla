@@ -10,4 +10,4 @@ callback；成功 build 消费根 Builder，dispose 放弃构造。Map set 是 s
 upsert，序列范围采用半开区间，空操作规范化为 Noop。
 
 Builder 输入仍执行 Core 合法性验证，但不接收或隐式应用 `InputLimits`；直接传入的
-ValueInput 规模由消费方负责。scoped builder 不能逃逸 callback，Builder 不提供 clone。
+Value 规模由消费方负责。scoped builder 不能逃逸 callback，Builder 不提供 clone。

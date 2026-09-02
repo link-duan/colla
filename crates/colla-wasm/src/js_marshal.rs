@@ -102,7 +102,7 @@ impl<'a> Counter<'a> {
             return Ok(Value::list(values));
         }
         if !input.is_object() {
-            return Err(argument(ctx, "unsupported ValueInput"));
+            return Err(argument(ctx, "unsupported Value"));
         }
         let object: &Object = input.unchecked_ref();
         match marker(object, ctx)? {
@@ -529,7 +529,7 @@ impl SequenceLengths {
     }
 }
 
-/// Materializes a canonical `Value` into structured JS output (`ValueData`).
+/// Materializes a canonical `Value` into structured JS output.
 ///
 /// Maps become frozen null-prototype objects (so `__proto__` is a data key and
 /// `deepStrictEqual` against `Object.create(null)` holds); lists become frozen

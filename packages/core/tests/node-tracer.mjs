@@ -51,13 +51,13 @@ try {
       resolveUtf16Position,
       text,
       transformPair,
-      Value,
+      ValueHandle,
     } from "colla-ot"
 
     const nullPrototype = Object.create(null)
     nullPrototype.__proto__ = "data"
     nullPrototype.nested = [null, true, 42n, 1.5, "value"]
-    const composite = Value.fromJS(nullPrototype)
+    const composite = ValueHandle.fromJS(nullPrototype)
     const compositeData = composite.toJS()
     assert.equal(Object.getPrototypeOf(compositeData), null)
     assert.equal(compositeData.__proto__, "data")
@@ -74,24 +74,24 @@ try {
       error instanceof CollaError && error.code === "missing_key" &&
       error.path[0] === "missing")
 
-    const firstOrder = Value.fromJS({ "": 1, "𐀀": 2 })
+    const firstOrder = ValueHandle.fromJS({ "": 1, "𐀀": 2 })
     const secondOrderInput = Object.create(null)
     secondOrderInput["𐀀"] = 2
     secondOrderInput[""] = 1
-    const secondOrder = Value.fromJS(secondOrderInput)
+    const secondOrder = ValueHandle.fromJS(secondOrderInput)
     assert.deepEqual(firstOrder.encode(), secondOrder.encode())
 
     assert.ok(Object.isFrozen(DEFAULT_INPUT_LIMITS))
     assert.equal(DEFAULT_INPUT_LIMITS.maxDepth, 128)
     assert.equal(DEFAULT_INPUT_LIMITS.maxStringBytes, 16 * 1024 * 1024)
     assert.throws(
-      () => Value.fromJS("too long", { limits: { maxStringBytes: 2 } }),
+      () => ValueHandle.fromJS("too long", { limits: { maxStringBytes: 2 } }),
       error => error instanceof CollaError && error.code === "limit_exceeded" &&
         error.details.limit === "string bytes" && error.details.maximum === 2,
     )
-    const limitedBytes = Value.fromJS("abcd").encode()
+    const limitedBytes = ValueHandle.fromJS("abcd").encode()
     // Byte decoding no longer enforces a receiver budget; it just round-trips.
-    const roundTripped = Value.decode(limitedBytes)
+    const roundTripped = ValueHandle.decode(limitedBytes)
     assert.deepEqual(roundTripped.toJS(), "abcd")
     roundTripped.dispose()
 
@@ -106,32 +106,36 @@ try {
       [, 1],
     ]
     for (const invalid of invalidValues) {
-      assert.throws(() => Value.fromJS(invalid), error =>
+      assert.throws(() => ValueHandle.fromJS(invalid), error =>
         error instanceof CollaError &&
         (error.code === "invalid_value" || error.code === "invalid_argument"))
     }
     const cyclic = {}
     cyclic.self = cyclic
-    assert.throws(() => Value.fromJS(cyclic), error =>
-      error instanceof CollaError && error.code === "invalid_value")
+    assert.throws(() => ValueHandle.fromJS(cyclic), error =>
+      error instanceof CollaError && error.code === "invalid_value" &&
+      error.details.reason === "cyclic Value")
+    assert.throws(() => ValueHandle.fromJS(new Date()), error =>
+      error instanceof CollaError && error.code === "invalid_value" &&
+      error.details.reason === "unsupported Value")
     const accessor = {}
     Object.defineProperty(accessor, "value", { get() { throw new Error("must not run") } })
-    assert.throws(() => Value.fromJS(accessor), error =>
+    assert.throws(() => ValueHandle.fromJS(accessor), error =>
       error instanceof CollaError && error.code === "invalid_value")
     const symbolRecord = { [Symbol("x")]: 1 }
-    assert.throws(() => Value.fromJS(symbolRecord), error =>
+    assert.throws(() => ValueHandle.fromJS(symbolRecord), error =>
       error instanceof CollaError && error.code === "invalid_value")
     assert.throws(() => int(Number.MAX_SAFE_INTEGER + 1), error =>
       error instanceof CollaError && error.code === "invalid_argument")
-    assert.throws(() => Value.fromJS(null, { limits: { unknown: 1 } }), error =>
+    assert.throws(() => ValueHandle.fromJS(null, { limits: { unknown: 1 } }), error =>
       error instanceof CollaError && error.code === "invalid_argument")
 
-    const atomicString = Value.fromJS("A😀B")
-    const collaborativeText = Value.fromJS(text("A😀B"))
+    const atomicString = ValueHandle.fromJS("A😀B")
+    const collaborativeText = ValueHandle.fromJS(text("A😀B"))
     assert.equal(atomicString.kind(), "string")
     assert.equal(collaborativeText.kind(), "text")
     assert.deepEqual(collaborativeText.toJS(), text("A😀B"))
-    const decodedText = Value.decode(collaborativeText.encode())
+    const decodedText = ValueHandle.decode(collaborativeText.encode())
     assert.equal(decodedText.kind(), "text")
     assert.deepEqual(
       collaborativeText.encode(),
@@ -147,24 +151,24 @@ try {
       error => error instanceof CollaError && error.code === "invalid_utf16_boundary" &&
         error.details.position === 2,
     )
-    assert.throws(() => Value.fromJS("\\ud800"), error =>
+    assert.throws(() => ValueHandle.fromJS("\\ud800"), error =>
       error instanceof CollaError && error.code === "invalid_value")
     assert.throws(() => text("\\udc00"), error =>
       error instanceof CollaError && error.code === "invalid_value")
     assert.throws(
-      () => Value.fromJS(text("ab"), { limits: { maxStringBytes: 1 } }),
+      () => ValueHandle.fromJS(text("ab"), { limits: { maxStringBytes: 1 } }),
       error => error instanceof CollaError && error.code === "limit_exceeded" &&
         error.details.limit === "string bytes",
     )
 
-    const trustedTextBase = Value.fromJS(text("a"), { limits: { maxStringBytes: 1 } })
+    const trustedTextBase = ValueHandle.fromJS(text("a"), { limits: { maxStringBytes: 1 } })
     const trustedTextChange = Change.build(change => {
       change.text(editor => editor.retain(1).insert(" larger"))
     })
     const trustedTextNext = apply(trustedTextBase, trustedTextChange)
     assert.deepEqual(trustedTextNext.toJS(), text("a larger"))
 
-    const textBase = Value.fromJS({ title: text("A😀B") })
+    const textBase = ValueHandle.fromJS({ title: text("A😀B") })
     let escapedText
     const textChange = Change.build(change => {
       change.map(map => {
@@ -228,7 +232,7 @@ try {
       error instanceof CollaError && error.code === "invalid_value")
 
     assert.throws(
-      () => Value.fromJS(richText([
+      () => ValueHandle.fromJS(richText([
         { type: "text", text: "a", attrs: { first: true } },
         { type: "text", text: "b", attrs: { second: true } },
       ]), { limits: { maxContainerLength: 1 } }),
@@ -236,49 +240,49 @@ try {
         error.details.limit === "container length",
     )
     assert.throws(
-      () => Value.fromJS(richText([
+      () => ValueHandle.fromJS(richText([
         { type: "text", text: "a", attrs: { first: true, second: true } },
       ]), { limits: { maxContainerLength: 1 } }),
       error => error instanceof CollaError && error.code === "limit_exceeded" &&
         error.details.limit === "container length",
     )
     assert.throws(
-      () => Value.fromJS(richText([
+      () => ValueHandle.fromJS(richText([
         { type: "text", text: "too long" },
       ]), { limits: { maxStringBytes: 2 } }),
       error => error instanceof CollaError && error.code === "limit_exceeded" &&
         error.details.limit === "string bytes",
     )
     assert.throws(
-      () => Value.fromJS(richText([
+      () => ValueHandle.fromJS(richText([
         { type: "text", text: "a", attrs: { label: "too long" } },
       ]), { limits: { maxStringBytes: 2 } }),
       error => error instanceof CollaError && error.code === "limit_exceeded" &&
         error.details.limit === "string bytes",
     )
     assert.throws(
-      () => Value.fromJS(richText([
+      () => ValueHandle.fromJS(richText([
         { type: "embed", value: { nested: true } },
       ]), { limits: { maxDepth: 1 } }),
       error => error instanceof CollaError && error.code === "limit_exceeded" &&
         error.details.limit === "depth",
     )
     assert.throws(
-      () => Value.fromJS(richText([
+      () => ValueHandle.fromJS(richText([
         { type: "text", text: "abcdef" },
       ]), { limits: { maxSequenceLength: 3 } }),
       error => error instanceof CollaError && error.code === "limit_exceeded" &&
         error.details.limit === "sequence length",
     )
     assert.throws(
-      () => Value.fromJS(richText([
+      () => ValueHandle.fromJS(richText([
         { type: "embed", value: true },
       ]), { limits: { maxValueNodes: 1 } }),
       error => error instanceof CollaError && error.code === "limit_exceeded" &&
         error.details.limit === "value nodes",
     )
 
-    const richBase = Value.fromJS(richInput)
+    const richBase = ValueHandle.fromJS(richInput)
     assert.equal(richBase.kind(), "richText")
     const richData = richBase.toJS()
     assert.equal(richData.spans[0].attrs.count, 2n)
@@ -293,7 +297,7 @@ try {
       3, 7, 109, 101, 110, 116, 105, 111, 110, 0, 1, 67, 0,
     ])
     assert.deepEqual(richBase.encode(), richValueGolden)
-    const rustRichBase = Value.decode(richValueGolden)
+    const rustRichBase = ValueHandle.decode(richValueGolden)
     assert.deepEqual(rustRichBase.toJS(), richBase.toJS())
     assert.equal(resolveCodePointPosition(richBase, [], 4), 3)
     assert.equal(resolveCodePointPosition(richBase, [], 5), 4)
@@ -345,7 +349,7 @@ try {
       error => error === patchFailure,
     )
 
-    const trustedRichBase = Value.fromJS(
+    const trustedRichBase = ValueHandle.fromJS(
       richText([{ type: "text", text: "a" }]),
       { limits: { maxStringBytes: 1, maxContainerLength: 1, maxValueNodes: 1 } },
     )
@@ -359,7 +363,7 @@ try {
     assert.equal(trustedRichNext.toJS().spans[0].text, "a larger")
     assert.deepEqual(trustedRichNext.toJS().spans[1].value.nested, ["larger"])
 
-    const algebraBase = Value.fromJS({
+    const algebraBase = ValueHandle.fromJS({
       count: 5n,
       meta: { status: "draft" },
       items: ["a", "b"],
@@ -477,11 +481,11 @@ try {
     assert.throws(() => transformPair(algebraFirst, incompatibleText, { order: "left-first" }), error =>
       error instanceof CollaError && error.code === "incompatible_change" &&
       error.details.reason === "kind_mismatch")
-    const incompatibleBase = Value.fromJS(null)
+    const incompatibleBase = ValueHandle.fromJS(null)
     assert.throws(() => invert(algebraFirst, incompatibleBase), error =>
       error instanceof CollaError && error.code === "type_mismatch")
 
-    const maxInt = Value.fromJS((1n << 63n) - 1n)
+    const maxInt = ValueHandle.fromJS((1n << 63n) - 1n)
     const overflowChange = Change.build(change => change.intAdd(1n))
     assert.throws(() => apply(maxInt, overflowChange), error =>
       error instanceof CollaError && error.code === "integer_overflow")
@@ -490,7 +494,7 @@ try {
     const overflowNoop = Change.build(change => change.intAdd(0n))
     const overflowSame = apply(maxInt, overflowNoop)
     assert.deepEqual(overflowSame.toJS(), maxInt.toJS())
-    const deltaBase = Value.fromJS(0n)
+    const deltaBase = ValueHandle.fromJS(0n)
     const maxDelta = Change.build(change => change.intAdd((1n << 63n) - 1n))
     const oneDelta = Change.build(change => change.intAdd(1n))
     assert.throws(() => compose(maxDelta, oneDelta), error =>
@@ -513,7 +517,7 @@ try {
     const largeCombined = compose(largeDelete, largeDelete)
     assert.ok(largeCombined.encode().length < 16)
 
-    const inspectBase = Value.fromJS({
+    const inspectBase = ValueHandle.fromJS({
       count: 5n,
       meta: { status: "draft", remove: "x" },
       items: ["a", "b", "c"],
@@ -618,7 +622,7 @@ try {
     assert.throws(() => Change.decode(view), error =>
       error instanceof CollaError && error.code === "invalid_argument")
 
-    const structuredBase = Value.fromJS({
+    const structuredBase = ValueHandle.fromJS({
       meta: { status: "draft" },
       items: ["a", "b"],
     })
@@ -755,7 +759,7 @@ try {
       .delete("removed")
       .modify("nested", nested => nested.map(value => value.delete("value")))))
 
-    const scalarBase = Value.fromJS(text("A😀B"))
+    const scalarBase = ValueHandle.fromJS(text("A😀B"))
     const scalarChange = Change.fromJS({
       type: "text",
       ops: [{ type: "retain", length: 2 }, { type: "insert", text: "X" }],
@@ -822,12 +826,12 @@ try {
     })
     assert.deepEqual(modifyNoop.encode(), Uint8Array.of(0))
 
-    const base = Value.fromJS("draft", { limits: { maxStringBytes: 5 } })
-    const integer = Value.fromJS(42n)
+    const base = ValueHandle.fromJS("draft", { limits: { maxStringBytes: 5 } })
+    const integer = ValueHandle.fromJS(42n)
     assert.equal(integer.toJS(), 42n)
     const clone = base.clone()
     const baseBytes = base.encode()
-    const decodedBase = Value.decode(baseBytes)
+    const decodedBase = ValueHandle.decode(baseBytes)
     assert.equal(decodedBase.toJS(), "draft")
     assert.notEqual(decodedBase.encode().buffer, baseBytes.buffer)
 
@@ -858,7 +862,7 @@ try {
       Uint8Array.of(8, 128, 0),
       Uint8Array.of(4, 0, 0, 0, 0, 0, 0, 0, 128),
     ]) {
-      assert.throws(() => Value.decode(malformed), error =>
+      assert.throws(() => ValueHandle.decode(malformed), error =>
         error instanceof CollaError && error.code === "invalid_encoding" &&
         error.operation === "value_decode")
     }
@@ -943,7 +947,7 @@ try {
     }
     assert.throws(() => next.toJS(), error =>
       error instanceof CollaError && error.code === "invalid_state" &&
-      error.details.reason === "disposed")
+      error.details.resource === "ValueHandle" && error.details.reason === "disposed")
   `
   await writeFile(join(fixtureDir, "fixture.mjs"), fixture)
   execFileSync(process.execPath, ["fixture.mjs"], { cwd: fixtureDir, stdio: "inherit" })

@@ -42,9 +42,9 @@ The published `colla` crate supports Rust 1.81 or newer.
 ## JavaScript
 
 ```ts
-import { Change, Value, apply, text } from "colla-ot"
+import { Change, ValueHandle, apply, text } from "colla-ot"
 
-using before = Value.fromJS({ title: text("Draft") })
+using before = ValueHandle.fromJS({ title: text("Draft") })
 using change = Change.build(change => {
   change.map(map => {
     map.modify("title", title => {

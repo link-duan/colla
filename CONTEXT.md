@@ -18,6 +18,11 @@ _Avoid_: Document, JSON value
 某一时刻的完整 Core Value，作为 Change 的基准状态。
 _Avoid_: Document state
 
+**Value Handle**:
+JavaScript API 中对一个 Snapshot 的拥有型引用；它参与 OT 代数，但不等同于可递归读取的
+Core Value 数据。
+_Avoid_: Value, Core Value
+
 **Change**:
 相对于 Snapshot 的规范化前向操作；它不包含旧值、版本、作者或 operation identity。
 _Avoid_: Patch, event, command

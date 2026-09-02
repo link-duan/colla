@@ -20,7 +20,7 @@ execFileSync("pnpm", ["build"], { cwd: packageDir, stdio: "inherit" })
 
 const {
   Change,
-  Value,
+  ValueHandle,
   apply,
   compose,
   transformPair,
@@ -55,7 +55,7 @@ const input = {
   meta: { status: "draft" },
   items: ["a", "b", "c"],
 }
-const base = Value.fromJS(input)
+const base = ValueHandle.fromJS(input)
 const first = Change.build(change => change.map(map =>
   map.modify("count", value => value.intAdd(1n))))
 const afterFirst = apply(base, first)
@@ -66,7 +66,7 @@ const concurrent = Change.build(change => change.map(map =>
 
 const timings = {
   valueFromJS: benchmark(200, () => {
-    const value = Value.fromJS(input)
+    const value = ValueHandle.fromJS(input)
     value.toJS()
     value.dispose()
   }),

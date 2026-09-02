@@ -14,7 +14,7 @@ TS 退化为**薄 marshaling 层**,不再包含任何 varint / tag / 排序 / �
 
 ## Considered Options
 
-- **边界表示**:选择 wasm 直接接收既有的 `ValueInput`/`ChangeInput` 结构化 JS 值,用
+- **边界表示**:选择 wasm 直接接收 `Value`/`ChangeInput` 结构化 JS 值,用
   手写 `js_sys` 遍历在 Rust 内构造 Value/Change;而非继续让 TS 预编码成字节。理由:只要 TS
   还产出 wire bytes 就必然懂格式。放弃 `serde-wasm-bindgen` 是为了对 `i64→BigInt`、错误
   code(`invalid_argument`/`invalid_value` + path)、tag 校验保留完全控制,并且不给 facade
@@ -35,15 +35,16 @@ TS 退化为**薄 marshaling 层**,不再包含任何 varint / tag / 排序 / �
 
 - **方法**:`ValueHandle.fromJs(jsValue, limitsJson)` / `toJs()`,
   `ChangeHandle.fromJs(jsValue, limitsJson)` / `toJs()`。`decode`/`encode`(bytes)保持不变。
-- **`ValueInput` 判别**:`null`→Null;`boolean`→Bool;**`bigint`→Int**(超 i64 → `invalid_value`);
+- **`Value` 判别**:`null`→Null;`boolean`→Bool;**`bigint`→Int**(超 i64 → `invalid_value`);
   **`number`→恒为 Float**(须有限,整数值 number 不视作 int);`string`→String;数组→List;
   `{type:"text",value}`→Text;`{type:"richText",spans}`→RichText;其余 plain object→Map;
-  其它 → `invalid_value` "unsupported ValueInput"。
+  其它 → `invalid_value` "unsupported Value"。
 - **i64 跨界**:Int/IntChange.delta/AttrValue.Int 一律用 JS `BigInt` 承载,双向零精度损失。
-- **`toJs` 输出**:Int→`bigint`,Float→`number`,与既有 `ValueData`/`ChangeData` 形状一致。
+- **`toJs` 输出**:Int→`bigint`,Float→`number`,与公开 `Value`/`ChangeData` 形状一致。
 - **错误契约**：限额 → `limit_exceeded`（name/actual/maximum，name 对每个 `InputLimits` 字段
   **双射且稳定**：`depth`/`value nodes`/`change nodes`/`string bytes`/`container length`/`sequence ops`/
-  `sequence length`）;值域/形状 → `invalid_value` 或 `invalid_argument`（+ 现有 path/context），与现 TS 行为一致。
+  `sequence length`）;值域/形状 → `invalid_value` 或 `invalid_argument`（path/context 保持结构，
+  reason 使用统一的 `Value`/`ValueHandle` 术语），与现 TS 行为一致。
 - **limits**:仍由接收方经 `limitsJson` 传入;不改变 `InputLimits` 语义。
 
 ## Consequences
@@ -59,6 +60,6 @@ TS 退化为**薄 marshaling 层**,不再包含任何 varint / tag / 排序 / �
   `InputLimits`（`sequence ops` 按原始 op 数、节点/深度按原始累加），`decode` 则在 canonical 结果上
   校验（post-canonical）——两侧各自防护自己那种输入，**语义分歧有意保留**（issue #22）。但
   `limit_exceeded.name` 对所有入口**双射且稳定**（`value depth`/`change depth` 合并为 `depth`，
-  `text bytes` 并入 `string bytes`，命名基准 = 权威 decoder）。同时修复 `Value.fromJS` 对 richText **值**
+  `text bytes` 并入 `string bytes`，命名基准 = 权威 decoder）。同时修复 `ValueHandle.fromJS` 对 richText **值**
   漏检 `max_sequence_len` 的防护缺口。命名表见 `docs/binary-format.md §6`。
 - 既有 Rust 与 JS 测试、golden fixtures 作为回归 oracle:行为保持不变则全绿。

@@ -19,10 +19,10 @@ await writeFile(pointerFile, fixtureDir)
 const packageSpec = process.env.COLLA_PACKAGE_SPEC
 
 const tracer = `
-import { apply, Change, Value } from "colla-ot"
+import { apply, Change, ValueHandle } from "colla-ot"
 
 export function trace() {
-  const base = Value.fromJS("before")
+  const base = ValueHandle.fromJS("before")
   const change = Change.build(change => change.replace("after"))
   const next = apply(base, change)
   try {

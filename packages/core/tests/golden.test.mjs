@@ -21,7 +21,7 @@ import {
   invert,
   text,
   transformPair,
-  Value,
+  ValueHandle,
 } from "../dist/node.js"
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -155,7 +155,7 @@ function decodeHex(hex) {
 }
 
 function value(node) {
-  return Value.fromJS(valueFromNeutral(node))
+  return ValueHandle.fromJS(valueFromNeutral(node))
 }
 
 function change(node) {
@@ -180,7 +180,7 @@ function runValueCodec(fx) {
   const built = value(fx.value)
   const expected = decodeHex(fx.canonicalBytes)
   sameBytes(built.encode(), expected, "encode(value) == canonicalBytes")
-  const decoded = Value.decode(expected)
+  const decoded = ValueHandle.decode(expected)
   sameBytes(decoded.encode(), expected, "decode round-trip is canonical")
   sameBytes(decoded.encode(), built.encode(), "decoded value equals the fixture value")
 }
@@ -189,7 +189,7 @@ function runDecodeError(fx) {
   const bytes = decodeHex(fx.inputBytes)
   const decode =
     fx.target === "value"
-      ? () => Value.decode(bytes)
+      ? () => ValueHandle.decode(bytes)
       : fx.target === "change"
         ? () => Change.decode(bytes)
         : null
