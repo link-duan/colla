@@ -226,3 +226,48 @@ fn huge_logical_changes_transform_without_an_operation_budget() {
         (huge, Change::noop())
     );
 }
+
+#[test]
+fn value_and_change_accessors_and_conversions() {
+    let v_null = Value::null();
+    assert!(v_null.is_null());
+    assert_eq!(v_null.as_bool(), None);
+
+    let v_bool = Value::from(true);
+    assert_eq!(v_bool.as_bool(), Some(true));
+
+    let v_int = Value::from(42i64);
+    assert_eq!(v_int.as_int(), Some(42));
+
+    let v_str = Value::from("hello");
+    assert_eq!(v_str.as_string(), Some("hello"));
+
+    let text = colla::Text::new("hello");
+    let v_text = Value::from(text.clone());
+    assert_eq!(v_text.as_text(), Some(&text));
+
+    let change_replace = Change::from(v_int.clone());
+    assert_eq!(change_replace.as_replace(), Some(&v_int));
+    assert_eq!(change_replace.as_int(), None);
+
+    let text_change = TextChange::from_ops([TextOp::Insert("hi".into())]).unwrap();
+    let change_text = Change::from(text_change.clone());
+    assert_eq!(change_text.as_text(), Some(&text_change));
+
+    // Text coordinate conversions
+    let emoji_text = colla::Text::new("A😀B");
+    assert_eq!(emoji_text.code_point_to_utf16(0).unwrap(), 0);
+    assert_eq!(emoji_text.code_point_to_utf16(1).unwrap(), 1);
+    assert_eq!(emoji_text.code_point_to_utf16(2).unwrap(), 3); // emoji is 2 utf16 units
+    assert_eq!(emoji_text.utf16_to_code_point(3).unwrap(), 2);
+    assert_eq!(
+        emoji_text.utf16_to_code_point(2).unwrap_err().code(),
+        ErrorCode::InvalidUtf16Boundary
+    );
+
+    // Path methods
+    let path = Path::new().with_key("a").with_index(0);
+    assert_eq!(path.len(), 2);
+    assert_eq!(path[0], colla::PathSeg::Key("a".into()));
+    assert_eq!(path[1], colla::PathSeg::Index(0));
+}

@@ -23,6 +23,15 @@ export type ValueKind =
   | "list"
   | "map"
 
+export type ChangeKind =
+  | "noop"
+  | "replace"
+  | "map"
+  | "list"
+  | "text"
+  | "richtext"
+  | "int"
+
 export type Value =
   | null
   | boolean
@@ -77,14 +86,14 @@ export type TextChangeOpInput =
   | { readonly type: "insert"; readonly text: string }
   | { readonly type: "delete"; readonly length: number }
 
-export type AttrPatchInput = Readonly<Record<
+export type AttrPatch = Readonly<Record<
   string,
   | { readonly type: "set"; readonly value: AttrValueData }
   | { readonly type: "remove" }
 >>
 
 export type RichTextChangeOpInput =
-  | { readonly type: "retain"; readonly length: number; readonly patch?: AttrPatchInput }
+  | { readonly type: "retain"; readonly length: number; readonly patch?: AttrPatch }
   | { readonly type: "insert"; readonly content: RichTextSpan }
   | { readonly type: "delete"; readonly length: number }
 
@@ -104,7 +113,7 @@ export type TextEditOp =
   | { readonly type: "delete"; readonly length: number }
 
 export type RichTextEditOp =
-  | { readonly type: "retain"; readonly length: number; readonly patch?: AttrPatchView }
+  | { readonly type: "retain"; readonly length: number; readonly patch?: AttrPatch }
   | { readonly type: "insert"; readonly span: RichTextSpan }
   | { readonly type: "delete"; readonly length: number }
 
@@ -197,12 +206,15 @@ export class CollaError extends Error {
     details: unknown,
     path?: Path,
   ) {
-    super(`${operation} failed: ${code}`)
+    const frozenDetails = freezeDetails(details)
+    const reason = typeof frozenDetails.reason === "string" ? `: ${frozenDetails.reason}` : ""
+    const pathStr = path !== undefined && path.length > 0 ? ` at [${path.join(".")}]` : ""
+    super(`${operation} failed: ${code}${reason}${pathStr}`)
     this.name = "CollaError"
     this.code = code
     this.operation = operation
     this.path = path === undefined ? undefined : Object.freeze([...path])
-    this.details = freezeDetails(details)
+    this.details = frozenDetails
   }
 
   is(code: ErrorCode): boolean {
@@ -975,6 +987,14 @@ export class Change {
     }
   }
 
+  kind(): ChangeKind {
+    return this.#get("change_kind").kind() as ChangeKind
+  }
+
+  isNoop(): boolean {
+    return this.#get("change_is_noop").isNoop()
+  }
+
   encode(): Uint8Array {
     return new Uint8Array(this.#get("change_encode").encode())
   }
@@ -1015,7 +1035,7 @@ export class Change {
   }
 }
 
-export interface Range {
+export interface IndexRange {
   readonly from: number
   readonly to: number
 }
@@ -1024,11 +1044,6 @@ interface ChangeViewEntryBase {
   readonly path: Path
 }
 
-export type AttrPatchView = Readonly<Record<string,
-  | { readonly type: "set"; readonly value: AttrValueData }
-  | { readonly type: "remove" }
->>
-
 export type ChangeViewEntry =
   | (ChangeViewEntryBase & { readonly type: "value.replace"; readonly value: Value })
   | (ChangeViewEntryBase & { readonly type: "int.add"; readonly delta: bigint })
@@ -1036,13 +1051,13 @@ export type ChangeViewEntry =
   | (ChangeViewEntryBase & { readonly type: "map.delete"; readonly key: string })
   | (ChangeViewEntryBase & { readonly type: "list.insert"; readonly index: number; readonly values: readonly Value[] })
   | (ChangeViewEntryBase & { readonly type: "list.set"; readonly index: number; readonly value: Value })
-  | (ChangeViewEntryBase & { readonly type: "list.delete"; readonly range: Range })
+  | (ChangeViewEntryBase & { readonly type: "list.delete"; readonly range: IndexRange })
   | (ChangeViewEntryBase & { readonly type: "text.insert"; readonly at: number; readonly text: string })
-  | (ChangeViewEntryBase & { readonly type: "text.delete"; readonly range: Range })
+  | (ChangeViewEntryBase & { readonly type: "text.delete"; readonly range: IndexRange })
   | (ChangeViewEntryBase & { readonly type: "richtext.insertText"; readonly at: number; readonly text: string; readonly attrs?: AttrsData })
   | (ChangeViewEntryBase & { readonly type: "richtext.insertEmbed"; readonly at: number; readonly embed: Value; readonly attrs?: AttrsData })
-  | (ChangeViewEntryBase & { readonly type: "richtext.delete"; readonly range: Range })
-  | (ChangeViewEntryBase & { readonly type: "richtext.format"; readonly range: Range; readonly patch: AttrPatchView })
+  | (ChangeViewEntryBase & { readonly type: "richtext.delete"; readonly range: IndexRange })
+  | (ChangeViewEntryBase & { readonly type: "richtext.format"; readonly range: IndexRange; readonly patch: AttrPatch })
 
 export type ChangeView = readonly ChangeViewEntry[]
 
@@ -1053,7 +1068,7 @@ export interface ChangeBuilder {
   list(edit: (list: ListChangeBuilder) => unknown): this
   text(edit: (text: TextChangeBuilder) => unknown): this
   richText(edit: (richText: RichTextChangeBuilder) => unknown): this
-  intAdd(delta: bigint): this
+  intAdd(delta: number | bigint): this
 }
 
 export interface MapChangeBuilder {
@@ -1162,8 +1177,8 @@ class RootChangeScope extends ChangeBuildScope implements ChangeBuilder {
     return this.#select(Object.freeze({ type: "richtext", ops }))
   }
 
-  intAdd(delta: bigint): this {
-    return this.#select(Object.freeze({ type: "int", delta }))
+  intAdd(delta: number | bigint): this {
+    return this.#select(Object.freeze({ type: "int", delta: int(delta) }))
   }
 
   finish(): ChangeInput {
@@ -1303,7 +1318,7 @@ class PatchChangeScope extends ChangeBuildScope implements AttrPatchBuilder {
     return this
   }
 
-  finish(): AttrPatchInput {
+  finish(): AttrPatch {
     this.assertActive()
     return Object.freeze(this.#patch)
   }
@@ -1464,7 +1479,7 @@ function viewValue(bytes: number[] | undefined): Value {
   return valueFromBytes(Uint8Array.from(bytes ?? []))
 }
 
-function viewRange(entry: RawChangeViewEntry): Range {
+function viewRange(entry: RawChangeViewEntry): IndexRange {
   return Object.freeze({ from: entry.from ?? 0, to: entry.to ?? 0 })
 }
 
@@ -1472,7 +1487,7 @@ function viewAttrs(entries: AttrEntry[] | undefined): AttrsData | undefined {
   return attrsData(entries ?? [])
 }
 
-function viewPatch(entries: RawChangeViewEntry["patch"]): AttrPatchView {
+function viewPatch(entries: RawChangeViewEntry["patch"]): AttrPatch {
   const patch = Object.create(null) as Record<string,
     | { readonly type: "set"; readonly value: AttrValueData }
     | { readonly type: "remove" }

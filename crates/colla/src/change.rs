@@ -315,6 +315,61 @@ impl Change {
     pub fn is_noop(&self) -> bool {
         matches!(self.kind(), ChangeKind::Noop)
     }
+
+    /// Borrows the contained replacement Value, if this Change is a Replace.
+    pub fn as_replace(&self) -> Option<&Value> {
+        if let ChangeKind::Replace(v) = self.kind() {
+            Some(v)
+        } else {
+            None
+        }
+    }
+
+    /// Borrows the contained Map Change, if this Change is a Map.
+    pub fn as_map(&self) -> Option<&MapChange> {
+        if let ChangeKind::Map(v) = self.kind() {
+            Some(v)
+        } else {
+            None
+        }
+    }
+
+    /// Borrows the contained List Change, if this Change is a List.
+    pub fn as_list(&self) -> Option<&ListChange> {
+        if let ChangeKind::List(v) = self.kind() {
+            Some(v)
+        } else {
+            None
+        }
+    }
+
+    /// Borrows the contained Text Change, if this Change is Text.
+    pub fn as_text(&self) -> Option<&TextChange> {
+        if let ChangeKind::Text(v) = self.kind() {
+            Some(v)
+        } else {
+            None
+        }
+    }
+
+    /// Borrows the contained RichText Change, if this Change is RichText.
+    pub fn as_rich_text(&self) -> Option<&RichTextChange> {
+        if let ChangeKind::RichText(v) = self.kind() {
+            Some(v)
+        } else {
+            None
+        }
+    }
+
+    /// Borrows the contained Int Change, if this Change is an Int.
+    pub fn as_int(&self) -> Option<&IntChange> {
+        if let ChangeKind::Int(v) = self.kind() {
+            Some(v)
+        } else {
+            None
+        }
+    }
+
     pub(crate) fn kind_name(&self) -> &'static str {
         match self.kind() {
             ChangeKind::Noop => "Noop",
@@ -325,6 +380,12 @@ impl Change {
             ChangeKind::RichText(_) => "RichText",
             ChangeKind::Int(_) => "Int",
         }
+    }
+}
+
+impl From<Value> for Change {
+    fn from(value: Value) -> Self {
+        Self::replace(value)
     }
 }
 

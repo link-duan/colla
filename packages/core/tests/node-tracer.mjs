@@ -489,8 +489,12 @@ try {
     const overflowChange = Change.build(change => change.intAdd(1n))
     assert.throws(() => apply(maxInt, overflowChange), error =>
       error instanceof CollaError && error.code === "integer_overflow")
-    assert.throws(() => Change.build(change => change.intAdd(1)), error =>
+    assert.throws(() => Change.build(change => change.intAdd(1.5)), error =>
       error instanceof CollaError && error.code === "invalid_argument")
+    assert.deepEqual(
+      Change.build(change => change.intAdd(1)).encode(),
+      Change.build(change => change.intAdd(1n)).encode(),
+    )
     const overflowNoop = Change.build(change => change.intAdd(0n))
     const overflowSame = apply(maxInt, overflowNoop)
     assert.deepEqual(overflowSame.toJS(), maxInt.toJS())

@@ -4,9 +4,16 @@ import {
   Change,
   CollaError,
   convertChangeToEditSteps,
+  resolveCodePointPosition,
+  resolveUtf16Position,
   transformPair,
   ValueHandle,
+  type ChangeBuilder,
   type EditStep,
+  type InputOptions,
+  type Path,
+  type Value,
+  type ValueKind,
 } from "./index.js"
 
 type WasmErrorPayload = {
@@ -18,6 +25,9 @@ type WasmErrorPayload = {
 const U64_MAX = (1n << 64n) - 1n
 
 function revisionArgument(value: unknown, operation: string, argument: string): bigint {
+  if (typeof value === "number" && Number.isSafeInteger(value) && value >= 0) {
+    return BigInt(value)
+  }
   if (typeof value !== "bigint" || value < 0n || value > U64_MAX) {
     throw new CollaError("invalid_argument", operation, {
       argument,
@@ -61,12 +71,12 @@ export class Snapshot {
   }
 
   /** Creates a Snapshot from a Core Value handle. */
-  static fromValue(value: ValueHandle, revision: bigint = 0n): Snapshot {
+  static fromValue(value: ValueHandle, revision: number | bigint = 0n): Snapshot {
     const operation = "snapshot_from_value"
-    revision = revisionArgument(revision, operation, "revision")
+    const rev = revisionArgument(revision, operation, "revision")
     try {
       return new Snapshot(SnapshotHandle.fromValue(
-        revision,
+        rev,
         ValueHandle._handle(value, operation),
       ))
     } catch (error) {
@@ -76,8 +86,12 @@ export class Snapshot {
   }
 
   /** Creates a Snapshot from structured Core Value input. */
-  static fromJS(input: Parameters<typeof ValueHandle.fromJS>[0], revision: bigint = 0n): Snapshot {
-    const value = ValueHandle.fromJS(input)
+  static fromJS(
+    input: Parameters<typeof ValueHandle.fromJS>[0],
+    revision: number | bigint = 0n,
+    options?: InputOptions,
+  ): Snapshot {
+    const value = ValueHandle.fromJS(input, options)
     try {
       return Snapshot.fromValue(value, revision)
     } finally {
@@ -148,14 +162,18 @@ export class Update {
   }
 
   /** Creates an Update around a Core Change. */
-  static fromChange(revision: bigint, updateId: bigint, change: Change): Update {
+  static fromChange(
+    revision: number | bigint,
+    updateId: number | bigint,
+    change: Change,
+  ): Update {
     const operation = "update_from_change"
-    revision = revisionArgument(revision, operation, "revision")
-    updateId = revisionArgument(updateId, operation, "updateId")
+    const rev = revisionArgument(revision, operation, "revision")
+    const id = revisionArgument(updateId, operation, "updateId")
     try {
       return new Update(UpdateHandle.fromChange(
-        revision,
-        updateId,
+        rev,
+        id,
         Change._handle(change, operation),
       ))
     } catch (error) {
@@ -268,8 +286,12 @@ export class Document {
   }
 
   /** Creates a Document from structured Core Value input. */
-  static fromJS(input: Parameters<typeof ValueHandle.fromJS>[0], revision: bigint = 0n): Document {
-    const snapshot = Snapshot.fromJS(input, revision)
+  static fromJS(
+    input: Parameters<typeof ValueHandle.fromJS>[0],
+    revision: number | bigint = 0n,
+    options?: InputOptions,
+  ): Document {
+    const snapshot = Snapshot.fromJS(input, revision, options)
     try {
       return Document.fromSnapshot(snapshot)
     } finally {
@@ -288,6 +310,36 @@ export class Document {
     return this.#value.clone()
   }
 
+  /** Resolves a Snapshot-relative Path and borrows the target Value without cloning. */
+  get(path: Path): Value {
+    this.#assertActive("document_get")
+    return this.#value.get(path)
+  }
+
+  /** Returns whether a Snapshot-relative Path exists. */
+  has(path: Path): boolean {
+    this.#assertActive("document_has")
+    return this.#value.has(path)
+  }
+
+  /** Returns the ValueKind at a Snapshot-relative Path. */
+  kind(path: Path = []): ValueKind {
+    this.#assertActive("document_kind")
+    return this.#value.kind(path)
+  }
+
+  /** Converts a UTF-16 position in visible Text/RichText to a code point position. */
+  resolveCodePointPosition(path: Path, utf16Position: number): number {
+    this.#assertActive("document_resolve_code_point_position")
+    return resolveCodePointPosition(this.#value, path, utf16Position)
+  }
+
+  /** Converts a code point position in visible Text/RichText to a UTF-16 position. */
+  resolveUtf16Position(path: Path, codePointPosition: number): number {
+    this.#assertActive("document_resolve_utf16_position")
+    return resolveUtf16Position(this.#value, path, codePointPosition)
+  }
+
   /** Encodes the visible content and current revision as a Snapshot. */
   snapshot(): Snapshot {
     this.#assertActive("document_snapshot")
@@ -295,8 +347,23 @@ export class Document {
   }
 
   /** Applies a local Core Change optimistically and returns its Update. */
-  applyLocal(change: Change): Update {
+  applyLocal(change: Change): Update
+  /** Builds and applies a local Core Change optimistically and returns its Update. */
+  applyLocal(edit: (change: ChangeBuilder) => unknown, options?: InputOptions): Update
+  applyLocal(
+    changeOrEdit: Change | ((change: ChangeBuilder) => unknown),
+    options?: InputOptions,
+  ): Update {
     this.#assertActive("document_apply_local")
+    if (typeof changeOrEdit === "function") {
+      const change = Change.build(changeOrEdit, options)
+      try {
+        return this.applyLocal(change)
+      } finally {
+        change.dispose()
+      }
+    }
+    const change = changeOrEdit
     if (!(change instanceof Change)) {
       throw new CollaError("invalid_argument", "document_apply_local", {
         argument: "change",
@@ -418,7 +485,7 @@ export class Document {
   }
 
   /** Acknowledges the oldest pending local Update by its local updateId. */
-  ack(updateId: bigint): void {
+  ack(updateId: number | bigint): void {
     this.#assertActive("document_ack")
     updateId = revisionArgument(updateId, "document_ack", "updateId")
     const pending = this.#pending[0]
@@ -511,7 +578,11 @@ export class Document {
       try {
         listener(event)
       } catch (error) {
-        this.#emitError(error)
+        if (this.#errorListeners.size > 0) {
+          this.#emitError(error)
+        } else {
+          console.error("[colla-ot] Uncaught error in Document change listener:", error)
+        }
       }
     }
   }

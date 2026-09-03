@@ -45,14 +45,19 @@ Update arrives.
 
 | Member | Contract |
 | --- | --- |
-| `Document.fromJS(value, revision?)` | Create a document from structured Core Value input; revision defaults to `0n`. |
+| `Document.fromJS(value, revision?, options?)` | Create a document from structured Core Value input; revision accepts `number` or `bigint` (defaults to `0n`). |
 | `Document.fromSnapshot(snapshot)` | Restore visible content and revision from a `Snapshot`; pending state is empty. |
 | `revision` | Current visible revision as an unsigned 64-bit `bigint`. |
 | `value()` | Return an independently owned `ValueHandle` for visible content. |
+| `get(path)` | Resolve a Snapshot-relative Path and borrow target `Value` without handle management. |
+| `has(path)` | Check if a Snapshot-relative Path exists in visible content. |
+| `kind(path?)` | Return the `ValueKind` at the given path (defaults to root). |
+| `resolveCodePointPosition(path, pos)` | Convert a UTF-16 position in Text/RichText to a Unicode scalar position. |
+| `resolveUtf16Position(path, pos)` | Convert a Unicode scalar position in Text/RichText to a UTF-16 position. |
 | `snapshot()` | Create a persistence Snapshot of visible content and revision. |
-| `applyLocal(change)` | Apply a Core Change, emit a local event, and return the Update to send. |
+| `applyLocal(change \| builder, options?)` | Apply a Core Change or builder callback, emit a local event, and return the Update. |
 | `applyRemote(update)` | Apply the next server-ordered Update and rebase pending local changes. |
-| `ack(updateId)` | Acknowledge the oldest pending Update by its instance-local ID. |
+| `ack(updateId)` | Acknowledge the oldest pending Update by its instance-local ID (accepts `number` or `bigint`). |
 | `on(event, listener)` | Subscribe to `change` or `error`; returns an unsubscribe function. |
 | `dispose()` / `Symbol.dispose` | Release owned Wasm resources; disposal is idempotent. |
 
@@ -187,7 +192,10 @@ apply it to a concrete base to validate keys, types, and sequence ranges.
 | `list` | `list(callback)` | `retain`, `insert`, `delete`, or element `modify`. |
 | `text` | `text(callback)` | `retain`, `insert`, or `delete` Unicode scalars. |
 | `richtext` | `richText(callback)` | Retain/format, insert text or embed, or delete. |
-| `int` | `intAdd(delta)` | Checked signed 64-bit addition. |
+| `int` | `intAdd(delta)` | Checked addition (accepts safe `number` or `bigint`). |
+
+A `Change` instance provides `kind(): ChangeKind` and `isNoop(): boolean` for
+immediate inspection without needing a base Value.
 
 ```ts
 const change = Change.build(builder => {

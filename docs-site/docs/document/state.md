@@ -34,13 +34,18 @@ confirmed value @ r ── local change ──> visible value @ r+1
 const document = Document.fromJS({ title: 'Draft', count: 0n }, 10n)
 
 document.revision       // 10n
+document.get(['title']) // direct Value access without creating a handle
+document.has(['title']) // true
+document.kind(['title'])// 'string'
 document.value()        // independently owned visible ValueHandle
 document.snapshot()     // Snapshot of visible value and revision
 ```
 
-`value()` returns a clone, so disposing or inspecting it cannot mutate the
-Document. `snapshot()` creates a durable content checkpoint without changing
-state. A disposed Document rejects later operations with `invalid_state`.
+`get()`, `has()`, and `kind()` inspect visible content directly without needing
+handle lifecycle management. `value()` returns a clone, so disposing or
+inspecting it cannot mutate the Document. `snapshot()` creates a durable
+content checkpoint without changing state. A disposed Document rejects later
+operations with `invalid_state`.
 
 ## Invariants and failures
 

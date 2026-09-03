@@ -44,7 +44,8 @@ document.on('error', ({ error }) => {
 ```
 
 If a change listener throws, the Document remains committed, remaining change
-listeners still run, and the thrown value is delivered to error listeners.
+listeners still run, and the thrown value is delivered to error listeners (or
+logged to `console.error` if no error listeners are registered).
 Error-listener failures are swallowed and never recursively reported. Errors
 from `applyLocal`, `applyRemote`, or `ack` are operation failures instead;
 they are thrown to the caller and do not become events.

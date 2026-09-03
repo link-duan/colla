@@ -33,10 +33,15 @@ assert_eq!(
 # Ok::<(), colla::ValueError>(())
 ```
 
+`Value` implements `From<T>` for standard Rust types (`bool`, `i64`, `FiniteF64`,
+`String`, `&str`, `Text`, `RichText`, `List`, `Map`), and provides typed accessors
+`as_bool()`, `as_int()`, `as_float()`, `as_finite_float()`, `as_string()`, `as_text()`,
+`as_rich_text()`, `as_list()`, `as_map()`, and `is_null()`.
+
 Ordinary `String` values are atomic and can only be replaced as a whole. `Text`
 uses Unicode scalar positions and supports character-level OT. A `Path` is a
-Snapshot-relative lookup address; it is not stored in a `Change` and is not
-stable across concurrent sequence edits.
+Snapshot-relative lookup address built fluently with `with_key` and `with_index`;
+it is not stored in a `Change` and is not stable across concurrent sequence edits.
 
 Map constructors reject duplicate keys. Floating-point values must be finite;
 negative zero is normalized to positive zero.
@@ -162,9 +167,10 @@ with equal attributes. Embeds can be inserted, deleted, or formatted as one
 unit, but cannot be recursively edited inside RichText. Use a separate Value
 location and a stable reference when embed state must collaborate independently.
 
-`RichText::code_point_to_utf16` and `RichText::utf16_to_code_point` explicitly
-convert Snapshot positions for JavaScript or editor integration. UTF-16
-positions inside surrogate pairs are rejected.
+`Text` and `RichText` provide `code_point_to_utf16` and `utf16_to_code_point` to
+explicitly convert positions for JavaScript or editor integration. UTF-16
+positions inside surrogate pairs are rejected with
+`Utf16PositionError::InvalidUtf16Boundary`.
 
 ## Canonical codec
 

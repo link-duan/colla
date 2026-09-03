@@ -33,15 +33,39 @@ impl Path {
     }
 
     /// Appends a Map key and returns the extended Path.
-    pub fn push_key(mut self, key: impl Into<String>) -> Self {
+    pub fn with_key(mut self, key: impl Into<String>) -> Self {
         self.0.push(PathSeg::Key(key.into()));
         self
     }
 
     /// Appends a List index and returns the extended Path.
-    pub fn push_index(mut self, index: usize) -> Self {
+    pub fn with_index(mut self, index: usize) -> Self {
         self.0.push(PathSeg::Index(index));
         self
+    }
+
+    /// Appends a Map key and returns the extended Path.
+    ///
+    /// Prefer [`Path::with_key`] when building a Path fluently.
+    pub fn push_key(self, key: impl Into<String>) -> Self {
+        self.with_key(key)
+    }
+
+    /// Appends a List index and returns the extended Path.
+    ///
+    /// Prefer [`Path::with_index`] when building a Path fluently.
+    pub fn push_index(self, index: usize) -> Self {
+        self.with_index(index)
+    }
+
+    /// Appends a Map key in place.
+    pub fn push_key_mut(&mut self, key: impl Into<String>) {
+        self.0.push(PathSeg::Key(key.into()));
+    }
+
+    /// Appends a List index in place.
+    pub fn push_index_mut(&mut self, index: usize) {
+        self.0.push(PathSeg::Index(index));
     }
 
     /// Appends one segment in place.
@@ -134,4 +158,18 @@ impl IntoPathSeg for usize {
 /// needed directly.
 pub fn path_segment(value: impl IntoPathSeg) -> PathSeg {
     value.into_path_seg()
+}
+
+impl FromIterator<PathSeg> for Path {
+    fn from_iter<T: IntoIterator<Item = PathSeg>>(iter: T) -> Self {
+        Self(iter.into_iter().collect())
+    }
+}
+
+impl std::ops::Deref for Path {
+    type Target = [PathSeg];
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
 }

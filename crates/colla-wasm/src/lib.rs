@@ -255,6 +255,24 @@ impl ChangeHandle {
         self.change.encode()
     }
 
+    pub fn kind(&self) -> String {
+        match self.change.kind() {
+            ChangeKind::Noop => "noop",
+            ChangeKind::Replace(_) => "replace",
+            ChangeKind::Map(_) => "map",
+            ChangeKind::List(_) => "list",
+            ChangeKind::Text(_) => "text",
+            ChangeKind::RichText(_) => "richtext",
+            ChangeKind::Int(_) => "int",
+        }
+        .into()
+    }
+
+    #[wasm_bindgen(js_name = isNoop)]
+    pub fn is_noop(&self) -> bool {
+        self.change.is_noop()
+    }
+
     #[wasm_bindgen(js_name = cloneHandle)]
     pub fn clone_handle(&self) -> Self {
         Self {

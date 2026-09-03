@@ -42,6 +42,7 @@ error_codes! {
     IntegerOverflow => "integer_overflow",
     IncompatibleChange => "incompatible_change",
     InvalidValue => "invalid_value",
+    InvalidUtf16Boundary => "invalid_utf16_boundary",
 }
 
 /// Errors produced while constructing canonical Values and typed Changes.
@@ -291,6 +292,17 @@ impl ValueError {
         match self {
             ValueError::NonFiniteFloat | ValueError::DuplicateKey(_) => ErrorCode::InvalidValue,
             ValueError::LengthOverflow => ErrorCode::LimitExceeded,
+        }
+    }
+}
+
+impl Utf16PositionError {
+    /// The stable classification of this error.
+    pub fn code(&self) -> ErrorCode {
+        match self {
+            Utf16PositionError::CodePointOutOfBounds { .. }
+            | Utf16PositionError::Utf16OutOfBounds { .. } => ErrorCode::OutOfBounds,
+            Utf16PositionError::InvalidUtf16Boundary { .. } => ErrorCode::InvalidUtf16Boundary,
         }
     }
 }

@@ -5,7 +5,7 @@ use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
-use crate::error::ValueError;
+use crate::error::{Utf16PositionError, ValueError};
 use crate::path::{Path, PathSeg};
 use crate::richtext::RichText;
 
@@ -82,6 +82,49 @@ impl Text {
     /// Returns whether the text contains no Unicode scalars.
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
+    }
+
+    /// Converts a Unicode scalar position to a UTF-16 position.
+    ///
+    /// The end position is valid.
+    pub fn code_point_to_utf16(&self, position: usize) -> Result<usize, Utf16PositionError> {
+        let len = self.len();
+        if position > len {
+            return Err(Utf16PositionError::CodePointOutOfBounds { position, len });
+        }
+        let mut utf16 = 0usize;
+        for (code_point, character) in self.0.chars().enumerate() {
+            if code_point == position {
+                return Ok(utf16);
+            }
+            utf16 += character.len_utf16();
+        }
+        Ok(utf16)
+    }
+
+    /// Converts a UTF-16 position to a Unicode scalar position.
+    ///
+    /// The end position is valid. A position inside a surrogate pair is rejected.
+    pub fn utf16_to_code_point(&self, position: usize) -> Result<usize, Utf16PositionError> {
+        let mut utf16 = 0usize;
+        for (code_point, character) in self.0.chars().enumerate() {
+            if position == utf16 {
+                return Ok(code_point);
+            }
+            let next = utf16 + character.len_utf16();
+            if position < next {
+                return Err(Utf16PositionError::InvalidUtf16Boundary { position });
+            }
+            utf16 = next;
+        }
+        if position == utf16 {
+            Ok(self.len())
+        } else {
+            Err(Utf16PositionError::Utf16OutOfBounds {
+                position,
+                len: utf16,
+            })
+        }
     }
 }
 
@@ -358,6 +401,42 @@ impl Value {
             None
         }
     }
+    /// Returns the contained boolean, if this Value is a Bool.
+    pub fn as_bool(&self) -> Option<bool> {
+        if let ValueKind::Bool(v) = self.kind() {
+            Some(*v)
+        } else {
+            None
+        }
+    }
+    /// Returns the contained floating-point value, if this Value is a Float.
+    pub fn as_float(&self) -> Option<f64> {
+        if let ValueKind::Float(v) = self.kind() {
+            Some(v.get())
+        } else {
+            None
+        }
+    }
+    /// Returns the contained finite float, if this Value is a Float.
+    pub fn as_finite_float(&self) -> Option<FiniteF64> {
+        if let ValueKind::Float(v) = self.kind() {
+            Some(*v)
+        } else {
+            None
+        }
+    }
+    /// Borrows the contained atomic String, if this Value is a String.
+    pub fn as_string(&self) -> Option<&str> {
+        if let ValueKind::String(v) = self.kind() {
+            Some(v.as_ref())
+        } else {
+            None
+        }
+    }
+    /// Returns whether this Value is Null.
+    pub fn is_null(&self) -> bool {
+        matches!(self.kind(), ValueKind::Null)
+    }
 
     /// Resolves a Snapshot-relative Path and borrows the target Value.
     ///
@@ -373,5 +452,59 @@ impl Value {
             };
         }
         Some(current)
+    }
+}
+
+impl From<bool> for Value {
+    fn from(v: bool) -> Self {
+        Self::bool(v)
+    }
+}
+
+impl From<i64> for Value {
+    fn from(v: i64) -> Self {
+        Self::int(v)
+    }
+}
+
+impl From<FiniteF64> for Value {
+    fn from(v: FiniteF64) -> Self {
+        Self::finite_float(v)
+    }
+}
+
+impl From<String> for Value {
+    fn from(v: String) -> Self {
+        Self::string(v)
+    }
+}
+
+impl From<&str> for Value {
+    fn from(v: &str) -> Self {
+        Self::string(v)
+    }
+}
+
+impl From<Text> for Value {
+    fn from(v: Text) -> Self {
+        Self(Arc::new(ValueKind::Text(v)))
+    }
+}
+
+impl From<RichText> for Value {
+    fn from(v: RichText) -> Self {
+        Self::rich_text(v)
+    }
+}
+
+impl From<List> for Value {
+    fn from(v: List) -> Self {
+        Self(Arc::new(ValueKind::List(v)))
+    }
+}
+
+impl From<Map> for Value {
+    fn from(v: Map) -> Self {
+        Self(Arc::new(ValueKind::Map(v)))
     }
 }

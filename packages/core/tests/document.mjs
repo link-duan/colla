@@ -193,3 +193,61 @@ testWithCleanup("Document keeps state and pending changes intact when applying f
   document.ack(localUpdate.updateId)
   assert.equal(document.revision, 1n)
 })
+
+testWithCleanup("Change introspects kind and isNoop without base context", track => {
+  const noop = track(Change.build(edit => edit.noop()))
+  assert.equal(noop.kind(), "noop")
+  assert.equal(noop.isNoop(), true)
+
+  const textChange = track(Change.build(edit => edit.text(t => t.insert("hi"))))
+  assert.equal(textChange.kind(), "text")
+  assert.equal(textChange.isNoop(), false)
+
+  const replaceChange = track(Change.build(edit => edit.replace("v")))
+  assert.equal(replaceChange.kind(), "replace")
+  assert.equal(replaceChange.isNoop(), false)
+})
+
+testWithCleanup("Document provides direct query methods without leaking handles", track => {
+  const document = track(Document.fromJS({ title: text("Colla"), count: 42n, items: ["a", "b"] }, 0))
+  assert.equal(document.revision, 0n)
+  assert.equal(document.kind(), "map")
+  assert.equal(document.kind(["title"]), "text")
+  assert.equal(document.kind(["count"]), "int")
+  assert.equal(document.kind(["items"]), "list")
+  assert.equal(document.has(["title"]), true)
+  assert.equal(document.has(["missing"]), false)
+  assert.deepEqual(document.get(["title"]), text("Colla"))
+  assert.equal(document.get(["count"]), 42n)
+  assert.deepEqual(document.get(["items", 1]), "b")
+
+  // Test applyLocal with builder callback overload
+  const update = track(document.applyLocal(edit => {
+    edit.map(m => m.modify("title", t => t.text(s => s.retain(5).insert(" OT"))))
+  }))
+  assert.equal(update.updateId, 1n)
+  assert.equal(document.revision, 1n)
+  assert.deepEqual(document.get(["title"]), text("Colla OT"))
+
+  // Test ack with numeric updateId
+  document.ack(1)
+  assert.equal(document.revision, 1n)
+
+  // Test coordinate conversion directly on document
+  assert.equal(document.resolveCodePointPosition(["title"], 5), 5)
+  assert.equal(document.resolveUtf16Position(["title"], 5), 5)
+})
+
+testWithCleanup("CollaError message includes reason and path context", () => {
+  const doc = Document.fromJS("hello")
+  try {
+    const invalid = Change.build(edit => edit.text(t => t.retain(1).insert("!")))
+    doc.applyLocal(invalid)
+    assert.fail("should have thrown")
+  } catch (error) {
+    assert.ok(error.message.includes("apply failed: type_mismatch"))
+  } finally {
+    doc.dispose()
+  }
+})
+

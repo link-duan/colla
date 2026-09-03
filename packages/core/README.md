@@ -49,9 +49,15 @@ The optional second argument sets the initial revision and defaults to `0n`.
 To read the current content, request an independently owned `ValueHandle`:
 
 ```ts
+// Inspect visible content directly without handle lifecycle management:
+console.log(document.get(["title"]))
+console.log(document.has(["title"]))
+console.log(document.kind(["title"]))
+console.log(document.revision)
+
+// Or obtain an independently owned ValueHandle:
 const value = document.value()
 console.log(value.toJS())
-console.log(document.revision)
 ```
 
 ### Restore a persisted Snapshot
@@ -98,27 +104,25 @@ unsubscribe()
 ```
 
 If a change listener throws, the state change remains committed, other change
-listeners still run, and the exception is delivered to error listeners. An
-error listener failure is ignored to prevent recursive error reporting.
+listeners still run, and the exception is delivered to error listeners (or logged
+to `console.error` if no error listeners are registered). An error listener
+failure is ignored to prevent recursive error reporting.
 
 ### Apply and send a local edit
 
-Build a `Change`, then apply it to the Document. The visible content changes
-immediately and `applyLocal()` returns the Update to send to the application
-server:
+Apply a `Change` directly, or pass a builder callback. The visible content
+changes immediately and `applyLocal()` returns the Update to send to the
+application server:
 
 ```ts
-import { Change } from "colla-ot"
-
-const change = Change.build(change => {
+// applyLocal accepts a Change or directly takes a builder callback:
+const update = document.applyLocal(change => {
   change.map(map => {
     map.modify("title", title => {
       title.text(text => text.retain(5).insert(" v2"))
     })
   })
 })
-
-const update = document.applyLocal(change)
 await transport.send(update.encode())
 ```
 
@@ -126,7 +130,8 @@ Each Update contains its base revision, an instance-local `updateId`, and one
 Core Change. `updateId` starts at `1` for each Document instance and is only a
 local correlation value; it is not a globally unique operation identity.
 
-After the server accepts the oldest pending local Update, acknowledge it by ID:
+After the server accepts the oldest pending local Update, acknowledge it by ID
+(accepts `number` or `bigint`):
 
 ```ts
 document.ack(update.updateId)
@@ -257,12 +262,15 @@ const before = ValueHandle.fromJS({
 
 const change = Change.build(change => {
   change.map(map => {
-    map.modify("count", count => count.intAdd(1n))
+    map.modify("count", count => count.intAdd(1)) // accepts safe number or bigint
     map.modify("title", title => {
       title.text(text => text.retain(5).insert(" v2"))
     })
   })
 })
+
+console.log(change.kind())   // "map"
+console.log(change.isNoop()) // false
 
 const after = apply(before, change)
 ```

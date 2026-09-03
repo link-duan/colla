@@ -88,10 +88,10 @@ families that participate in the shared taxonomy.
 | `invalid_argument` | JavaScript facade received the wrong runtime type or option shape. | Public JS constructors and methods. |
 | `invalid_utf16_boundary` | A JavaScript/editor position splits a UTF-16 surrogate pair. | JavaScript `resolveUtf16Position` and projections; Rust uses `Utf16PositionError::InvalidUtf16Boundary`. |
 
-The first nine codes are shared with the Rust crate. `invalid_state`,
-`invalid_argument`, and `invalid_utf16_boundary` are additionally surfaced by
-the JavaScript facade. Human-readable error messages and detailed paths are
-diagnostics; branch on the stable code.
+The first ten codes (including `invalid_utf16_boundary`) are shared with the Rust
+crate. `invalid_state` and `invalid_argument` are additionally surfaced by the
+JavaScript facade. Human-readable error messages and detailed paths are diagnostics;
+branch on the stable code.
 
 ## Structured input limits
 

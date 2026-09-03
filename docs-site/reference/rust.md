@@ -82,10 +82,11 @@ assert_eq!(
 | `Value::map` | `Value::map(entries)` | Duplicate keys return `ValueError::DuplicateKey`. |
 | `Value::float` | `Value::float(number)` | Rejects NaN/infinity; normalizes negative zero. |
 
-Use `value_type()`, `as_map()`, `as_list()`, `as_text()`, `as_rich_text()`, and
-`as_int()` to inspect a Value without changing it. `Path` is a temporary lookup
-address relative to a particular Value; it is not stored in a Change or codec
-body.
+`Value` implements standard `From<T>` conversions and provides typed accessors
+`as_bool()`, `as_int()`, `as_float()`, `as_finite_float()`, `as_string()`, `as_text()`,
+`as_rich_text()`, `as_list()`, `as_map()`, and `is_null()`. `Path` is a temporary lookup
+address built fluently with `with_key` and `with_index`; it is not stored in a Change
+or codec body.
 
 ## Changes and typed constructors
 
@@ -119,8 +120,10 @@ assert!(!change.is_noop());
 
 Typed constructors normalize zero-length operations, empty inserts, adjacent
 compatible operations, insert/delete ordering, and trailing plain retains.
-Empty typed changes and `IntChange::Add(0)` convert to `Change::noop()`. The
-canonical `Change` exposes `kind()` and `is_noop()`; it does not contain old
+Empty typed changes and `IntChange::Add(0)` convert to `Change::noop()`. `Change`
+provides `From<Value>` (equivalent to `Change::replace`) and typed extractors
+`as_replace()`, `as_map()`, `as_list()`, `as_text()`, `as_rich_text()`, and `as_int()`.
+The canonical `Change` exposes `kind()` and `is_noop()`; it does not contain old
 values, versions, authorship, or operation IDs.
 
 ## OT operations
@@ -181,9 +184,10 @@ assert_eq!(rich.len(), 6); // five scalars plus one embed
 ```
 
 `RichText::from_spans` removes empty text spans and merges adjacent text spans
-with equal attributes. `code_point_to_utf16` and `utf16_to_code_point` convert
-positions for JavaScript/editor boundaries; positions inside a surrogate pair
-return `Utf16PositionError::InvalidUtf16Boundary`.
+with equal attributes. `Text` and `RichText` provide `code_point_to_utf16` and
+`utf16_to_code_point` to convert positions for JavaScript/editor boundaries; positions
+inside a surrogate pair return `Utf16PositionError::InvalidUtf16Boundary`.
+`Utf16PositionError` implements `.code() -> ErrorCode`.
 
 ## Snapshots, Updates, and codecs
 
