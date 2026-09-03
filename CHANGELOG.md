@@ -7,6 +7,17 @@ package are recorded here. Both artifacts always use the same version.
 
 ### Changed
 
+- **BREAKING (JavaScript resource lifecycle).** Wasm-backed objects now rely on
+  JavaScript GC and wasm-bindgen-generated finalizers by default. The optional
+  `dispose()`/`Symbol.dispose` APIs remain available for deterministic cleanup;
+  handwritten facade-level `FinalizationRegistry` registrations were removed.
+- **BREAKING (JavaScript API).** The package root now exposes the high-level
+  `Document`, `Snapshot`, and `Update` model. The immutable Value/Change and OT
+  primitives are available from the new `colla-ot/core` entry point.
+- **BREAKING (JavaScript API).** `Document.subscribe()` is replaced by typed
+  `on("change", listener)` and `on("error", listener)` subscriptions. Change
+  events expose edit steps instead of an owned Core Change handle, and listener
+  failures no longer fail the committed operation.
 - **BREAKING (JavaScript API).** Unified every RichText discriminator to
   `"richtext"`: `ValueKind`, `RichText.type`, `ChangeInput.type`, Change View
   entry types, Edit Steps, and Wasm error details. The former `"richText"`
@@ -51,6 +62,16 @@ package are recorded here. Both artifacts always use the same version.
 
 ### Added
 
+- Added `Document` local/remote update handling with optimistic local edits,
+  pending rebase, acknowledgements, typed events, and content snapshots.
+- Added versioned `Snapshot` and `Update` envelopes with `COLLAS`/`COLLAU`
+  magic headers and protocol version 1, including Rust and JavaScript codecs.
+- Simplified the local Snapshot/Update payloads to direct cocodec tuples. This
+  is an early-development format change with no historical byte compatibility
+  promise.
+- Root and `colla-ot/core` entries now share one runtime-specific Wasm
+  initialization module, avoiding duplicate file reads or base64 decoding when
+  both entries are imported.
 - Added `convertChangeToEditSteps(change, base)`, a recursively frozen,
   Snapshot-relative projection that preserves Map/List/Text/RichText operation
   boundaries. Text and RichText consumed lengths are exposed as UTF-16 code
@@ -135,5 +156,3 @@ package are recorded here. Both artifacts always use the same version.
 - CommonJS, Deno, Bun, Service Worker and edge runtimes are not supported in
   0.1.
 - RichText embeds are atomic and cannot be edited recursively in place.
-- FinalizationRegistry is only a leak-mitigation fallback; applications should
-  use `dispose()` or `Symbol.dispose` for deterministic release.

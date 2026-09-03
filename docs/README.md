@@ -7,7 +7,8 @@ specifications, architecture decisions, and project operations.
 
 - [Project overview and quick starts](../README.md)
 - [`colla` Rust guide](../crates/colla/README.md)
-- [`colla-ot` JavaScript guide](../packages/core/README.md)
+- [`colla-ot` JavaScript guide](../packages/core/README.md) — application-oriented
+  Document workflows and the low-level Core API.
 - [`colla` Rust API reference](https://docs.rs/colla)
 
 User guides explain how to consume the public APIs. They are not the normative
@@ -17,6 +18,8 @@ definition of the data model or wire format.
 
 - [Core data model](data-model.md) — valid Value and Change structures,
   canonical form, and public semantic boundaries.
+- [Document model](document-model.md) — high-level Snapshot, Update, Document,
+  and local envelope codec.
 - [OT properties](ot-properties.md) — Apply, Compose, Invert, TP1, conflict
   behavior, and the explicit TP2 limitation.
 - [Canonical binary body format](binary-format.md) — the unique Value and
@@ -44,22 +47,9 @@ override the specifications.
 
 Accepted decisions:
 
-- [ADR-0001: Rust and JavaScript use a functional public API](adr/0001-function-oriented-cross-language-api.md)
-- [ADR-0002: Rust, Wasm, and TypeScript keep one-way boundaries](adr/0002-rust-wasm-typescript-boundaries.md)
-- [ADR-0003: The JavaScript Value boundary is strict and canonical](adr/0003-canonical-javascript-value-boundary.md)
-- [ADR-0006: JavaScript uses stable errors and explicit resource ownership](adr/0006-errors-and-resource-lifecycle.md)
-- [ADR-0007: One Wasm artifact provides synchronous cross-runtime entry points](adr/0007-synchronous-cross-runtime-wasm-package.md)
-- [ADR-0008: Release artifacts are the workspace acceptance boundary](adr/0008-workspace-testing-and-coordinated-release.md)
-- [ADR-0009: Pre-1.0 compatibility is promised within patch lines](adr/0009-pre-1.0-compatibility-policy.md)
-- [ADR-0010: Written specifications define the 1.0 contract; golden tests provide regression evidence](adr/0010-normative-specification-and-golden-tests.md)
-- [ADR-0011: RichText logical spans are separate from indexed storage](adr/0011-richtext-logical-spans-and-indexed-storage.md)
-- [ADR-0012: JavaScript Change uses Snapshot-independent typed construction](adr/0012-snapshot-independent-change-construction.md)
-- [ADR-0013: Change construction and Snapshot projection use distinct coordinates](adr/0013-change-and-projection-coordinates.md)
-- [ADR-0014: Golden fixtures use a neutral tagged representation and unified error codes](adr/0014-golden-fixtures-format-and-error-codes.md)
-- [ADR-0015: The core crate owns the ErrorCode classification; the TS type is maintained separately](adr/0015-error-code-classification.md)
-- [ADR-0016: The wire codec has a single implementation; the wasm boundary is structured and Rust owns encode/decode](adr/0016-single-source-codec-via-structured-wasm-boundary.md)
-
-Superseded decisions remain available as historical context:
-
-- [ADR-0004: ChangeBuilder was relative to a Snapshot](adr/0004-snapshot-relative-fluent-builders.md) — superseded by ADR-0012.
-- [ADR-0005: JavaScript text APIs used UTF-16 coordinates](adr/0005-text-richtext-coordinates-and-embeds.md) — superseded by ADR-0013.
+- [ADR-0001: 公共 API 与跨运行时边界](adr/0001-public-api-and-runtime-boundaries.md)
+- [ADR-0002: Core Value、Change 与 JavaScript 边界](adr/0002-core-value-change-and-js-boundary.md)
+- [ADR-0003: Canonical codec 单一实现与 wire ownership](adr/0003-single-source-codec-and-wire-ownership.md)
+- [ADR-0004: Document 与 Snapshot/Update 模型](adr/0004-document-snapshot-update-model.md)
+- [ADR-0005: 稳定错误与 Wasm 资源生命周期](adr/0005-errors-and-resource-lifecycle.md)
+- [ADR-0006: 规范、测试与发布验收边界](adr/0006-specifications-testing-and-release-validation.md)

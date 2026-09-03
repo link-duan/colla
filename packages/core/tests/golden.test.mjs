@@ -22,7 +22,7 @@ import {
   text,
   transformPair,
   ValueHandle,
-} from "../dist/node.js"
+} from "../dist/core-node.js"
 
 const here = dirname(fileURLToPath(import.meta.url))
 const rootDir = join(here, "..", "..", "..", "golden")

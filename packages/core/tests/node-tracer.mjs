@@ -35,6 +35,20 @@ try {
     assert.equal(installedPackage.version, process.env.COLLA_EXPECTED_PACKAGE_VERSION)
   }
 
+  await writeFile(join(fixtureDir, "no-finalization.mjs"), `
+    import assert from "node:assert/strict"
+    globalThis.FinalizationRegistry = undefined
+    const { apply, Change, ValueHandle } = await import("colla-ot/core")
+    const value = ValueHandle.fromJS("before")
+    const change = Change.build(builder => builder.replace("after"))
+    const next = apply(value, change)
+    assert.equal(next.toJS(), "after")
+    next.dispose()
+    value.dispose()
+    change.dispose()
+  `)
+  execFileSync(process.execPath, ["no-finalization.mjs"], { cwd: fixtureDir, stdio: "inherit" })
+
   const fixture = `
     import assert from "node:assert/strict"
     import {
@@ -52,7 +66,7 @@ try {
       text,
       transformPair,
       ValueHandle,
-    } from "colla-ot"
+    } from "colla-ot/core"
 
     const nullPrototype = Object.create(null)
     nullPrototype.__proto__ = "data"

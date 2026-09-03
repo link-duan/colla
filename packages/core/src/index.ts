@@ -154,7 +154,7 @@ type ErrorPayload = {
  * only by this JavaScript facade: `invalid_state` for operations on a disposed or
  * consumed handle, `invalid_argument` for malformed JavaScript input, and
  * `invalid_utf16_boundary` for UTF-16 position conversions. Maintained by hand to
- * match the core classification; see docs/adr/0015-error-code-classification.md.
+ * match the core classification; see docs/adr/0005-errors-and-resource-lifecycle.md.
  */
 export type ErrorCode =
   | "invalid_encoding"
@@ -237,9 +237,6 @@ function fromWasmError(error: unknown, fallbackOperation: string, path?: Path): 
     path,
   )
 }
-
-const valueFinalizer = new FinalizationRegistry<WasmValueHandle>(handle => handle.free())
-const changeFinalizer = new FinalizationRegistry<ChangeHandle>(handle => handle.free())
 
 const I64_MIN = -(1n << 63n)
 const I64_MAX = (1n << 63n) - 1n
@@ -847,7 +844,6 @@ export class ValueHandle {
 
   private constructor(handle: WasmValueHandle) {
     this.#handle = handle
-    valueFinalizer.register(this, handle, this)
   }
 
   static fromJS(input: Value, options?: InputOptions): ValueHandle {
@@ -912,7 +908,6 @@ export class ValueHandle {
     const handle = this.#handle
     if (handle === undefined) return
     this.#handle = undefined
-    valueFinalizer.unregister(this)
     handle.free()
   }
 
@@ -947,7 +942,6 @@ export class Change {
 
   private constructor(handle: ChangeHandle) {
     this.#handle = handle
-    changeFinalizer.register(this, handle, this)
   }
 
   static fromJS(input: ChangeInput, options?: InputOptions): Change {
@@ -993,7 +987,6 @@ export class Change {
     const handle = this.#handle
     if (handle === undefined) return
     this.#handle = undefined
-    changeFinalizer.unregister(this)
     handle.free()
   }
 

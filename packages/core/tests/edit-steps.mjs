@@ -10,7 +10,7 @@ import {
   resolveCodePointPosition,
   text,
   ValueHandle,
-} from "../dist/node.js"
+} from "../dist/core-node.js"
 
 function assertDeepFrozen(value) {
   if (value === null || typeof value !== "object") return
