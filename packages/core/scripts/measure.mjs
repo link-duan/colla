@@ -27,7 +27,7 @@ const {
   apply,
   compose,
   transformPair,
-} = await import(pathToFileURL(resolve(packageDir, "dist/node.js")))
+} = await import(pathToFileURL(resolve(packageDir, "dist/core-node.js")))
 
 function median(values) {
   const sorted = [...values].sort((left, right) => left - right)
