@@ -27,7 +27,7 @@ the application before decoding.
 ## Configure structured-input limits
 
 ```ts
-import { Change, ValueHandle } from 'colla-ot/core'
+import { Change, ValueHandle } from 'colla-ot'
 
 const limits = {
   maxDepth: 32,
@@ -51,8 +51,7 @@ differ. The [JavaScript reference](/reference/javascript) lists every default.
 ## Handle failures by code
 
 ```ts
-import { Document, Update } from 'colla-ot'
-import { CollaError } from 'colla-ot/core'
+import { Document, Update, CollaError } from 'colla-ot'
 
 try {
   const update = Update.decode(bytes)

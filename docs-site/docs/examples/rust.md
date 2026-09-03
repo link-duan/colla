@@ -57,6 +57,6 @@ Add input limits at untrusted boundaries.
 
 ## Next
 
-Read [JavaScript Core](./javascript-core).
+Read [Immutable Value and Change](./javascript-core).
 Read [OT concurrency](../ot/concurrency).
 Read [production testing](../production/testing).

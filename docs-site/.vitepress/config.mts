@@ -32,9 +32,8 @@ export default defineConfig({
         { text: 'Getting started', items: [
           { text: 'Overview', link: '/docs/getting-started' },
           { text: 'Install and first edit', link: '/docs/getting-started/install' },
-          { text: 'Choose an API', link: '/docs/getting-started/choose-an-api' },
         ] },
-        { text: 'Core model', items: [
+        { text: 'Data model', items: [
           { text: 'Values', link: '/docs/core/values' },
           { text: 'Changes', link: '/docs/core/changes' },
           { text: 'Sequences', items: [
@@ -43,7 +42,7 @@ export default defineConfig({
           ] },
           { text: 'Coordinates and paths', link: '/docs/core/coordinates' },
         ] },
-        { text: 'Document API', items: [
+        { text: 'Document state', items: [
           { text: 'Overview', link: '/docs/document/' },
           { text: 'State', link: '/docs/document/state' },
           { text: 'Lifecycle', link: '/docs/document/lifecycle' },
@@ -64,7 +63,7 @@ export default defineConfig({
           { text: 'Overview', link: '/docs/examples/' },
           { text: 'JavaScript', items: [
             { text: 'Document synchronization', link: '/docs/examples/javascript-document' },
-            { text: 'Core Value and Change', link: '/docs/examples/javascript-core' },
+            { text: 'Immutable Value and Change', link: '/docs/examples/javascript-core' },
           ] },
           { text: 'Rust', link: '/docs/examples/rust' },
           { text: 'Editor integration', link: '/docs/examples/editor-integration' },

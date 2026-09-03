@@ -2,7 +2,7 @@ import assert from "node:assert/strict"
 import { test } from "node:test"
 
 import { Document, Snapshot, Update } from "../dist/node.js"
-import { Change, ValueHandle, text } from "../dist/core-node.js"
+import { Change, ValueHandle, text } from "../dist/node.js"
 
 function testWithCleanup(name, callback) {
   test(name, () => {

@@ -1,13 +1,13 @@
 ---
-title: Core concepts
-description: Compatibility index for the Colla Core model pages.
+title: Data model
+description: Compatibility index for the Colla data model pages.
 sidebar: false
 aside: false
 ---
 
-# Core concepts
+# Data model
 
-Core concepts are now maintained as focused Wiki pages so each topic can carry
+Data model topics are maintained as focused Wiki pages so each topic can carry
 its examples and invariants without becoming a short, disconnected tab:
 
 - [Values](/docs/core/values) — immutable scalar, sequence, and container values.

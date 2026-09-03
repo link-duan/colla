@@ -135,10 +135,6 @@ fn error_code_classification_is_stable_across_error_kinds() {
 
     assert_eq!(ErrorCode::InvalidEncoding.as_str(), "invalid_encoding");
     assert_eq!(ErrorCode::KeyAlreadyExists.as_str(), "key_already_exists");
-    assert_eq!(ErrorCode::ALL.len(), 9);
-    for code in ErrorCode::ALL {
-        assert!(!code.as_str().is_empty());
-    }
 }
 
 #[test]

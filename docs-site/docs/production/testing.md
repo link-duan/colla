@@ -22,7 +22,7 @@ Test idempotent disposal and operations after disposal.
 
 ## Browser and packaging
 
-Test both `colla-ot` and `colla-ot/core` imports.
+Test the single `colla-ot` package entry point.
 Test Node, Vite, and Rollup entry points used by consumers.
 Verify synchronous Wasm initialization in each runtime.
 Run a browser smoke test with the actual CDN or packaged artifact.

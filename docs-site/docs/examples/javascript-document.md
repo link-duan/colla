@@ -1,8 +1,7 @@
 # JavaScript: Document synchronization
 
 ```ts
-import { Document, Update } from 'colla-ot'
-import { Change, text } from 'colla-ot/core'
+import { Document, Update, Change, text } from 'colla-ot'
 
 const doc = Document.fromJS(text('ab'), 0n)
 doc.on('change', event => console.log(event.origin, event.revision, event.editSteps))

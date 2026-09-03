@@ -11,8 +11,8 @@ documents remain available only in this repository.
 
 - [Project overview and quick starts](../README.md)
 - [`colla` Rust guide](../crates/colla/README.md)
-- [`colla-ot` JavaScript guide](../packages/core/README.md) — application-oriented
-  Document workflows and the low-level Core API.
+- [`colla-ot` JavaScript guide](../packages/core/README.md) — document workflows,
+  immutable values, changes, and OT operations.
 - [`colla` Rust API reference](https://docs.rs/colla)
 
 User guides explain how to consume the public APIs. They are not the normative
@@ -22,7 +22,7 @@ definition of the data model or wire format.
 
 - [Core data model](data-model.md) — valid Value and Change structures,
   canonical form, and public semantic boundaries.
-- [Document model](document-model.md) — high-level Snapshot, Update, Document,
+- [Document model](document-model.md) — Snapshot, Update, Document,
   and local envelope codec.
 - [OT properties](ot-properties.md) — Apply, Compose, Invert, TP1, conflict
   behavior, and the explicit TP2 limitation.

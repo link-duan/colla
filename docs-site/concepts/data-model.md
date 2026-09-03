@@ -5,7 +5,7 @@ description: Compatibility link for the former data-model page.
 
 # Data model moved
 
-The data model is now organized under the Wiki's Core model section. The
+The data model is organized under focused topic pages. The
 focused pages retain the same normative Value and Change semantics while
 keeping each topic readable.
 

@@ -42,5 +42,5 @@ Those responsibilities belong to the host application.
 ## Next
 
 Read [JavaScript Document](./javascript-document) for an end-to-end local/remote flow.
-Then read [JavaScript Core](./javascript-core) or [Rust](./rust).
+Then read [Immutable Value and Change](./javascript-core) or [Rust](./rust).
 For production concerns, continue to [production integration](../production/).

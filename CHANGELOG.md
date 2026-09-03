@@ -11,9 +11,11 @@ package are recorded here. Both artifacts always use the same version.
   JavaScript GC and wasm-bindgen-generated finalizers by default. The optional
   `dispose()`/`Symbol.dispose` APIs remain available for deterministic cleanup;
   handwritten facade-level `FinalizationRegistry` registrations were removed.
-- **BREAKING (JavaScript API).** The package root now exposes the high-level
-  `Document`, `Snapshot`, and `Update` model. The immutable Value/Change and OT
-  primitives are available from the new `colla-ot/core` entry point.
+- **BREAKING (JavaScript package exports).** The `colla-ot` package now exposes
+  `Document`, `Snapshot`, `Update`, immutable Values and Changes, codecs, and OT
+  operations from one package root. The `colla-ot/core` subpath is removed
+  without a compatibility alias; replace imports from `colla-ot/core` with
+  imports from `colla-ot`.
 - **BREAKING (JavaScript API).** `Document.subscribe()` is replaced by typed
   `on("change", listener)` and `on("error", listener)` subscriptions. Change
   events expose edit steps instead of an owned Core Change handle, and listener
@@ -69,9 +71,8 @@ package are recorded here. Both artifacts always use the same version.
 - Simplified the local Snapshot/Update payloads to direct cocodec tuples. This
   is an early-development format change with no historical byte compatibility
   promise.
-- Root and `colla-ot/core` entries now share one runtime-specific Wasm
-  initialization module, avoiding duplicate file reads or base64 decoding when
-  both entries are imported.
+- Root and the JavaScript package's public imports use one runtime-specific
+  Wasm initialization module.
 - Added `convertChangeToEditSteps(change, base)`, a recursively frozen,
   Snapshot-relative projection that preserves Map/List/Text/RichText operation
   boundaries. Text and RichText consumed lengths are exposed as UTF-16 code

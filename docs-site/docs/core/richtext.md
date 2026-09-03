@@ -14,7 +14,7 @@ string, and optional attributes. An embed has `type: 'embed'`, a Value, and
 optional attributes:
 
 ```ts
-import { richText } from 'colla-ot/core'
+import { richText } from 'colla-ot'
 
 const body = richText([
   { type: 'text', text: 'Hello ', attrs: { bold: true } },
@@ -49,7 +49,7 @@ The builder supports retaining a range, inserting text or one embed, and
 deleting a range. A retain may carry an attribute patch:
 
 ```ts
-import { Change } from 'colla-ot/core'
+import { Change } from 'colla-ot'
 
 const format = Change.build(change => {
   change.richText(richText => {

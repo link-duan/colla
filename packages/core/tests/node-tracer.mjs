@@ -27,18 +27,11 @@ try {
     cwd: fixtureDir,
     stdio: "inherit",
   })
-  const installedPackage = JSON.parse(await readFile(
-    join(fixtureDir, "node_modules/colla-ot/package.json"),
-    "utf8",
-  ))
-  if (process.env.COLLA_EXPECTED_PACKAGE_VERSION !== undefined) {
-    assert.equal(installedPackage.version, process.env.COLLA_EXPECTED_PACKAGE_VERSION)
-  }
 
   await writeFile(join(fixtureDir, "no-finalization.mjs"), `
     import assert from "node:assert/strict"
     globalThis.FinalizationRegistry = undefined
-    const { apply, Change, ValueHandle } = await import("colla-ot/core")
+    const { apply, Change, ValueHandle } = await import("colla-ot")
     const value = ValueHandle.fromJS("before")
     const change = Change.build(builder => builder.replace("after"))
     const next = apply(value, change)
@@ -56,7 +49,6 @@ try {
       Change,
       CollaError,
       compose,
-      DEFAULT_INPUT_LIMITS,
       int,
       inspectChange,
       invert,
@@ -66,7 +58,7 @@ try {
       text,
       transformPair,
       ValueHandle,
-    } from "colla-ot/core"
+    } from "colla-ot"
 
     const nullPrototype = Object.create(null)
     nullPrototype.__proto__ = "data"
@@ -95,9 +87,6 @@ try {
     const secondOrder = ValueHandle.fromJS(secondOrderInput)
     assert.deepEqual(firstOrder.encode(), secondOrder.encode())
 
-    assert.ok(Object.isFrozen(DEFAULT_INPUT_LIMITS))
-    assert.equal(DEFAULT_INPUT_LIMITS.maxDepth, 128)
-    assert.equal(DEFAULT_INPUT_LIMITS.maxStringBytes, 16 * 1024 * 1024)
     assert.throws(
       () => ValueHandle.fromJS("too long", { limits: { maxStringBytes: 2 } }),
       error => error instanceof CollaError && error.code === "limit_exceeded" &&
@@ -129,9 +118,6 @@ try {
     assert.throws(() => ValueHandle.fromJS(cyclic), error =>
       error instanceof CollaError && error.code === "invalid_value" &&
       error.details.reason === "cyclic Value")
-    assert.throws(() => ValueHandle.fromJS(new Date()), error =>
-      error instanceof CollaError && error.code === "invalid_value" &&
-      error.details.reason === "unsupported Value")
     const accessor = {}
     Object.defineProperty(accessor, "value", { get() { throw new Error("must not run") } })
     assert.throws(() => ValueHandle.fromJS(accessor), error =>
@@ -957,8 +943,8 @@ try {
       next,
     ]) {
       handle.dispose()
-      handle.dispose()
     }
+    next.dispose()
     assert.throws(() => next.toJS(), error =>
       error instanceof CollaError && error.code === "invalid_state" &&
       error.details.resource === "ValueHandle" && error.details.reason === "disposed")

@@ -8,16 +8,16 @@ description: Shared Colla terminology, error codes, coordinate rules, and input 
 <p class="eyebrow">Reference</p>
 <p class="lead">Use the same words at the Core, Document, and protocol boundaries. This page is the quick lookup for terms, stable error classifications, coordinate conventions, and resource policy.</p>
 
-For operation semantics, see the [Core model](/docs/core/values) and the [OT
+For operation semantics, see the [Data model](/docs/core/values) and the [OT
 guide](/docs/ot/). For byte-level details, see the [Protocol
 reference](/reference/protocol).
 
-## Core model
+## Data model
 
 | Term | Meaning |
 | --- | --- |
 | **Value** | An immutable, closed recursive tree: Null, Bool, Int, Float, String, Text, RichText, List, or Map. |
-| **Core Value** | The low-level Value handled by `colla-ot/core` or the Rust `colla` crate. |
+| **Core Value** | An immutable Value used by the Rust `colla` crate and JavaScript `colla-ot` package. |
 | **String** | An atomic UTF-8 value replaced as a whole; it is not character-level OT. |
 | **Text** | A collaborative sequence whose operation lengths count Unicode scalar values. |
 | **RichText** | Text and atomic embed spans with canonical attributes and formatting patches. |
@@ -42,7 +42,7 @@ reference](/reference/protocol).
 | **TieBreak** | Deterministic `LeftFirst`/`RightFirst` ordering for otherwise unresolved concurrent conflicts. |
 | **TP1** | Pairwise convergence: applying transformed operations in either order yields the same result when both are applicable. |
 | **TP2** | Path independence across three or more transform paths; Colla does not guarantee it. |
-| **Document** | JavaScript high-level mutable state: visible Value, confirmed revision, pending Updates, and events. |
+| **Document** | JavaScript mutable state: visible Value, confirmed revision, pending Updates, and events. |
 | **Snapshot** | A persistable content checkpoint containing revision and visible Value. |
 | **Update** | One Change plus its base revision and local `updateId`, suitable for an outer application transport. |
 | **Confirmed revision** | The latest server-ordered revision incorporated into a Document's confirmed state. |
@@ -129,4 +129,4 @@ editor projections do not consume `InputLimits`.
 - [Rust API](/reference/rust) — crate modules, typed constructors, and error families.
 - [Protocol reference](/reference/protocol) — tags, envelopes, and strict decoding.
 - [Getting started](/docs/getting-started) — first application path.
-- [Document API](/docs/document/) — local/remote state and persistence.
+- [Document state](/docs/document/) — local/remote state and persistence.

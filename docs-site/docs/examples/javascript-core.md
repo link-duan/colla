@@ -1,10 +1,10 @@
-# JavaScript Core example
+# JavaScript immutable values and changes example
 
-This example uses the low-level API to edit an immutable nested Value.
-It does not create a Document or open a transport connection.
+This example edits an immutable nested Value without creating a Document or
+opening a transport connection.
 
 ```ts
-import { Change, ValueHandle, apply, text } from 'colla-ot/core'
+import { Change, ValueHandle, apply, text } from 'colla-ot'
 
 const before = ValueHandle.fromJS({ title: text('Draft'), count: 1n })
 const change = Change.build(edit => {
@@ -35,7 +35,8 @@ The builder does not apply intermediate changes or own a Wasm handle.
 `transformPair()` handles concurrent same-base Changes.
 Match `CollaError.code`, not message text.
 Configure limits for untrusted structured JavaScript input.
-Keep transport, authentication, and retries outside `colla-ot/core`.
+Keep transport, authentication, and retries outside the Document state you
+build around these operations.
 
 ## Reading the result
 

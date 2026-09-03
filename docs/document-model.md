@@ -1,14 +1,14 @@
-# Document 高层模型
+# Document model
 
-本文定义 `colla-ot` 高层 Document API 使用的本地内容模型。Core 的 Value、Change
-和 OT 语义仍以[核心数据模型](data-model.md)为准。
+本文定义 `colla-ot` Document 使用的本地内容模型。Value、Change 和 OT
+语义仍以[核心数据模型](data-model.md)为准。
 
 本文是协议与行为规范。面向应用开发者的创建、恢复、编辑、同步和持久化示例见
-[`colla-ot` JavaScript 使用指南](../packages/core/README.md#high-level-document-api)。
+[`colla-ot` JavaScript 使用指南](../packages/core/README.md#manage-document-state)。
 
 ## 1. 概念
 
-高层 API 只有三个主要对象：
+Document 模型只有三个主要对象：
 
 - `Document`：当前可见内容与本地运行态；
 - `Snapshot`：revision 加完整 Core Value 的持久化内容快照；
@@ -60,21 +60,17 @@ cocodec((revision, updateId, change))
 `revision` 是 Update 生成时的基准 revision。`updateId` 由 Document 实例从 `1` 开始
 单调生成，仅用于本地 pending 与 ack 关联，不承诺跨客户端全局唯一。
 
-## 4. API 分层
+## 4. JavaScript API
 
-高层入口：
-
-```ts
-import { Document, Snapshot, Update } from "colla-ot"
-```
-
-低层入口：
+所有公共 JavaScript 符号都从同一个包入口导入：
 
 ```ts
-import { Change, ValueHandle, apply, transformPair } from "colla-ot/core"
+import {
+  Document, Snapshot, Update, Change, ValueHandle, apply, transformPair,
+} from "colla-ot"
 ```
 
-高层 change 事件携带 editor-oriented edit steps、origin 和 revision，不暴露 Wasm
+Document change 事件携带 editor-oriented edit steps、origin 和 revision，不暴露 Wasm
 Change handle。通过 `on("change", listener)` 和 `on("error", listener)` 订阅事件；
 change listener 的异常通过 error 事件报告，不影响已提交的 apply 操作。
 

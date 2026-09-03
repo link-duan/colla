@@ -5,7 +5,7 @@ description: Binary layout, ownership, and strict decoding boundaries.
 
 # Snapshot and Update envelopes
 
-The local codec gives the two high-level objects distinct, self-identifying
+The local codec gives Snapshot and Update distinct, self-identifying
 binary formats:
 
 | Envelope | Header | Payload |

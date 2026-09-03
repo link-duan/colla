@@ -7,7 +7,7 @@ pub mod attrs;
 pub mod change;
 /// Canonical binary encoding and strict decoding.
 pub mod codec;
-/// Local Snapshot and Update envelopes for the high-level Document API.
+/// Local Snapshot and Update envelopes for Document state.
 pub mod document;
 /// Errors returned by construction, algebra, codecs, and coordinate conversion.
 pub mod error;

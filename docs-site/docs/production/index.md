@@ -45,8 +45,7 @@ Snapshot.
 ## A minimal controller boundary
 
 ```ts
-import { Document, Update } from 'colla-ot'
-import { Change } from 'colla-ot/core'
+import { Document, Update, Change } from 'colla-ot'
 
 // `queue`, `transport`, and `editor` are application-owned.
 const document = Document.fromJS(initialValue, initialRevision)

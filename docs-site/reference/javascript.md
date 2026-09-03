@@ -6,26 +6,35 @@ description: Import paths, public types, and runtime contracts for colla-ot.
 # JavaScript API
 
 <p class="eyebrow">Reference</p>
-<p class="lead">One WebAssembly-backed package exposes a high-level document state machine and a low-level immutable Core API. Use the package root for application state; use <code>colla-ot/core</code> for values, changes, and OT algebra.</p>
+<p class="lead">One WebAssembly-backed package exposes document state, immutable values and changes, codecs, and OT operations from a single JavaScript entry point: <code>colla-ot</code>.</p>
 
 This page is an index of the stable public surface. For task-oriented examples,
 start with [Getting started](/docs/getting-started), then read the
-[Document API](/docs/document/) or the [JavaScript example](/docs/examples/javascript-document).
+[Document state](/docs/document/) or the [JavaScript example](/docs/examples/javascript-document).
 The generated declaration files shipped in the npm package are the definitive
 TypeScript signatures.
 
-## Import map
+## Import
 
-| Import | What it owns | Main exports |
-| --- | --- | --- |
-| `colla-ot` | Mutable visible document state and versioned envelopes | `Document`, `Snapshot`, `Update` |
-| `colla-ot/core` | Immutable values, recursive changes, codecs, and OT algebra | `ValueHandle`, `Change`, `apply`, `compose`, `invert`, `transformPair` |
+All public JavaScript symbols are imported from `colla-ot`:
 
-Both entry points are ESM-only and initialize the same bundled Wasm core. Node
-and browser builds use runtime-specific loaders; applications do not call a
-public Wasm initialization function.
+```ts
+import {
+  Document,
+  Snapshot,
+  Update,
+  ValueHandle,
+  Change,
+  apply,
+  compose,
+  invert,
+  transformPair,
+  text,
+} from 'colla-ot'
+```
 
-## Package root: `colla-ot`
+
+## Document
 
 ### `Document`
 
@@ -50,8 +59,7 @@ Update arrives.
 The normal application boundary looks like this:
 
 ```ts
-import { Document } from 'colla-ot'
-import { Change, text } from 'colla-ot/core'
+import { Document, Change, text } from 'colla-ot'
 
 const document = Document.fromJS(text('Draft'))
 const unsubscribe = document.on('change', event => {
@@ -130,10 +138,7 @@ queue. Its payload is `(revision: u64, updateId: u64, change: Change)` inside a
 
 `updateId` starts at `1n` for each Document instance. It is not persisted in a
 Snapshot and is not a globally unique operation identity.
-
-## Core entry point: `colla-ot/core`
-
-### Values
+## Values
 
 `Value` is a closed recursive model. The JavaScript representation is:
 
@@ -153,7 +158,7 @@ Snapshot and is not a globally unique operation identity.
 handle can be safely cloned before passing ownership to another subsystem.
 
 ```ts
-import { ValueHandle, richText, text } from 'colla-ot/core'
+import { ValueHandle, richText, text } from 'colla-ot'
 
 const value = ValueHandle.fromJS({
   title: text('Draft'),
@@ -207,7 +212,7 @@ import {
   compose,
   invert,
   transformPair,
-} from 'colla-ot/core'
+} from 'colla-ot'
 
 const after = apply(base, change)
 const combined = compose(first, second)
@@ -273,7 +278,7 @@ Snapshot-relative `path`, and frozen `details`. Match `code` rather than human
 message text. The shared codes are documented in [Glossary and errors](/reference/glossary).
 
 ```ts
-import { CollaError, ValueHandle } from 'colla-ot/core'
+import { CollaError, ValueHandle } from 'colla-ot'
 
 try {
   ValueHandle.decode(bytes)
@@ -294,9 +299,9 @@ Disposal is idempotent; using a disposed handle reports `invalid_state`.
 
 ## Related pages
 
-- [Document API](/docs/document/) — complete application state flows.
+- [Document state](/docs/document/) — complete application state flows.
 - [Document synchronization](/docs/examples/javascript-document) — persistence, events, and sync.
-- [Core model](/docs/core/values) — Value, Change, Text, and RichText semantics.
+- [Data model](/docs/core/values) — Value, Change, Text, and RichText semantics.
 - [OT guide](/docs/ot/) — algebra, rebasing, and TP1/TP2 boundaries.
 - [Rust API](/reference/rust) — the reference crate surface.
 - [Protocol reference](/reference/protocol) — canonical bodies and envelopes.

@@ -73,7 +73,7 @@ Change.
 
 Core does not provide a session, network transport, global deduplication,
 presence, cursor tracking, editor rendering, or a product-specific history
-format. The [Document API](/docs/document/) manages one process's visible and
+format. The [Document state](/docs/document/) manages one process's visible and
 confirmed state; the surrounding protocol remains responsible for delivery
 guarantees.
 

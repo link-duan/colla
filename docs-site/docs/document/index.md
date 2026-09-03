@@ -1,16 +1,15 @@
 ---
-title: Document API
+title: Document state
 description: The application-facing state machine for visible content and ordered updates.
 ---
 
-# Document API
+# Document state
 
-<p class="lead">`Document` turns Core values and changes into a small, explicit editing state machine.</p>
+<p class="lead">`Document` turns immutable values and changes into a small, explicit editing state machine.</p>
 
 Use `Document` when an application needs visible optimistic edits, server
-revision tracking, pending local Updates, and typed events. Use
-[`colla-ot/core`](/docs/core/values) directly when only immutable values
-and OT algebra are required.
+revision tracking, pending local Updates, and typed events. Use the immutable
+Value and Change operations directly when the caller owns document state.
 
 ## The complete loop
 
@@ -29,8 +28,7 @@ Core Value + confirmed revision
 ```
 
 ```ts
-import { Document, Update } from 'colla-ot'
-import { Change, text } from 'colla-ot/core'
+import { Document, Update, Change, text } from 'colla-ot'
 
 const document = Document.fromJS(text('Draft'))
 // `editor` and `transport` are application-provided adapters.

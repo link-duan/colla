@@ -26,8 +26,7 @@ the data model, OT algebra, and canonical body codec.
 ## Verify JavaScript
 
 ```ts
-import { Document } from 'colla-ot'
-import { Change, text } from 'colla-ot/core'
+import { Document, Change, text } from 'colla-ot'
 
 const document = Document.fromJS(text('hello'))
 const change = Change.build(change => {
@@ -39,7 +38,7 @@ console.log(document.value().toJS())
 // { type: 'text', value: 'hello world' }
 ```
 
-If the value prints correctly, the package root and Core entry point are ready
+If the value prints correctly, the package root is ready
 to use. Continue to [Document synchronization](/docs/examples/javascript-document)
 for a complete application flow, or see the [Rust examples](/docs/examples/rust).
 
@@ -62,9 +61,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 ## Troubleshooting the first run
 
 - Use `text()` when you need character-level editing. A normal string is atomic.
-- Keep imports on the documented package entry points; do not import generated
+- Keep imports on the documented package exports; do not import generated
   Wasm files directly.
 - If input is untrusted, configure structured-input limits and handle stable
   `CollaError` codes.
 - Snapshot and Update bytes are versioned envelopes; raw Value and Change bytes
-  are lower-level Core bodies.
+  are the corresponding body formats.

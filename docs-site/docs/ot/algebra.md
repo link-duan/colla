@@ -14,7 +14,7 @@ and returns a new Value. It validates the recursive type at every path, Map key
 presence, List/Text/RichText ranges, and checked integer arithmetic.
 
 ```ts
-import { Change, ValueHandle, apply, text } from 'colla-ot/core'
+import { Change, ValueHandle, apply, text } from 'colla-ot'
 
 const before = ValueHandle.fromJS(text('Draft'))
 const edit = Change.build(change => {
@@ -41,7 +41,7 @@ apply(apply(v, first), second) == apply(v, compose(first, second))
 ```
 
 ```ts
-import { Change, ValueHandle, apply, compose, text } from 'colla-ot/core'
+import { Change, ValueHandle, apply, compose, text } from 'colla-ot'
 
 const base = ValueHandle.fromJS(text('ab'))
 const first = Change.build(change => change.text(t => t.retain(1).insert('x')))

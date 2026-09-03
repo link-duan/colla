@@ -17,7 +17,7 @@ transformed.
 The JavaScript API accepts a plain `ChangeInput` or a scoped builder:
 
 ```ts
-import { Change } from 'colla-ot/core'
+import { Change } from 'colla-ot'
 
 const change = Change.build(change => {
   change.map(map => {
@@ -65,7 +65,7 @@ deterministic input.
 ## Algebra
 
 ```ts
-import { Change, apply, compose, invert, transformPair, ValueHandle } from 'colla-ot/core'
+import { Change, apply, compose, invert, transformPair, ValueHandle } from 'colla-ot'
 
 const before = ValueHandle.fromJS(1n)
 const first = Change.fromJS({ type: 'int', delta: 2n })

@@ -1,15 +1,15 @@
 # JavaScript examples
 
-Start with [Document synchronization](./javascript-document) for optimistic local edits, ordered remote updates, and FIFO acknowledgements. Use [Core Value and Change](./javascript-core) when an application needs immutable values and OT algebra without Document state.
+Start with [Document synchronization](./javascript-document) for optimistic local edits, ordered remote updates, and FIFO acknowledgements. Use [Immutable Value and Change](./javascript-core) when an application needs immutable values and OT algebra without Document state.
 
-Both examples use ESM imports, `colla-ot` for the high-level API, and `colla-ot/core` for `ValueHandle`, `text`, and `Change` construction. Build the package before running examples with Node.js 22+.
+All examples use the single `colla-ot` ESM entry point. Build the package before running examples with Node.js 22+.
 
 ## Runtime assumptions
 
 The package is ESM-only.
 Node imports use the Node entry point.
 Browser bundlers use the browser entry point.
-Both entries initialize the same Wasm binary.
+Node and browser builds initialize the same Wasm binary.
 No public Wasm initialization function is required.
 The examples use synchronous API calls after import.
 Values are recursively immutable.
@@ -25,7 +25,7 @@ Handles may be disposed explicitly.
 
 ## Suggested progression
 
-Run the Core example first.
+Run the immutable Value example first.
 Inspect the resulting Value.
 Build a Document around the same Change.
 Add a transport queue outside Document.
@@ -38,5 +38,5 @@ Add production tests.
 ## Next
 
 Read [Document synchronization](./javascript-document).
-Read [Core operations](./javascript-core).
+Read [Immutable Value and Change](./javascript-core).
 Read [editor integration](./editor-integration).

@@ -8,7 +8,7 @@ description: Immutable structured values used by Colla Core.
 <p class="lead">A Core Value is a complete, immutable document state. It can be a scalar, a sequence, or a recursively nested map and list.</p>
 
 Values are the shared data model used by the Rust `colla` crate and the
-JavaScript `colla-ot/core` entry point. Core does not impose a document schema:
+JavaScript `colla-ot` package. The data model does not impose a document schema:
 the root may be any Value, including a map or list.
 
 ## Value kinds
@@ -29,7 +29,7 @@ An ordinary JavaScript string is deliberately atomic. Use `text("...")` when
 characters need independent retain, insert, and delete operations:
 
 ```ts
-import { text, ValueHandle } from 'colla-ot/core'
+import { text, ValueHandle } from 'colla-ot'
 
 const value = ValueHandle.fromJS({
   title: 'An atomic label',

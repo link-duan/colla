@@ -151,7 +151,7 @@ List 元素的 Modify。并发 RichText 属性修改中，不同 key 合并；�
     transform_pair(&left, &right, tie_break)
     invert(&change, &base)
 
-对应的低层 inherent API 为 `change.apply_to(&base)`、
+对应的 Rust inherent API 为 `change.apply_to(&base)`、
 `first.compose(&second)` 和 `change.invert(&base)`。`InputLimits` 只用于结构化
 `fromJS` 输入，不参与字节解码或代数操作。
 

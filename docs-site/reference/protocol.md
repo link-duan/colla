@@ -9,8 +9,8 @@ description: Canonical Core bodies and the COLLAS/COLLAU Snapshot and Update env
 <p class="lead">Colla defines deterministic Value and Change bytes, then wraps them in small versioned envelopes for local Snapshots and application Updates. The body codec is shared by Rust and JavaScript; transport policy remains yours.</p>
 
 Use this page when implementing storage, a server boundary, or a second
-language binding. For the semantic model behind the bytes, read [Core
-concepts](/docs/core/values) and the [OT guide](/docs/ot/).
+language binding. For the semantic model behind the bytes, read [Data
+model](/docs/core/values) and the [OT guide](/docs/ot/).
 
 ## Four wire shapes
 
@@ -82,7 +82,7 @@ actions; `Null` is not a deletion sentinel.
 
 ## Local envelopes
 
-Both high-level envelopes have the same eight-byte header:
+Both envelopes have the same eight-byte header:
 
 ```text
 bytes 0..5  magic ASCII (`COLLAS` or `COLLAU`)
@@ -107,7 +107,7 @@ JavaScript example:
 
 ```ts
 import { Document, Snapshot, Update } from 'colla-ot'
-import { Change } from 'colla-ot/core'
+import { Change } from 'colla-ot'
 
 const document = Document.fromJS('Draft')
 const snapshotBytes = document.snapshot().encode()
@@ -172,7 +172,7 @@ The JavaScript `Document` helper accepts server-ordered Updates at the next
 confirmed revision, rebases pending local edits with a fixed `left-first`
 tie-break, and acknowledges pending Updates in FIFO order. It does not supply a
 network transport, session protocol, global deduplication, or crash-recovery
-queue. Read the [Document API](/docs/document/) before designing that
+queue. Read the [Document state](/docs/document/) before designing that
 outer protocol.
 
 ## Compatibility checklist
@@ -192,7 +192,7 @@ When implementing another reader or writer:
 - [JavaScript API](/reference/javascript)
 - [Rust API](/reference/rust)
 - [Glossary and errors](/reference/glossary)
-- [Core model](/docs/core/values)
+- [Data model](/docs/core/values)
 - [OT guide](/docs/ot/)
-- [Document API](/docs/document/)
+- [Document state](/docs/document/)
 - [Canonical source specification](https://github.com/link-duan/colla/blob/master/docs/binary-format.md)

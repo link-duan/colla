@@ -13,7 +13,7 @@ Call `transformPair` with Changes that were independently made from the same
 base Value. It returns `(leftPrime, rightPrime)`:
 
 ```ts
-import { Change, transformPair } from 'colla-ot/core'
+import { Change, transformPair } from 'colla-ot'
 
 const [leftPrime, rightPrime] = transformPair(left, right, {
   order: 'left-first',
@@ -44,7 +44,7 @@ visibleNext   = apply(apply(confirmedBase, local), remotePrime)
 pendingNext   = localPrime
 ```
 
-The high-level `Document` performs this sequence for each pending local Change,
+The `Document` performs this sequence for each pending local Change,
 in FIFO order. It commits the confirmed and visible states together, then emits
 one remote event for the resulting visible edit.
 

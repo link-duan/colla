@@ -15,13 +15,6 @@
       "browser": "./dist/browser.js",
       "import": "./dist/browser.js",
       "default": "./dist/browser.js"
-    },
-    "./core": {
-      "types": "./dist/core.d.ts",
-      "node": "./dist/core-node.js",
-      "browser": "./dist/core-browser.js",
-      "import": "./dist/core-browser.js",
-      "default": "./dist/core-browser.js"
     }
   },
   "files": [

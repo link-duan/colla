@@ -3,24 +3,21 @@
 <p class="eyebrow">Start here</p>
 <p class="lead">Colla gives your application a predictable document state machine and the OT primitives behind it.</p>
 
-This page answers three questions: what Colla provides, which API to use, and
-how to make the first edit.
+This page answers two questions: what Colla provides and how to make the first edit.
 
 ## What Colla provides
 
-Colla has two layers that share one Rust core:
+Colla combines immutable content and OT operations with a running `Document`
+state machine in one JavaScript package.
 
-| Layer | Use it when you need | Main exports |
-| --- | --- | --- |
-| Document API | Application-owned visible document state | `Document`, `Snapshot`, `Update` |
-| Core API | Immutable values, changes, and OT operations | `ValueHandle`, `Change`, `apply`, `compose`, `invert`, `transformPair` |
+All JavaScript capabilities are exported from `colla-ot`. The Rust `colla`
+crate is the reference implementation for the data model, algebra, and
+canonical bytes.
 
-The JavaScript package exposes both layers. The Rust `colla` crate is the
-reference implementation for the data model, algebra, and canonical bytes.
+## Choose your workflow
 
-## Choose your path
-
-If you are unsure which package to use, start with [Choose an API](/docs/getting-started/choose-an-api).
+The same package supports document state, immutable content operations, and
+protocol integration. Start with the workflow that matches your application.
 
 <div class="path-grid">
   <a class="path-card" href="./examples/javascript-document">
@@ -75,8 +72,7 @@ The crate supports Rust 1.81 or newer.
 ## Make your first edit
 
 ```ts
-import { Document } from 'colla-ot'
-import { Change, text } from 'colla-ot/core'
+import { Document, Change, text } from 'colla-ot'
 
 const document = Document.fromJS(text('Draft'))
 
@@ -104,4 +100,4 @@ document.ack(update.updateId)
   <div class="boundary app"><h3>Your application owns</h3><ul><li>Transport and server ordering</li><li>Sessions, auth, and retries</li><li>History and storage</li><li>Presence, cursors, and editor rendering</li></ul></div>
 </div>
 
-Next, read [Document state](/docs/document/state) or [Core values](/docs/core/values).
+Next, read [Document state](/docs/document/state) or [Values](/docs/core/values).

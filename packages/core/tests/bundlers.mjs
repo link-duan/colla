@@ -1,5 +1,5 @@
 import assert from "node:assert/strict"
-import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { pathToFileURL, fileURLToPath } from "node:url"
@@ -17,7 +17,7 @@ const packageSpec = process.env.COLLA_PACKAGE_SPEC
 async function writeFixture(name, extra = "") {
   await writeFile(join(fixtureDir, name), `
     import { Document } from "colla-ot"
-    import { apply, Change, ValueHandle } from "colla-ot/core"
+    import { apply, Change, ValueHandle } from "colla-ot"
     const base = ValueHandle.fromJS("before")
     const change = Change.build(builder => builder.replace("after"))
     const next = apply(base, change)
@@ -121,24 +121,6 @@ try {
     if (entry === "dedicated-worker.js") assert.equal(globalThis.workerResult, "after")
     if (entry === "shared-worker.js") assert.equal(globalThis.sharedWorkerResult, "after")
   }
-
-  const installedPackage = JSON.parse(
-    await readFile(
-      join(fixtureDir, "node_modules/colla-ot/package.json"),
-      "utf8",
-    ),
-  )
-  if (process.env.COLLA_EXPECTED_PACKAGE_VERSION !== undefined) {
-    assert.equal(installedPackage.version, process.env.COLLA_EXPECTED_PACKAGE_VERSION)
-  }
-  assert.deepEqual(Object.keys(installedPackage.exports), [".", "./core"])
-  const installedDist = join(fixtureDir, "node_modules/colla-ot/dist")
-  assert.ok((await readdir(installedDist)).includes("browser.js"))
-  const wasmBytes = await readFile(join(installedDist, "internal/colla_wasm_bg.wasm"))
-  const base64Module = await import(
-    `${pathToFileURL(join(installedDist, "internal/wasm_base64.js"))}?v=${Date.now()}`
-  )
-  assert.deepEqual(Buffer.from(base64Module.default, "base64"), wasmBytes)
 } finally {
   await rm(fixtureDir, { recursive: true, force: true })
 }

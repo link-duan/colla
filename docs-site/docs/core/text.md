@@ -12,7 +12,7 @@ description: Unicode-aware collaborative text in Colla Core.
 Use `text(value)` to distinguish collaborative text from an atomic `string`:
 
 ```ts
-import { text, ValueHandle } from 'colla-ot/core'
+import { text, ValueHandle } from 'colla-ot'
 
 const value = ValueHandle.fromJS(text('A😀B'))
 ```
@@ -27,7 +27,7 @@ Text changes are left-to-right streams of `retain(length)`, `insert(text)`, and
 `delete(length)` operations. Use `Change.build` for readable construction:
 
 ```ts
-import { Change, apply } from 'colla-ot/core'
+import { Change, apply } from 'colla-ot'
 
 const change = Change.build(change => {
   change.text(text => text.retain(1).delete(1).insert('😀'))
@@ -52,7 +52,7 @@ ranges.
 ```ts
 import {
   Change, ValueHandle, apply, convertChangeToEditSteps, text,
-} from 'colla-ot/core'
+} from 'colla-ot'
 
 const base = ValueHandle.fromJS(text('Draft'))
 const edit = Change.build(change => change.text(text => text.retain(5).insert(' v2')))

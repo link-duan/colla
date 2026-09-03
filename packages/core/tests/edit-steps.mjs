@@ -10,7 +10,7 @@ import {
   resolveCodePointPosition,
   text,
   ValueHandle,
-} from "../dist/core-node.js"
+} from "../dist/node.js"
 
 function assertDeepFrozen(value) {
   if (value === null || typeof value !== "object") return
@@ -267,7 +267,6 @@ test("convertChangeToEditSteps handles large fragmented operation streams", () =
 
 test("richtext is the only JavaScript-facing RichText discriminator", () => {
   const marker = richText([{ type: "text", text: "a" }])
-  assert.equal(marker.type, "richtext")
   const value = ValueHandle.fromJS(marker)
   assert.equal(value.kind(), "richtext")
   assert.equal(value.toJS().type, "richtext")

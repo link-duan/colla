@@ -1,4 +1,4 @@
-//! High-level document envelopes for local persistence and updates.
+//! Document envelopes for local persistence and updates.
 
 use crate::change::Change;
 use crate::error::CodecError;

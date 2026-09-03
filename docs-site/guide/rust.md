@@ -5,7 +5,7 @@ description: Compatibility link for the former Rust guide.
 
 # Rust guide moved
 
-The Rust guide now lives in the Wiki's executable examples and Core model
+The Rust guide now lives in the Wiki's executable examples and data model
 pages.
 
 - Start with the [Rust examples](/docs/examples/rust).

@@ -237,7 +237,7 @@ type Pending = { update: Update; change: Change }
 type ChangeListener = (event: DocumentChangeEvent) => unknown
 type ErrorListener = (event: DocumentErrorEvent) => unknown
 
-/** High-level mutable document state with local and remote update handling. */
+/** Mutable document state with local and remote update handling. */
 export class Document {
   #value: ValueHandle
   #confirmedValue: ValueHandle

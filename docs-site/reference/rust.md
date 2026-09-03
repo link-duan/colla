@@ -236,17 +236,17 @@ does not accept configurable limits; algebra results are not restricted by
 ## What this crate does not provide
 
 The Rust crate provides values, changes, algebra, and codecs. It does not
-provide a high-level `Document`/`Session` state machine, transport, server
+provide `Document`/`Session` state, transport, server
 ordering, history, presence, cursors, persistence storage, authentication, or
 editor adapters. Add those policies around the primitives. The JavaScript
-package's [Document API](/reference/javascript) supplies local visible state
+package's [Document state](/reference/javascript) supplies local visible state
 and Snapshot/Update queue behavior when that is the appropriate boundary.
 
 ## More documentation
 
 - [Full API on docs.rs](https://docs.rs/colla)
 - [Rust examples](/docs/examples/rust)
-- [Core model](/docs/core/values)
+- [Data model](/docs/core/values)
 - [OT guide](/docs/ot/)
 - [Protocol reference](/reference/protocol)
 - [JavaScript API](/reference/javascript)

@@ -1,9 +1,9 @@
 # Colla
 
 Colla provides Rust-native Operational Transformation primitives for immutable,
-nested values, plus a high-level Document model for JavaScript consumers. The
-same data model, canonical binary format, and OT semantics are exposed through
-the synchronous `colla-ot` package.
+nested values, plus a JavaScript Document model. The same data model, canonical
+binary format, and OT semantics are exposed through the synchronous `colla-ot`
+package.
 
 Colla includes:
 
@@ -13,32 +13,32 @@ Colla includes:
 - typed Rust and JavaScript Change construction;
 - a strict canonical binary body codec with configurable input limits.
 
-The JavaScript package root also provides `Document`, `Snapshot`, and `Update`.
-The low-level API remains available from `colla-ot/core`.
+The JavaScript package exports `Document`, `Snapshot`, `Update`, immutable
+Values and Changes, codecs, and OT operations from one package entry point.
 
 `Document` manages in-memory content and update state, but Colla is not a
 complete collaborative document runtime. Applications still own sessions,
 history, transport, presence, cursors, and editor-specific formats.
 
-## APIs
+## JavaScript capabilities
 
-- **High-level Document API** provides mutable document state, Snapshot
-  persistence, local and remote Update handling, and change events.
-- **Low-level Core API** provides immutable Values and Changes, canonical
-  codecs, and Apply, Compose, Invert, and Transform. Use `colla-ot/core` from
-  JavaScript or the `colla` crate from Rust.
+- **Document state** provides mutable document state, Snapshot persistence,
+  local and remote Update handling, and change events.
+- **Immutable content and changes** provide Values and Changes, canonical
+  codecs, and Apply, Compose, Invert, and Transform operations.
+
+All JavaScript capabilities are exported from `colla-ot`.
 
 ## JavaScript
 
-### High-level Document API
+### Manage document state
 
 Use `Document` when the application needs to own current content, apply local
 edits, receive ordered remote Updates, create persistent Snapshots, or update
 an editor from change events.
 
 ```ts
-import { Document } from "colla-ot"
-import { Change, text } from "colla-ot/core"
+import { Document, Change, text } from "colla-ot"
 
 const document = Document.fromJS(text("Draft"))
 const unsubscribe = document.on("change", event => {
@@ -61,13 +61,13 @@ const snapshotBytes = snapshot.encode()
 unsubscribe()
 ```
 
-### Low-level Core API
+### Values, changes, and OT operations
 
-Use `colla-ot/core` directly when immutable Value/Change operations are enough,
-or when building custom state management on top of the OT primitives.
+Use immutable Values and Changes directly when the caller owns document state or
+needs pure OT operations.
 
 ```ts
-import { Change, ValueHandle, apply, text } from "colla-ot/core"
+import { Change, ValueHandle, apply, text } from "colla-ot"
 
 const before = ValueHandle.fromJS(text("Draft"))
 const change = Change.build(change => {
@@ -80,10 +80,10 @@ console.log(after.toJS()) // { type: "text", value: "Draft v2" }
 
 `colla-ot` supports Node.js 22+, Vite 5+, and Rollup 4+. See the
 [JavaScript guide](packages/core/README.md) for Snapshot restoration, remote
-Updates, acknowledgements, editor integration, codecs, and the complete Core
+Updates, acknowledgements, editor integration, codecs, and the complete JavaScript
 API.
 
-## Rust Core API
+## Rust API
 
 ```rust
 use colla::{apply, Change, TextChange, TextOp, Value};

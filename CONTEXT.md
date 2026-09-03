@@ -11,15 +11,15 @@ Document、Session、历史、同步协议、网络传输或其他应用层协�
 _Avoid_: Collaboration runtime, document framework
 
 **Document**:
-高层内容状态模型，围绕 Snapshot 和 Update 为 Consumer 提供内容恢复、
-本地/远程变更应用与可观察事件；它不等同于 Colla Core。
+拥有当前可见内容与本地运行态的内容状态模型，围绕 Snapshot 和 Update 为 Consumer 提供内容恢复、
+本地/远程变更应用与可观察事件；它不等同于 Core Value 或 Change。
 
 **Snapshot**:
-高层本地持久化 envelope，包含 revision 与完整 Core Value 内容；它不同于 Core
+Document 的本地持久化 envelope，包含 revision 与完整 Core Value 内容；它不同于 Core
 语义中作为 Change 基准的 Snapshot。
 
 **Update**:
-高层可交换变更 envelope，包含基准 revision、当前 Document 实例内的 updateId
+Document 使用的可交换变更 envelope，包含基准 revision、当前 Document 实例内的 updateId
 以及一个 Core Change；它不是纯 Change，也不包含 client identity。
 
 **Core Value**:
@@ -27,7 +27,7 @@ Colla 支持的不可变、封闭值树；它不等同于任意 JavaScript value
 _Avoid_: Document, JSON value
 
 **Core Snapshot**:
-某一时刻的完整 Core Value，作为 Change 的基准状态；它与高层可持久化 Snapshot 不同。
+某一时刻的完整 Core Value，作为 Change 的基准状态；它与 Document 的可持久化 Snapshot 不同。
 _Avoid_: Document state
 
 **Value Handle**:

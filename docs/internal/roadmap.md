@@ -13,7 +13,7 @@ editor adapters remain outside this repository's milestones.
 
 Goal: use the pre-1.0 adjustment window to simplify public APIs and strengthen
 the correctness, resource, compatibility, and performance evidence behind the
-core model.
+foundational data model.
 
 Planned work:
 

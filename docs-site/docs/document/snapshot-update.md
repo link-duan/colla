@@ -1,6 +1,6 @@
 ---
 title: Snapshot and Update
-description: Checkpoints and versioned changes in the Document API.
+description: Checkpoints and versioned changes in Document state.
 ---
 
 # Snapshot and Update

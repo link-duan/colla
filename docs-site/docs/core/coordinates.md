@@ -13,7 +13,7 @@ The JavaScript `Path` type is a readonly array of string map keys and
 non-negative safe-integer list indexes. The root is `[]`:
 
 ```ts
-import { ValueHandle, text } from 'colla-ot/core'
+import { ValueHandle, text } from 'colla-ot'
 
 const value = ValueHandle.fromJS({
   sections: [{ body: text('A short paragraph') }],
@@ -43,7 +43,7 @@ import {
   resolveUtf16Position,
   text,
   ValueHandle,
-} from 'colla-ot/core'
+} from 'colla-ot'
 
 const value = ValueHandle.fromJS({ body: text('A😀B') })
 

@@ -7,18 +7,15 @@ description: The Colla operational transformation model and its application boun
 
 <p class="lead">Colla OT turns immutable Values and recursive Changes into deterministic, testable state transitions.</p>
 
-The Core algebra is intentionally smaller than a collaboration product. It
-operates on one known base Value and leaves transport, sessions, identity, and
-editor policy to the application around it.
+The algebra is intentionally smaller than a collaboration product. It operates
+on one known base Value and leaves transport, sessions, identity, and editor
+policy to the application around it.
 
-## Choose the layer
+## Choosing a workflow
 
-| You need | Start with | What it owns |
-| --- | --- | --- |
-| A visible document and pending local work in JavaScript | `colla-ot` | `Document`, `Snapshot`, `Update`, events, and rebase state |
-| Pure JavaScript value transitions | `colla-ot/core` | `ValueHandle`, `Change`, codecs, and OT functions |
-| Native or server-side implementation | `colla` | The reference Value, Change, algebra, and codec types |
-| A complete collaboration product | Colla plus your protocol | Transport, ordering, identity, auth, history, and editor integration |
+Use `Document` when the edit must become a visible local transition and a
+versioned `Update`. Use immutable values and operations directly when a reducer,
+test, or protocol adapter owns the surrounding state.
 
 ## The four operations
 
@@ -59,7 +56,7 @@ integer addition that overflows is a rejected transition.
 ## A typical pipeline
 
 ```ts
-import { Change, ValueHandle, apply, text } from 'colla-ot/core'
+import { Change, ValueHandle, apply, text } from 'colla-ot'
 
 const before = ValueHandle.fromJS(text('Draft'))
 const edit = Change.build(change => {
@@ -70,8 +67,8 @@ const bytes = edit.encode() // canonical Core Change body
 ```
 
 Use the package-root `Document` when the edit must become a visible local
-transition and a versioned `Update`. Use Core directly when a reducer, test, or
-protocol adapter only needs pure values and operations.
+transition and a versioned `Update`. Use immutable values and operations directly
+when a reducer, test, or protocol adapter only needs pure values and operations.
 
 ## What this guide covers
 

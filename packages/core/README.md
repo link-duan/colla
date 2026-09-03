@@ -1,12 +1,8 @@
 # colla-ot
 
-`colla-ot` provides two API levels backed by the same Rust core and canonical
-Value/Change bytes:
-
-- import `Document`, `Snapshot`, and `Update` from `colla-ot` when building an
-  editor or application that needs mutable document state;
-- import immutable values, changes, codecs, and OT algebra from `colla-ot/core`
-  when implementing lower-level operations.
+`colla-ot` exposes document state, immutable values and changes, codecs, and
+OT operations through one synchronous ESM entry point backed by the same Rust
+core and canonical Value/Change bytes.
 
 ## Install
 
@@ -16,10 +12,19 @@ pnpm add colla-ot
 
 The package is ESM-only and supports Node.js 22+, Vite 5+, and Rollup 4+.
 Browser and Node entry points initialize the same Wasm binary synchronously;
-no public initialization function or Wasm bundler plugin is required. Importing
-both the package root and `colla-ot/core` shares the same runtime initialization.
+no public initialization function or Wasm bundler plugin is required.
 
-## High-level Document API
+## Migrate from previous versions
+
+All public JavaScript symbols now come from `colla-ot`. Replace imports from the
+removed `colla-ot/core` subpath:
+
+```diff
+-import { Change, text } from "colla-ot/core"
++import { Change, text } from "colla-ot"
+```
+
+## Manage document state
 
 `Document` is the usual entry point for an application. It owns the current
 visible content, applies local edits optimistically, rebases them over ordered
@@ -31,8 +36,7 @@ Create a new document from a structured Core Value. Use `text()` for content
 that needs character-level editing; ordinary JavaScript strings are atomic.
 
 ```ts
-import { Document } from "colla-ot"
-import { text } from "colla-ot/core"
+import { Document, text } from "colla-ot"
 
 const document = Document.fromJS({
   title: text("Draft"),
@@ -99,12 +103,12 @@ error listener failure is ignored to prevent recursive error reporting.
 
 ### Apply and send a local edit
 
-Build the Core Change with `colla-ot/core`, then apply it to the Document. The
-visible content changes immediately and `applyLocal()` returns the Update to
-send to the application server:
+Build a `Change`, then apply it to the Document. The visible content changes
+immediately and `applyLocal()` returns the Update to send to the application
+server:
 
 ```ts
-import { Change } from "colla-ot/core"
+import { Change } from "colla-ot"
 
 const change = Change.build(change => {
   change.map(map => {
@@ -166,7 +170,7 @@ The Snapshot contains the current visible content and revision. It deliberately
 does not contain pending Updates, acknowledgements, rebase state, transport
 state, or listeners. Snapshot bytes alone are therefore not a resumable sync
 session. Applications that need crash-safe delivery must define an additional
-outbound-queue and recovery protocol outside the current Document API.
+queue and recovery protocol outside the current Document state model.
 
 Snapshot and Update use distinct versioned binary envelopes. They are intended
 for local persistence and application transport, while raw Value and Change
@@ -178,15 +182,15 @@ from `document.applyLocal()`. At other boundaries, `Snapshot.fromJS()`,
 `Snapshot.fromValue()`, and `Update.fromChange()` construct envelopes directly.
 `snapshot.content()` and `update.change()` return independently owned handles.
 
-## Low-level Core API
+## Values, changes, and OT operations
 
-The remaining APIs operate on immutable Core Values and Changes without owning
-Document state. Import them from `colla-ot/core`.
+Immutable Values and Changes are useful when the caller owns document state or
+needs pure OT operations. They are exported from the same `colla-ot` entry point.
 
 ## Values
 
 ```ts
-import { ValueHandle, richText, text } from "colla-ot/core"
+import { ValueHandle, richText, text } from "colla-ot"
 
 const value = ValueHandle.fromJS({
   count: 1n,
@@ -211,12 +215,12 @@ RichText embeds are atomic Core Values and count as one sequence unit.
 
 ## Typed Change construction
 
-`Change.fromJS()` is the low-level, Snapshot-independent construction API.
+`Change.fromJS()` is the Snapshot-independent construction API.
 Map entries remain an array so duplicate keys can be rejected, while sequence
 changes use ordered operation streams.
 
 ```ts
-import { Change } from "colla-ot/core"
+import { Change } from "colla-ot"
 
 const change = Change.fromJS({
   type: "map",
@@ -244,7 +248,7 @@ input. It does not own a Wasm handle, apply or compose intermediate changes,
 parse paths, perform map upserts, or convert coordinates.
 
 ```ts
-import { Change, ValueHandle, apply, text } from "colla-ot/core"
+import { Change, ValueHandle, apply, text } from "colla-ot"
 
 const before = ValueHandle.fromJS({
   count: 1n,
@@ -285,7 +289,7 @@ import {
   resolveCodePointPosition,
   resolveUtf16Position,
   text,
-} from "colla-ot/core"
+} from "colla-ot"
 
 const value = ValueHandle.fromJS(text("A😀B"))
 
@@ -313,7 +317,7 @@ import {
   inspectChange,
   invert,
   transformPair,
-} from "colla-ot/core"
+} from "colla-ot"
 
 const value = ValueHandle.decode(valueBytes)
 const first = Change.decode(firstBytes)
@@ -356,12 +360,12 @@ Change construction limits are counted against raw input before normalization,
 so empty operations cannot bypass resource policy. Algebra, coordinate
 conversion, and Change inspection do not apply input limits.
 
-Failures from both API levels throw `CollaError`. Match its stable `code`,
+Failures from all public APIs throw `CollaError`. Match its stable `code`,
 `operation`, optional `path`, and frozen `details` fields rather than message
-text. `CollaError` is exported from `colla-ot/core`.
+text. `CollaError` is exported from `colla-ot`.
 
 ```ts
-import { CollaError, ValueHandle } from "colla-ot/core"
+import { CollaError, ValueHandle } from "colla-ot"
 
 try {
   ValueHandle.decode(bytes)

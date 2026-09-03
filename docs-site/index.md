@@ -52,7 +52,7 @@ hero:
   <div class="feature-col">
     <div class="feature-header">
       <span class="feature-idx">01</span>
-      <h3>Unified Core, Native Speed</h3>
+      <h3>Unified model, native speed</h3>
     </div>
     <p>Identical behavior across Rust, Node.js, and browsers. Pure synchronous execution with microsecond transforms and zero async ceremony.</p>
   </div>
@@ -79,8 +79,7 @@ hero:
   </div>
 
 ```ts
-import { Document } from 'colla-ot'
-import { Change, text } from 'colla-ot/core'
+import { Document, Change, text } from 'colla-ot'
 
 // 1. Initialize document and apply optimistic local change
 const doc = Document.fromJS(text('Draft'))

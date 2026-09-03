@@ -3,8 +3,7 @@
 This example shows the direction of data flow between an editor and a Document.
 
 ```ts
-import { Document } from 'colla-ot'
-import { Change, text } from 'colla-ot/core'
+import { Document, Change, text } from 'colla-ot'
 
 const document = Document.fromJS(text('Draft'))
 
