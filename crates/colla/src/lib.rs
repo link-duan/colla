@@ -7,6 +7,8 @@ pub mod attrs;
 pub mod change;
 /// Canonical binary encoding and strict decoding.
 pub mod codec;
+/// Local Snapshot and Update envelopes for the high-level Document API.
+pub mod document;
 /// Errors returned by construction, algebra, codecs, and coordinate conversion.
 pub mod error;
 /// Resource limits applied when decoding untrusted input.
@@ -25,6 +27,7 @@ pub use change::{
     Change, ChangeKind, IntChange, ListChange, ListOp, MapChange, MapEntryChange, RichTextChange,
     RichTextOp, TextChange, TextOp, TieBreak,
 };
+pub use document::{Snapshot, Update};
 pub use error::{
     ApplyError, CodecError, ComposeError, ErrorCode, InvertError, TransformError,
     Utf16PositionError, ValueError,

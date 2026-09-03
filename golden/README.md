@@ -19,8 +19,8 @@ Sharing one data source is the point: the same JSON drives both sides, so any
 divergence in canonical bytes or results surfaces immediately. The design
 rationale lives in [`docs/internal/golden-tests.md`](../docs/internal/golden-tests.md);
 the neutral representation and unified error codes are fixed by
-[ADR 0014](../docs/adr/0014-golden-fixtures-format-and-error-codes.md) and
-[ADR 0015](../docs/adr/0015-error-code-classification.md).
+[ADR 0006](../docs/adr/0006-specifications-testing-and-release-validation.md) and
+[ADR 0005](../docs/adr/0005-errors-and-resource-lifecycle.md).
 
 ## Layout
 
@@ -97,7 +97,7 @@ structurally equal to `value`, and that re-encoding the decoded value reproduces
 Error fixtures assert a single stable `code`. The codes are owned by the `colla`
 core crate's `ErrorCode`; fixtures assert only the subset that core operations can
 produce. See [`docs/internal/golden-tests.md` §5](../docs/internal/golden-tests.md)
-and [ADR 0015](../docs/adr/0015-error-code-classification.md).
+and [ADR 0005](../docs/adr/0005-errors-and-resource-lifecycle.md).
 
 ## How the fixtures are consumed
 

@@ -16,14 +16,18 @@ const packageSpec = process.env.COLLA_PACKAGE_SPEC
 
 async function writeFixture(name, extra = "") {
   await writeFile(join(fixtureDir, name), `
-    import { apply, Change, ValueHandle } from "colla-ot"
+    import { Document } from "colla-ot"
+    import { apply, Change, ValueHandle } from "colla-ot/core"
     const base = ValueHandle.fromJS("before")
     const change = Change.build(builder => builder.replace("after"))
     const next = apply(base, change)
     if (next.toJS() !== "after") throw new Error("Colla tracer failed")
-    base.dispose()
-    change.dispose()
-    next.dispose()
+    const document = Document.fromJS("before")
+    const update = document.applyLocal(change)
+    const documentValue = document.value()
+    if (documentValue.toJS() !== "after" || update.updateId !== 1n) {
+      throw new Error("Colla Document failed")
+    }
     export const result = "after"
     ${extra}
   `)
@@ -127,7 +131,7 @@ try {
   if (process.env.COLLA_EXPECTED_PACKAGE_VERSION !== undefined) {
     assert.equal(installedPackage.version, process.env.COLLA_EXPECTED_PACKAGE_VERSION)
   }
-  assert.deepEqual(Object.keys(installedPackage.exports), ["."])
+  assert.deepEqual(Object.keys(installedPackage.exports), [".", "./core"])
   const installedDist = join(fixtureDir, "node_modules/colla-ot/dist")
   assert.ok((await readdir(installedDist)).includes("browser.js"))
   const wasmBytes = await readFile(join(installedDist, "internal/colla_wasm_bg.wasm"))

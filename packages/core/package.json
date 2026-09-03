@@ -15,6 +15,13 @@
       "browser": "./dist/browser.js",
       "import": "./dist/browser.js",
       "default": "./dist/browser.js"
+    },
+    "./core": {
+      "types": "./dist/core.d.ts",
+      "node": "./dist/core-node.js",
+      "browser": "./dist/core-browser.js",
+      "import": "./dist/core-browser.js",
+      "default": "./dist/core-browser.js"
     }
   },
   "files": [
@@ -28,7 +35,7 @@
     "build": "node scripts/build.mjs",
     "check": "pnpm build && pnpm exec tsc -p tsconfig.json --noEmit",
     "measure": "node scripts/measure.mjs",
-    "test": "pnpm build && node --test --test-concurrency=1 tests/node-tracer.mjs tests/edit-steps.mjs tests/bundlers.mjs tests/golden.test.mjs",
+    "test": "pnpm build && node --test --test-concurrency=1 tests/node-tracer.mjs tests/edit-steps.mjs tests/bundlers.mjs tests/golden.test.mjs tests/document.mjs",
     "test:e2e": "node e2e/run.mjs",
     "prepack": "pnpm build"
   },

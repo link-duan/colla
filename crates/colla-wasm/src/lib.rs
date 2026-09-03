@@ -8,8 +8,8 @@ mod js_marshal;
 use colla::{
     apply, compose, invert, transform_pair, ApplyError, AttrChange, AttrPatch, AttrValue, Attrs,
     Change, ChangeKind, CodecError, ComposeError, InputLimits, IntChange, InvertError, ListOp,
-    MapEntryChange, Path, PathSeg, RichContent, RichText, RichTextOp, TextOp, TieBreak,
-    TransformError, Utf16PositionError, Value, ValueError, ValueKind, ValueType,
+    MapEntryChange, Path, PathSeg, RichContent, RichText, RichTextOp, Snapshot, TextOp, TieBreak,
+    TransformError, Update, Utf16PositionError, Value, ValueError, ValueKind, ValueType,
 };
 use js_marshal::{change_from_js, value_from_js, value_to_js, InputError};
 use serde_json::{json, Value as JsonValue};
@@ -139,6 +139,99 @@ impl ValueHandle {
 #[wasm_bindgen]
 pub struct ChangeHandle {
     change: Change,
+}
+
+#[wasm_bindgen]
+pub struct SnapshotHandle {
+    snapshot: Snapshot,
+}
+
+#[wasm_bindgen]
+impl SnapshotHandle {
+    #[wasm_bindgen(js_name = fromValue)]
+    pub fn from_value(revision: u64, value: &ValueHandle) -> Self {
+        Self {
+            snapshot: Snapshot::new(revision, value.value.clone()),
+        }
+    }
+
+    #[wasm_bindgen(js_name = decode)]
+    pub fn decode(bytes: &[u8]) -> Result<Self, JsValue> {
+        Snapshot::decode(bytes)
+            .map(|snapshot| Self { snapshot })
+            .map_err(|error| codec_error(error, "snapshot_decode"))
+    }
+
+    pub fn encode(&self) -> Vec<u8> {
+        self.snapshot.encode()
+    }
+
+    pub fn revision(&self) -> u64 {
+        self.snapshot.revision()
+    }
+
+    #[wasm_bindgen(js_name = contentHandle)]
+    pub fn content_handle(&self) -> ValueHandle {
+        ValueHandle {
+            value: self.snapshot.content().clone(),
+        }
+    }
+
+    #[wasm_bindgen(js_name = cloneHandle)]
+    pub fn clone_handle(&self) -> Self {
+        Self {
+            snapshot: self.snapshot.clone(),
+        }
+    }
+}
+
+#[wasm_bindgen]
+pub struct UpdateHandle {
+    update: Update,
+}
+
+#[wasm_bindgen]
+impl UpdateHandle {
+    #[wasm_bindgen(js_name = fromChange)]
+    pub fn from_change(revision: u64, update_id: u64, change: &ChangeHandle) -> Self {
+        Self {
+            update: Update::new(revision, update_id, change.change.clone()),
+        }
+    }
+
+    #[wasm_bindgen(js_name = decode)]
+    pub fn decode(bytes: &[u8]) -> Result<Self, JsValue> {
+        Update::decode(bytes)
+            .map(|update| Self { update })
+            .map_err(|error| codec_error(error, "update_decode"))
+    }
+
+    pub fn encode(&self) -> Vec<u8> {
+        self.update.encode()
+    }
+
+    pub fn revision(&self) -> u64 {
+        self.update.revision()
+    }
+
+    #[wasm_bindgen(js_name = updateId)]
+    pub fn update_id(&self) -> u64 {
+        self.update.update_id()
+    }
+
+    #[wasm_bindgen(js_name = changeHandle)]
+    pub fn change_handle(&self) -> ChangeHandle {
+        ChangeHandle {
+            change: self.update.change().clone(),
+        }
+    }
+
+    #[wasm_bindgen(js_name = cloneHandle)]
+    pub fn clone_handle(&self) -> Self {
+        Self {
+            update: self.update.clone(),
+        }
+    }
 }
 
 #[wasm_bindgen]

@@ -1,4 +1,99 @@
-use colla::{codec, Change, CodecError, MapChange, MapEntryChange, TextChange, TextOp, Value};
+use colla::{
+    codec, Change, CodecError, MapChange, MapEntryChange, Snapshot, TextChange, TextOp, Update,
+    Value,
+};
+
+#[test]
+fn snapshot_and_update_local_envelopes_roundtrip() {
+    let value = Value::map([("title", Value::text("Draft"))]).unwrap();
+    let snapshot = Snapshot::new(7, value.clone());
+    let snapshot_bytes = snapshot.encode();
+    assert_eq!(&snapshot_bytes[..6], b"COLLAS");
+    assert_eq!(
+        u16::from_le_bytes([snapshot_bytes[6], snapshot_bytes[7]]),
+        1
+    );
+    assert_eq!(Snapshot::decode(&snapshot_bytes).unwrap(), snapshot);
+
+    let change: Change = TextChange::from_ops([TextOp::Retain(5), TextOp::Insert("!".into())])
+        .unwrap()
+        .into();
+    let update = Update::new(7, 3, change);
+    let update_bytes = update.encode();
+    assert_eq!(&update_bytes[..6], b"COLLAU");
+    assert_eq!(u16::from_le_bytes([update_bytes[6], update_bytes[7]]), 1);
+    assert_eq!(Update::decode(&update_bytes).unwrap(), update);
+}
+
+#[test]
+fn local_envelopes_reject_wrong_magic_version_and_trailing_bytes() {
+    let snapshot = Snapshot::new(0, Value::null());
+    let mut wrong_magic = snapshot.encode();
+    wrong_magic[..6].copy_from_slice(b"COLLAU");
+    assert!(matches!(
+        Snapshot::decode(&wrong_magic),
+        Err(CodecError::InvalidMagic {
+            context: "snapshot"
+        })
+    ));
+
+    let mut wrong_version = snapshot.encode();
+    wrong_version[6..8].copy_from_slice(&2u16.to_le_bytes());
+    assert!(matches!(
+        Snapshot::decode(&wrong_version),
+        Err(CodecError::UnsupportedVersion {
+            context: "snapshot",
+            version: 2
+        })
+    ));
+
+    let mut trailing = snapshot.encode();
+    trailing.push(0);
+    assert!(matches!(
+        Snapshot::decode(&trailing),
+        Err(CodecError::TrailingBytes { .. })
+    ));
+
+    let update = Update::new(0, 0, Change::noop());
+    let mut wrong_update_magic = update.encode();
+    wrong_update_magic[..6].copy_from_slice(b"COLLAS");
+    assert!(matches!(
+        Update::decode(&wrong_update_magic),
+        Err(CodecError::InvalidMagic { context: "update" })
+    ));
+
+    let mut wrong_update_version = update.encode();
+    wrong_update_version[6..8].copy_from_slice(&2u16.to_le_bytes());
+    assert!(matches!(
+        Update::decode(&wrong_update_version),
+        Err(CodecError::UnsupportedVersion {
+            context: "update",
+            version: 2
+        })
+    ));
+
+    let mut trailing_update = update.encode();
+    trailing_update.push(0);
+    assert!(matches!(
+        Update::decode(&trailing_update),
+        Err(CodecError::TrailingBytes { .. })
+    ));
+
+    assert!(matches!(
+        Snapshot::decode(b"COLLAS\x01\x00"),
+        Err(CodecError::UnexpectedEof { .. })
+    ));
+}
+
+#[test]
+fn local_envelopes_roundtrip_maximum_unsigned_fields() {
+    let max = u64::MAX;
+    let snapshot = Snapshot::new(max, Value::null());
+    assert_eq!(Snapshot::decode(&snapshot.encode()).unwrap(), snapshot);
+
+    let update = Update::new(max, max, Change::noop());
+    assert_eq!(Update::decode(&update.encode()).unwrap(), update);
+}
 
 #[test]
 fn value_and_change_roundtrip() {

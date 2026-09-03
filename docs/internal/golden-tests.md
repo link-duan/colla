@@ -3,10 +3,10 @@
 本文说明版本化 golden fixtures 的格式、错误分类与版本化规则。golden fixtures 是
 **经过评审的固定回归证据**，不是规范性定义，也不是不同独立实现之间的差分证明；当前
 只有一个核心 OT / codec 实现（`colla`），JavaScript facade 经 Wasm 复用它（见
-[ADR 0016](../adr/0016-single-source-codec-via-structured-wasm-boundary.md)）。
+[ADR 0003](../adr/0003-single-source-codec-and-wire-ownership.md)）。
 
-相关背景：[ADR 0014](../adr/0014-golden-fixtures-format-and-error-codes.md) 决定
-中性表示与统一错误 code；[ADR 0015](../adr/0015-error-code-classification.md) 决定错误
+相关背景：[ADR 0006](../adr/0006-specifications-testing-and-release-validation.md) 决定
+中性表示与统一错误 code；[ADR 0005](../adr/0005-errors-and-resource-lifecycle.md) 决定错误
 code 的单一事实来源；[Roadmap](roadmap.md) 把维护这批 fixtures 列为 1.0 前的证据来源。
 本文引用的结构与编码以 [核心数据模型](../data-model.md) 与
 [二进制 Body 格式](../binary-format.md) 为准；两者分歧时以规范为准。
@@ -191,7 +191,7 @@ fixture 断言一套**两侧统一的稳定错误 code**。单一事实来源是
 公开 `ErrorCode`（宏生成 `as_str`，`#[non_exhaustive]`）与各错误的 `.code()`；wasm
 facade 与 Rust 侧都取 `.code()`，workspace 内不再有第二份手写映射。下表是该映射的
 规格镜像（与核心 `.code()` 一致）。TS 侧 `ErrorCode` union 类型独立手写维护（见 §5.1）。
-详见 [ADR 0015](../adr/0015-error-code-classification.md)。
+详见 [ADR 0005](../adr/0005-errors-and-resource-lifecycle.md)。
 
 | 统一 code | 覆盖的核心错误 |
 | --- | --- |

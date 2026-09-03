@@ -206,6 +206,20 @@ pub enum InvertError {
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 #[non_exhaustive]
 pub enum CodecError {
+    /// The local envelope magic did not match the requested type.
+    #[error("invalid {context} envelope magic")]
+    InvalidMagic {
+        /// Envelope context.
+        context: &'static str,
+    },
+    /// The local envelope protocol version is not supported.
+    #[error("unsupported {context} envelope protocol version {version}")]
+    UnsupportedVersion {
+        /// Envelope context.
+        context: &'static str,
+        /// Version found in the input.
+        version: u16,
+    },
     /// Input ended before the current value was complete.
     #[error("unexpected end of input at byte {offset}")]
     UnexpectedEof {
@@ -336,7 +350,9 @@ impl CodecError {
     /// The stable classification of this error.
     pub fn code(&self) -> ErrorCode {
         match self {
-            CodecError::UnexpectedEof { .. }
+            CodecError::InvalidMagic { .. }
+            | CodecError::UnsupportedVersion { .. }
+            | CodecError::UnexpectedEof { .. }
             | CodecError::UnknownTag { .. }
             | CodecError::NonMinimalVarint { .. }
             | CodecError::IntegerOutOfRange { .. }
