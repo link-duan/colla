@@ -105,6 +105,7 @@ The published `colla` crate supports Rust 1.81 or newer.
 
 ## Documentation
 
+- [Official documentation site](https://link-duan.github.io/colla/)
 - [Rust guide](crates/colla/README.md)
 - [JavaScript guide](packages/core/README.md)
 - [Rust API reference](https://docs.rs/colla)
@@ -112,6 +113,8 @@ The published `colla` crate supports Rust 1.81 or newer.
 
 The documentation index also links the normative specifications, architecture
 decisions, roadmap, release runbook, domain language, and changelog.
+
+Run `pnpm docs:dev` for a local preview of the official documentation site.
 
 Run Rust tests with `cargo test --workspace --all-targets` and JavaScript
 artifact tests with `pnpm test:js`.

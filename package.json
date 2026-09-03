@@ -12,6 +12,10 @@
     "release:preflight": "pnpm check:versions && pnpm check:registries && cargo publish -p colla --registry crates-io --dry-run && pnpm --filter colla-ot exec npm publish --dry-run --registry https://registry.npmjs.org",
     "release:verify": "node scripts/verify-release.mjs",
     "test:js": "pnpm --filter colla-ot test",
-    "test:e2e": "pnpm --filter colla-ot test:e2e"
+    "test:e2e": "pnpm --filter colla-ot test:e2e",
+    "docs:dev": "pnpm --filter colla-docs dev",
+    "docs:build": "pnpm --filter colla-docs build",
+    "docs:preview": "pnpm --filter colla-docs preview",
+    "docs:check": "pnpm --filter colla-docs check"
   }
 }

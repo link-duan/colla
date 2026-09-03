@@ -6,3 +6,5 @@ packages/core/src/internal/
 packages/core/*.tgz
 packages/core/e2e/.fixture-dir
 .pi/remote-pi
+docs-site/.vitepress/cache/
+docs-site/.vitepress/dist/

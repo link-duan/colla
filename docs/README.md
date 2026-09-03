@@ -3,6 +3,10 @@
 This index is the entry point for Colla's user guides, normative
 specifications, architecture decisions, and project operations.
 
+The public developer documentation is published at
+<https://link-duan.github.io/colla/>. Internal project-operation and agent
+documents remain available only in this repository.
+
 ## User guides
 
 - [Project overview and quick starts](../README.md)
