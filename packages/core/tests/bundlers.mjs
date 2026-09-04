@@ -23,7 +23,7 @@ async function writeFixture(name, extra = "") {
     const next = apply(base, change)
     if (next.toJS() !== "after") throw new Error("Colla tracer failed")
     const document = Document.fromJS("before")
-    const update = document.applyLocal(change)
+    const update = document.transact(tx => tx.set([], "after"))
     const documentValue = document.value()
     if (documentValue.toJS() !== "after" || update.updateId !== 1n) {
       throw new Error("Colla Document failed")

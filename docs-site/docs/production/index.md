@@ -25,18 +25,17 @@ format.
 
 ```text
 editor input
-    -> Change.build / Change.fromJS
-    -> Document.applyLocal
-    -> Update.encode
+    -> Document.transact(tx => ...)
+    -> update.bytes (Uint8Array)
     -> application queue and transport
     -> server authentication, ordering, and persistence
     -> ordered Update bytes
-    -> Update.decode / Document.applyRemote
+    -> Document.applyRemote(bytes)
     -> immutable editSteps
     -> editor render
 ```
 
-The visible value changes when `applyLocal()` succeeds, before a server
+The visible value changes when `transact()` succeeds, before a server
 acknowledgement. The server acknowledgement only advances confirmed state; it
 does not create another visible edit. A remote Update must name the next
 confirmed revision, or the application must recover through replay or a new
@@ -45,18 +44,20 @@ Snapshot.
 ## A minimal controller boundary
 
 ```ts
-import { Document, Update, Change } from 'colla-ot'
+import { Document } from 'colla-ot'
 
 // `queue`, `transport`, and `editor` are application-owned.
 const document = Document.fromJS(initialValue, initialRevision)
-const stop = document.on('change', event => {
+const stop = document.subscribe(event => {
   if (event.origin === 'remote') editor.applyEditSteps(event.editSteps)
 })
 
-const update = document.applyLocal(change as Change)
-await queue.append({ requestId: crypto.randomUUID(), bytes: update.encode() })
+const update = document.transact(tx => {
+  tx.set(['title'], 'New Title')
+})
+await queue.append({ requestId: crypto.randomUUID(), bytes: update.bytes })
 const accepted = await transport.receiveOrdered()
-document.applyRemote(Update.decode(accepted))
+document.applyRemote(accepted)
 document.ack(update.updateId)
 ```
 

@@ -1,14 +1,19 @@
 # JavaScript: Document synchronization
 
 ```ts
-import { Document, Update, Change, text } from 'colla-ot'
+import { Document, text } from 'colla-ot'
 
 const doc = Document.fromJS(text('ab'), 0n)
-doc.on('change', event => console.log(event.origin, event.revision, event.editSteps))
-const local = Change.build(edit => edit.text(t => t.retain(1).insert('X')))
-const pending = doc.applyLocal(local)
-await transport.send(pending.encode())
-doc.applyRemote(Update.decode(await transport.receive()))
+const unsubscribe = doc.subscribe(event => {
+  console.log(event.origin, event.revision, event.editSteps)
+})
+
+const pending = doc.transact(tx => {
+  tx.text([], t => t.retain(1).insert('X'))
+})
+
+await transport.send(pending.bytes)
+doc.applyRemote(await transport.receive())
 doc.ack(pending.updateId)
 ```
 
@@ -25,12 +30,12 @@ Production code maps `CollaError` to protocol responses.
 ## Application notes
 
 The editor displays local content immediately.
-The transport sends encoded Update bytes.
+The transport sends canonical Update bytes (`update.bytes`).
 The server orders accepted Changes.
 The client accepts the next confirmed revision.
 The Document rebases pending local work.
 The editor receives one remote projection.
-Acknowledgements follow pending FIFO order.
+Acknowledgements are cumulative up to the accepted updateId.
 The local update ID is instance-local.
 The server uses its own request identity.
 Retries belong to the outbound queue.

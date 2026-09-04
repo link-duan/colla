@@ -19,11 +19,11 @@ has an instance-local `updateId`; after rebasing, its revision is rewritten to
 the next confirmed revision while its ID remains stable.
 
 ```text
-confirmed value @ r ── local change ──> visible value @ r+1
+confirmed value @ r ── transaction ──> visible value @ r+1
        │                                      │
        └── remote update @ r ── rebase ───────┘
                                       │
-                          ack oldest pending ID
+                           cumulative ack(updateId)
                                       │
                          confirmed value @ r+1
 ```
@@ -33,17 +33,20 @@ confirmed value @ r ── local change ──> visible value @ r+1
 ```ts
 const document = Document.fromJS({ title: 'Draft', count: 0n }, 10n)
 
-document.revision       // 10n
-document.get(['title']) // direct Value access without creating a handle
-document.has(['title']) // true
-document.kind(['title'])// 'string'
-document.value()        // independently owned visible ValueHandle
-document.snapshot()     // Snapshot of visible value and revision
+document.revision          // 10n (visible revision)
+document.confirmedRevision // 10n (confirmed base revision)
+document.hasPending        // false (any unconfirmed local edits?)
+document.pendingCount      // 0 (count of pending local updates)
+document.get(['title'])    // direct Value access without creating a handle
+document.has(['title'])    // true
+document.kind(['title'])   // 'string'
+document.value()           // independently owned visible ValueHandle
+document.snapshot()        // pure Snapshot { revision, bytes, value }
 ```
 
 `get()`, `has()`, and `kind()` inspect visible content directly without needing
 handle lifecycle management. `value()` returns a clone, so disposing or
-inspecting it cannot mutate the Document. `snapshot()` creates a durable
+inspecting it cannot mutate the Document. `snapshot()` creates a durable, pure
 content checkpoint without changing state. A disposed Document rejects later
 operations with `invalid_state`.
 
@@ -51,7 +54,7 @@ operations with `invalid_state`.
 
 - Visible content contains confirmed content plus every pending local Change.
 - Remote Updates must name exactly the current confirmed revision.
-- Acknowledgements remove only the oldest pending Update.
+- Acknowledgements are cumulative: `ack(updateId)` confirms all pending local Updates up to and including `updateId`.
 - Failed apply, transform, revision, or acknowledgement operations leave the
   existing state and pending queue usable.
 - `revision` and `updateId` are unsigned 64-bit `bigint` values.

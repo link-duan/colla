@@ -7,17 +7,17 @@ Accepted Changes must enter that same ordered sequence.
 ## Message flow
 
 ```text
-client: Change -> Document.applyLocal -> Update bytes
+client: edit -> Document.transact -> Update bytes
 server: authenticate -> deduplicate -> order -> persist -> broadcast
-client: decode -> check revision -> applyRemote -> render editSteps
-client: server acceptance -> ack(oldest updateId)
+client: receive bytes -> check revision -> applyRemote -> render editSteps
+client: server acceptance -> ack(updateId) (cumulative)
 ```
 
 The application protocol supplies document identity, authentication, authorization,
 request identity, retry behavior, and response semantics.
 The server supplies durable ordering and accepted-operation history.
 The client reports its confirmed revision with each session request.
-The client sends encoded Update bytes through an application-owned queue.
+The client sends canonical Update bytes (`update.bytes`) through an application-owned queue.
 The client applies only the next expected remote revision.
 
 | Concern | Owner | Required behavior |

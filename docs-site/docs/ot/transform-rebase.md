@@ -49,13 +49,14 @@ in FIFO order. It commits the confirmed and visible states together, then emits
 one remote event for the resulting visible edit.
 
 ```ts
-import { Document, Update } from 'colla-ot'
+import { Document } from 'colla-ot'
 
-const update = document.applyLocal(localChange)
-await transport.send(update.encode())
+const update = document.transact(tx => {
+  tx.text(['title'], t => t.retain(5).insert(' v2'))
+})
+await transport.send(update.bytes)
 
-const remote = Update.decode(await transport.receive())
-document.applyRemote(remote)
+document.applyRemote(await transport.receive())
 ```
 
 The incoming Update must use exactly the current `confirmedRevision`. A gap or

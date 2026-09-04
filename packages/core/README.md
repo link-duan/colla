@@ -26,9 +26,9 @@ removed `colla-ot/core` subpath:
 
 ## Manage document state
 
-`Document` is the usual entry point for an application. It owns the current
-visible content, applies local edits optimistically, rebases them over ordered
-remote updates, and emits editor-oriented change events.
+`Document` is the main entry point for an application. It owns the current
+visible content, applies local edits atomically via transactions, rebases them
+over ordered remote updates, and emits editor-oriented change events.
 
 ### Create a document
 
@@ -46,146 +46,133 @@ const document = Document.fromJS({
 
 The optional second argument sets the initial revision and defaults to `0n`.
 
-To read the current content, request an independently owned `ValueHandle`:
+To read the current content, inspect directly without handle lifecycle management:
 
 ```ts
-// Inspect visible content directly without handle lifecycle management:
+// Inspect visible content directly:
 console.log(document.get(["title"]))
 console.log(document.has(["title"]))
 console.log(document.kind(["title"]))
 console.log(document.revision)
+console.log(document.confirmedRevision)
+console.log(document.hasPending)
+console.log(document.pendingCount)
 
 // Or obtain an independently owned ValueHandle:
 const value = document.value()
 console.log(value.toJS())
+value.dispose()
 ```
 
 ### Restore a persisted Snapshot
 
-`Snapshot` stores the complete visible Core Value together with its revision.
-Decode the bytes and create a new Document from it:
+`Snapshot` is a 100% pure JavaScript data object containing `revision`, `bytes`,
+and `value`. Decode the bytes and restore a Document directly from the snapshot
+or its raw binary bytes:
 
 ```ts
 import { Document, Snapshot } from "colla-ot"
 
 const bytes = await storage.read("document.snapshot")
 const snapshot = Snapshot.decode(bytes)
-const document = Document.fromSnapshot(snapshot)
+const document = Document.fromSnapshot(snapshot) // or Document.fromSnapshot(bytes)
 ```
 
-The Document owns a clone of the Snapshot content, so the Snapshot does not
-need to stay reachable after construction.
+`Snapshot` contains no Wasm handles and requires no `.dispose()`.
 
 ### Subscribe to changes
 
-Subscribe before applying updates when an editor or another view must follow
-the Document state:
+Subscribe before applying updates when an editor or view must follow the Document state:
 
 ```ts
-const unsubscribe = document.on("change", event => {
+const unsubscribe = document.subscribe(event => {
   if (event.origin === "remote") {
     editor.applyEditSteps(event.editSteps)
   }
   console.log("visible revision", event.revision)
 })
 
-document.on("error", event => {
-  console.error("Document listener failed", event.error)
+// Or provide an error observer:
+const unsubscribeWithError = document.subscribe({
+  onChange(event) {
+    editor.applyEditSteps(event.editSteps)
+  },
+  onError(error) {
+    console.error("Document subscriber failed:", error)
+  },
 })
 ```
 
-A change event contains only `origin`, `revision`, and immutable `editSteps`.
-It does not transfer ownership of a Core Change. Use `origin` to avoid applying
-an edit back to the editor that originally produced it. Calling the returned
-function removes that listener:
+A change event contains `origin`, `revision`, and immutable `editSteps`. Calling
+the returned unsubscribe function removes that listener:
 
 ```ts
 unsubscribe()
 ```
 
-If a change listener throws, the state change remains committed, other change
-listeners still run, and the exception is delivered to error listeners (or logged
-to `console.error` if no error listeners are registered). An error listener
-failure is ignored to prevent recursive error reporting.
+### Atomic mutation transactions
 
-### Apply and send a local edit
-
-Apply a `Change` directly, or pass a builder callback. The visible content
-changes immediately and `applyLocal()` returns the Update to send to the
-application server:
+Mutate the document using `transact()`. Multiple operations within a single
+transaction are composed into a single atomic update. `transact()` returns a
+pure `Update` (`{ revision, updateId, bytes }`) ready for transport:
 
 ```ts
-// applyLocal accepts a Change or directly takes a builder callback:
-const update = document.applyLocal(change => {
-  change.map(map => {
-    map.modify("title", title => {
-      title.text(text => text.retain(5).insert(" v2"))
-    })
-  })
+// Atomic transaction with auto-upsert and streaming text/list cursors:
+const update = document.transact(tx => {
+  tx.set(["published"], true)
+  tx.text(["title"], stream => stream.retain(5).insert(" v2"))
 })
-await transport.send(update.encode())
+
+// Send raw bytes over the network (WebSocket, fetch, WebRTC):
+await transport.send(update.bytes)
 ```
 
-Each Update contains its base revision, an instance-local `updateId`, and one
-Core Change. `updateId` starts at `1` for each Document instance and is only a
-local correlation value; it is not a globally unique operation identity.
+`TransactionContext` provides path-direct operations:
+- `tx.set(path, value)`: Auto-upsert (inserts new key or modifies existing key in maps; replaces element in lists; replaces root if path is `[]`).
+- `tx.delete(path)`: Deletes an entry from a map or element from a list.
+- `tx.text(path, streamOrOps)`: Single-pass streaming text edit using monotonic cursor (`retain`, `insert`, `delete`).
+- `tx.list(path, streamOrOps)`: Single-pass streaming list edit (`retain`, `insert`, `delete`).
 
-After the server accepts the oldest pending local Update, acknowledge it by ID
-(accepts `number` or `bigint`):
+`Update` is a pure JavaScript object with no Wasm handles. It does not require `.dispose()`.
+
+### Acknowledge pending updates (Cumulative ACK)
+
+After the server confirms local updates, acknowledge them by `updateId` (accepts `number` or `bigint`):
 
 ```ts
+// Acknowledges all pending updates up to and including this updateId:
 document.ack(update.updateId)
 ```
 
-Acknowledgements must follow pending order. An acknowledgement advances the
-confirmed state but does not emit a change event because visible content does
-not change.
+Acknowledgements advance `confirmedRevision` and clear pending state.
 
 ### Apply a remote update
 
-Decode each server-ordered Update and pass it to the Document:
+Pass an `Update` object or raw binary `Uint8Array` bytes to `applyRemote()`:
 
 ```ts
 import { Update } from "colla-ot"
 
 const bytes: Uint8Array = await transport.receive()
-const update = Update.decode(bytes)
-document.applyRemote(update)
+// Accepts either pure Update or raw binary bytes directly:
+document.applyRemote(bytes)
 ```
 
-The incoming Update must be based on the next confirmed revision. Document
-rebases pending local changes over it with a fixed `left-first` tie-break and
-emits one remote change event for the resulting visible edit.
-
-The server or another application-level protocol is responsible for ordering
-remote Updates. Document does not provide transport, sessions, retries,
-presence, global deduplication, or peer-to-peer convergence.
+The incoming Update must match `confirmedRevision`. Document rebases all local
+pending changes over it and emits a remote change event for visible edits.
 
 ### Persist current content
 
-Create and encode a Snapshot whenever the application needs a content
-checkpoint:
+Create a Snapshot whenever the application needs a content checkpoint:
 
 ```ts
 const snapshot = document.snapshot()
-await storage.write("document.snapshot", snapshot.encode())
+await storage.write("document.snapshot", snapshot.bytes)
 ```
 
-The Snapshot contains the current visible content and revision. It deliberately
-does not contain pending Updates, acknowledgements, rebase state, transport
-state, or listeners. Snapshot bytes alone are therefore not a resumable sync
-session. Applications that need crash-safe delivery must define an additional
-queue and recovery protocol outside the current Document state model.
-
-Snapshot and Update use distinct versioned binary envelopes. They are intended
-for local persistence and application transport, while raw Value and Change
-bytes remain the lower-level Core formats. Colla is still in early development
-and does not promise compatibility with historical Snapshot/Update bytes.
-
-Most consumers obtain Snapshots from `document.snapshot()` and local Updates
-from `document.applyLocal()`. At other boundaries, `Snapshot.fromJS()`,
-`Snapshot.fromValue()`, and `Update.fromChange()` construct envelopes directly.
-`snapshot.content()` and `update.change()` return independently owned handles.
+The Snapshot contains `revision`, `bytes`, and pure `value`. Snapshot bytes
+alone are not a resumable sync session; network queueing and delivery protocols
+belong outside Document.
 
 ## Values, changes, and OT operations
 
@@ -386,18 +373,21 @@ try {
 
 ## Resource lifecycle
 
-`ValueHandle`, `Change`, `Snapshot`, and `Update` own Wasm-backed resources;
-`Document` owns such handles internally. In normal JavaScript usage, unreachable
-objects are reclaimed by JS garbage collection and the wasm-bindgen-generated
-finalizers. GC timing is nondeterministic, so applications with high allocation
-churn, long-running processes, or strict allocation peaks may call the optional
-`dispose()` method (or `Symbol.dispose`) when ownership ends. Disposal is
-idempotent, and clones have independent ownership.
-In runtimes without `FinalizationRegistry`, call `dispose()` when resources must
-be released, because the generated fallback cannot observe unreachable objects.
+`ValueHandle` and `Change` own Wasm-backed resources; `Document` owns such
+handles internally and manages their lifecycle automatically across transactions
+and rebases. `Snapshot` and `Update` are 100% pure JavaScript data objects with no
+Wasm handles or `.dispose()` methods.
 
-The callback builders used by `Change.build()` are ordinary TypeScript scopes;
-they have no handle, clone, finalizer, or disposal API.
+In normal JavaScript usage, unreachable objects are reclaimed by JS garbage
+collection and the wasm-bindgen-generated finalizers. GC timing is
+nondeterministic, so applications with high allocation churn, long-running
+processes, or strict allocation peaks may call the optional `dispose()` method
+(or `Symbol.dispose`) on `Document`, `ValueHandle`, or `Change` when ownership ends.
+Disposal is idempotent, and clones have independent ownership. In runtimes without
+`FinalizationRegistry`, call `dispose()` when resources must be released.
+
+The callback scopes used by `document.transact()` and `Change.build()` are
+ordinary TypeScript scopes; they have no handle, clone, finalizer, or disposal API.
 
 ## More documentation
 

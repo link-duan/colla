@@ -10,11 +10,12 @@
 
 Document 模型只有三个主要对象：
 
-- `Document`：当前可见内容与本地运行态；
-- `Snapshot`：revision 加完整 Core Value 的持久化内容快照；
-- `Update`：revision、updateId 和 Core Change 的可交换变更。
+- `Document`：当前可见内容与本地协同运行态状态机；
+- `Snapshot`：纯 JavaScript 不可变快照对象，携带 `revision`、完整可见内容的 JavaScript 投影值及预编码的二进制 bytes；
+- `Update`：纯 JavaScript 不可变增量更新对象，携带 `revision`、`updateId` 及预编码的二进制 bytes。
 
-`pending`、`local`、`remote` 和 rebase 是 Document 内部状态，不是独立公共类型。
+`Snapshot` 与 `Update` 属于纯数据信封，在 JavaScript 层不持有任何 WebAssembly 资源句柄，无需手动 `dispose()`。
+`pending`、`local`、`remote` 和 rebase 是 Document 内部运行态，不是独立公共类型。
 
 ## 2. Snapshot
 
@@ -36,6 +37,16 @@ cocodec((revision, content))
 当前协议版本为 `1`，payload 是按顺序编码的 cocodec tuple，不包含额外的 enum tag。
 项目仍处于早期开发阶段，不承诺历史 bytes 兼容；协议字段变化可直接调整版本或格式。
 解码必须拒绝错误 magic、未知版本、非法 payload 和尾随字节。
+
+在 JavaScript API 中，`Snapshot` 为只读纯对象：
+
+```ts
+interface Snapshot {
+  readonly revision: bigint
+  readonly bytes: Uint8Array
+  readonly value: Value
+}
+```
 
 Snapshot 只恢复内容和 revision，不恢复 pending、ack、rebase 或其他同步运行态。
 
@@ -60,6 +71,16 @@ cocodec((revision, updateId, change))
 `revision` 是 Update 生成时的基准 revision。`updateId` 由 Document 实例从 `1` 开始
 单调生成，仅用于本地 pending 与 ack 关联，不承诺跨客户端全局唯一。
 
+在 JavaScript API 中，`Update` 为只读纯对象：
+
+```ts
+interface Update {
+  readonly revision: bigint
+  readonly updateId: bigint
+  readonly bytes: Uint8Array
+}
+```
+
 ## 4. JavaScript API
 
 所有公共 JavaScript 符号都从同一个包入口导入：
@@ -70,11 +91,44 @@ import {
 } from "colla-ot"
 ```
 
-Document change 事件携带 editor-oriented edit steps、origin 和 revision，不暴露 Wasm
-Change handle。通过 `on("change", listener)` 和 `on("error", listener)` 订阅事件；
-change listener 的异常通过 error 事件报告，不影响已提交的 apply 操作。
+### 4.1 事务变更
 
-`applyRemote` 只接受 `confirmedRevision` 的下一条 Update。远程 Update 应由服务端或
-其他上层同步协议串行排序；Document 内部使用固定 `left-first` tie-break，不保证两个
-客户端直接交换并发 Update 时自动收敛。ack 按 pending FIFO 顺序处理，Snapshot 不恢复
-pending，因此恢复后必须由上层重新建立发送/确认状态。
+本地状态修改必须通过原子事务执行：
+
+```ts
+const update = document.transact(tx => {
+  tx.set(path, value)
+  tx.text(path, textOps)
+  tx.list(path, listOps)
+  tx.delete(path)
+})
+```
+
+事务上下文自动处理路径层级补全，所有操作在提交时合成（compose）为单一规范 Change 并生成对应的 `Update`。
+
+### 4.2 事件订阅与错误隔离
+
+Document change 事件携带 editor-oriented edit steps、origin 和 revision，不暴露 Wasm
+Change handle。通过 `document.subscribe(subscriber)` 订阅变更：
+
+- `subscriber` 可以是单函数 `(event: DocumentChangeEvent) => void`；
+- 也可以是对象 `{ onChange: (event) => void, onError?: (event) => void }`。
+
+`subscribe()` 返回取消订阅闭包 `() => void`。change 监听器的异常通过 onError 报告，
+不影响已提交的事务与内部状态。
+
+### 4.3 同步与确认
+
+- `applyRemote` 接受 `confirmedRevision` 的下一条 `Update` 实例或直接接受原始二进制 `Uint8Array`。
+  远程 Update 应由服务端或其他上层同步协议串行排序；Document 内部使用固定 `left-first` tie-break
+  对本地 pending 变更进行重基。
+- `ack(updateId)` 支持累积确认（cumulative ACK），自动确认并清除直到该 `updateId` 的所有本地
+  pending Update，推进 `confirmedRevision`。
+- Snapshot 不恢复 pending，因此恢复后必须由上层重新建立发送/确认状态。
+
+### 4.4 状态查询
+
+Document 提供零句柄开销的内容与运行态查询：
+- `get(path)`、`has(path)`、`kind(path)`：直接读取可见内容；
+- `revision`、`confirmedRevision`：当前可见版本与已确认基准版本；
+- `hasPending`、`pendingCount`：本地待确认队列状态。

@@ -20,14 +20,14 @@ visible revision after local application.
 ```ts
 import { Snapshot, Update } from 'colla-ot'
 
-// `document` and `change` are application-owned values.
-const snapshotBytes = document.snapshot().encode()
+// `document` is an application-owned Document instance.
+const snapshotBytes = document.snapshot().bytes
 const snapshot = Snapshot.decode(snapshotBytes)
-console.log(snapshot.revision, snapshot.content().toJS())
+console.log(snapshot.revision, snapshot.value)
 
-const update = document.applyLocal(change)
-const decoded = Update.decode(update.encode())
-console.log(decoded.revision, decoded.updateId, decoded.change())
+const update = document.transact(tx => tx.set(['title'], 'New Title'))
+const decoded = Update.decode(update.bytes)
+console.log(decoded.revision, decoded.updateId)
 ```
 
 ## Strict decoding
@@ -38,19 +38,19 @@ payloads, and trailing bytes. They raise `CollaError` with stable `code` and
 schema or ignoring an extension. The [protocol reference](/reference/protocol)
 contains the byte-level contract.
 
-## Ownership
+## The zero-handle boundary
 
-`Snapshot.content()` and `Update.change()` return independently owned handles.
-`clone()` creates another owned envelope. Call `dispose()` when finished;
-disposal is idempotent, while later methods throw `invalid_state`.
+In JavaScript, `Snapshot` and `Update` are designed as pure, immutable data objects (POJOs).
+Unlike lower-level Wasm handles (`ValueHandle`, `Change`, or `Document`), envelope objects:
+- Hold no WebAssembly memory or native handles.
+- Never require `dispose()` or `Symbol.dispose`.
+- Rely entirely on standard JavaScript garbage collection.
+- Expose canonical wire bytes directly via `.bytes: Uint8Array`.
 
 ```ts
 const snapshot = document.snapshot()
-try {
-  await storage.write('snapshot', snapshot.encode())
-} finally {
-  snapshot.dispose()
-}
+// Write directly to disk or network with zero handle cleanup boilerplate:
+await storage.write('snapshot', snapshot.bytes)
 ```
 
 The envelopes carry no credentials, retry policy, request ID, global operation

@@ -21,7 +21,7 @@ import { Document, Snapshot } from 'colla-ot'
 
 // `document` and `storage` are application-owned.
 const snapshot = document.snapshot()
-await storage.write('doc.snapshot', snapshot.encode())
+await storage.write('doc.snapshot', snapshot.bytes)
 
 const restored = Document.fromSnapshot(
   Snapshot.decode(await storage.read('doc.snapshot')),
@@ -29,22 +29,22 @@ const restored = Document.fromSnapshot(
 ```
 
 `Snapshot.fromJS(value, revision?)` and `Snapshot.fromValue(value, revision?)`
-are useful for adapters and tests. `snapshot.content()` returns an independently
-owned `ValueHandle`; `snapshot.revision` is a `bigint`.
+are useful for adapters and tests. `snapshot.value` provides the direct JavaScript
+Value tree; `snapshot.revision` is a `bigint`, and `snapshot.bytes` contains the
+canonical `COLLAS` envelope.
 
 ## Update
 
-An Update contains `(revision: u64, updateId: u64, change: Change)`:
+An Update represents a versioned atomic change. In JavaScript, it is an immutable pure object:
 
 | Field | Meaning |
 | --- | --- |
-| `revision` | Visible revision when the Change was created; an accepted remote Update must match the confirmed revision. |
-| `updateId` | Instance-local FIFO acknowledgement token. |
-| `change()` | Independently owned Core Change. |
+| `revision` | Base revision when the change was created; an accepted remote Update must match the confirmed revision. |
+| `updateId` | Instance-local token used for cumulative acknowledgement. |
+| `bytes` | Canonical binary `COLLAU` envelope as `Uint8Array`. |
 
-Use `document.applyLocal()` for normal creation. `Update.fromChange(revision,
-updateId, change)` exists for adapters and tests. `Update.decode(bytes)` validates
-the envelope before exposing its fields.
+Use `document.transact()` for normal creation. `Update.decode(bytes)` validates
+and unpacks the envelope without creating Wasm resource handles.
 
 ## Persistence boundary
 

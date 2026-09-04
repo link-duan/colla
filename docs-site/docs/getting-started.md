@@ -72,22 +72,21 @@ The crate supports Rust 1.81 or newer.
 ## Make your first edit
 
 ```ts
-import { Document, Change, text } from 'colla-ot'
+import { Document, text } from 'colla-ot'
 
 const document = Document.fromJS(text('Draft'))
 
-const change = Change.build(change => {
-  change.text(text => text.retain(5).insert(' v2'))
+const update = document.transact(tx => {
+  tx.text([], t => t.retain(5).insert(' v2'))
 })
 
-const update = document.applyLocal(change)
-console.log(document.value().toJS())
-console.log(update.updateId)
+console.log(document.get([])) // 'Draft v2' (direct read without handle overhead)
+console.log(update.updateId)  // 1n
 ```
 
-`applyLocal()` updates visible content immediately. The returned `Update` is
-the unit your application sends to its server. Acknowledgement happens after
-server acceptance:
+`transact()` updates visible content immediately and returns a pure `Update` object.
+Its canonical binary representation is available directly on `update.bytes` for transport.
+Acknowledgement happens after server acceptance (with cumulative semantics):
 
 ```ts
 document.ack(update.updateId)

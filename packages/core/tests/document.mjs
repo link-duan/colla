@@ -1,14 +1,16 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
 
-import { Document, Snapshot, Update } from "../dist/node.js"
-import { Change, ValueHandle, text } from "../dist/node.js"
+import { Document, Snapshot, Update, _createUpdate } from "../dist/node.js"
+import { apply, Change, ValueHandle, text } from "../dist/node.js"
 
 function testWithCleanup(name, callback) {
   test(name, () => {
     const cleanup = []
     const track = resource => {
-      cleanup.push(resource)
+      if (resource && typeof resource.dispose === "function") {
+        cleanup.push(resource)
+      }
       return resource
     }
     try {
@@ -21,22 +23,22 @@ function testWithCleanup(name, callback) {
 
 testWithCleanup("Snapshot and Update local envelopes round-trip", track => {
   const value = track(ValueHandle.fromJS(text("Draft")))
-  const snapshot = track(Snapshot.fromValue(value, 7n))
-  const snapshotBytes = snapshot.encode()
+  const snapshot = Snapshot.fromValue(value, 7n)
+  const snapshotBytes = snapshot.bytes
   assert.deepEqual(snapshotBytes.slice(0, 6), Uint8Array.from([67, 79, 76, 76, 65, 83]))
   assert.equal(snapshot.revision, 7n)
-  const decodedSnapshot = track(Snapshot.decode(snapshotBytes))
+  const decodedSnapshot = Snapshot.decode(snapshotBytes)
   assert.equal(decodedSnapshot.revision, 7n)
-  assert.deepEqual(decodedSnapshot.content().toJS(), text("Draft"))
+  assert.deepEqual(decodedSnapshot.value, text("Draft"))
 
-  const change = track(Change.build(edit => edit.text(textEdit => textEdit.retain(5).insert("!"))))
-  const update = track(Update.fromChange(7n, 3n, change))
-  const updateBytes = update.encode()
+  const doc = track(Document.fromJS(text("Draft"), 7n))
+  const update = doc.transact(tx => tx.text([], t => t.retain(5).insert("!")))
+  const updateBytes = update.bytes
   assert.deepEqual(updateBytes.slice(0, 6), Uint8Array.from([67, 79, 76, 76, 65, 85]))
-  const decodedUpdate = track(Update.decode(updateBytes))
+  const decodedUpdate = Update.decode(updateBytes)
   assert.equal(decodedUpdate.revision, 7n)
-  assert.equal(decodedUpdate.updateId, 3n)
-  assert.deepEqual(decodedUpdate.change().encode(), change.encode())
+  assert.equal(decodedUpdate.updateId, 1n)
+  assert.deepEqual(decodedUpdate.bytes, updateBytes)
 
   const invalidMagic = snapshotBytes.slice()
   invalidMagic[0] = 0
@@ -67,12 +69,13 @@ testWithCleanup("Snapshot and Update local envelopes round-trip", track => {
     error.details.reason.includes("trailing bytes"))
 
   const max = (1n << 64n) - 1n
-  const maxSnapshot = track(Snapshot.fromJS(null, max))
-  const noop = track(Change.build(edit => edit.noop()))
-  const maxUpdate = track(Update.fromChange(max, max, noop))
-  const decodedMaxSnapshot = track(Snapshot.decode(maxSnapshot.encode()))
+  const maxSnapshot = Snapshot.fromJS(null, max)
+  const decodedMaxSnapshot = Snapshot.decode(maxSnapshot.bytes)
   assert.equal(decodedMaxSnapshot.revision, max)
-  const decodedMaxUpdate = track(Update.decode(maxUpdate.encode()))
+
+  const noop = track(Change.build(edit => edit.noop()))
+  const maxUpdate = _createUpdate(max, max, noop)
+  const decodedMaxUpdate = Update.decode(maxUpdate.bytes)
   assert.equal(decodedMaxUpdate.revision, max)
   assert.equal(decodedMaxUpdate.updateId, max)
 })
@@ -80,21 +83,19 @@ testWithCleanup("Snapshot and Update local envelopes round-trip", track => {
 testWithCleanup("Document applies local and remote changes and emits edit steps", track => {
   const document = track(Document.fromJS(text("ab"), 0n))
   const events = []
-  const unsubscribe = document.on("change", event => events.push(event))
+  const unsubscribe = document.subscribe(event => events.push(event))
 
-  const localChange = track(Change.build(edit => edit.text(textEdit => textEdit.retain(1).insert("X"))))
-  const localUpdate = track(document.applyLocal(localChange))
+  const localUpdate = document.transact(tx => tx.text([], t => t.retain(1).insert("X")))
   assert.equal(localUpdate.updateId, 1n)
   assert.equal(document.revision, 1n)
   assert.deepEqual(document.value().toJS(), text("aXb"))
   assert.equal(events.length, 1)
   assert.equal(events[0].origin, "local")
   assert.equal(events[0].revision, 1n)
-  assert.equal(events[0].change, undefined)
   assert.equal(events[0].editSteps[0].type, "text")
 
-  const remoteChange = track(Change.build(edit => edit.text(textEdit => textEdit.retain(1).insert("Y"))))
-  const remoteUpdate = track(Update.fromChange(0n, 99n, remoteChange))
+  const peerDoc = track(Document.fromJS(text("ab"), 0n))
+  const remoteUpdate = peerDoc.transact(tx => tx.text([], t => t.retain(1).insert("Y")))
   document.applyRemote(remoteUpdate)
   assert.equal(document.revision, 2n)
   assert.deepEqual(document.value().toJS(), text("aXYb"))
@@ -107,66 +108,71 @@ testWithCleanup("Document applies local and remote changes and emits edit steps"
   unsubscribe()
 })
 
-testWithCleanup("Document isolates listener failures and reports them as error events", track => {
+testWithCleanup("Document isolates listener failures and reports them via onError subscriber", track => {
   const document = track(Document.fromJS(text("a")))
   const errors = []
   const changes = []
-  document.on("error", event => errors.push(event.error))
-  document.on("change", () => { throw new Error("first listener failed") })
-  document.on("change", event => changes.push(event))
+  document.subscribe({
+    onChange: event => {
+      changes.push(event)
+      throw new Error("first listener failed")
+    },
+    onError: err => errors.push(err),
+  })
+  document.subscribe(event => changes.push(event))
 
-  const change = track(Change.build(edit => edit.text(textEdit => textEdit.retain(1).insert("b"))))
-  const update = track(document.applyLocal(change))
+  const update = document.transact(tx => tx.text([], t => t.retain(1).insert("b")))
   assert.equal(update.updateId, 1n)
   assert.equal(document.revision, 1n)
-  assert.equal(changes.length, 1)
+  assert.equal(changes.length, 2)
   assert.equal(errors.length, 1)
   assert.equal(errors[0].message, "first listener failed")
 
-  document.on("error", () => { throw new Error("error listener failed") })
-  const remoteChange = track(Change.build(edit => edit.text(textEdit => textEdit.retain(1).insert("c"))))
-  const remote = track(Update.fromChange(0n, 2n, remoteChange))
-  document.applyRemote(remote)
+  const peerDoc = track(Document.fromJS(text("a"), 0n))
+  const remote = peerDoc.transact(tx => tx.text([], t => t.retain(1).insert("c")))
+  document.applyRemote(remote.bytes)
   assert.equal(document.revision, 2n)
-  assert.equal(changes.length, 2)
+  assert.equal(changes.length, 4)
   assert.equal(errors.length, 2)
 })
 
 testWithCleanup("Document snapshot restores visible content and revision only", track => {
   const document = track(Document.fromJS(text("a"), 4n))
-  const change = track(Change.build(edit => edit.text(textEdit => textEdit.retain(1).insert("b"))))
-  const update = track(document.applyLocal(change))
-  const snapshot = track(document.snapshot())
+  const update = document.transact(tx => tx.text([], t => t.retain(1).insert("b")))
+  const snapshot = document.snapshot()
   const restored = track(Document.fromSnapshot(snapshot))
   assert.equal(snapshot.revision, 5n)
   assert.equal(restored.revision, 5n)
   assert.deepEqual(restored.value().toJS(), text("ab"))
   assert.throws(() => restored.ack(update.updateId), error =>
     error.code === "invalid_argument" && error.operation === "document_ack")
+
+  const restoredFromBytes = track(Document.fromSnapshot(snapshot.bytes))
+  assert.equal(restoredFromBytes.revision, 5n)
+  assert.deepEqual(restoredFromBytes.value().toJS(), text("ab"))
 })
 
 testWithCleanup("Document keeps revisions within unsigned 64-bit range", track => {
   const max = (1n << 64n) - 1n
   const document = track(Document.fromJS(text("a"), max - 1n))
-  const change = track(Change.build(edit => edit.text(textEdit => textEdit.retain(1).insert("b"))))
-  const update = track(document.applyLocal(change))
+  const update = document.transact(tx => tx.text([], t => t.retain(1).insert("b")))
   assert.equal(document.revision, max)
   document.ack(update.updateId)
   assert.equal(document.revision, max)
-  assert.throws(() => document.applyLocal(change), error =>
-    error.code === "limit_exceeded" && error.operation === "document_apply_local")
+  assert.throws(() => document.transact(tx => tx.text([], t => t.retain(1).insert("b"))), error =>
+    error.code === "limit_exceeded" && error.operation === "document_transact")
 
   const atMax = track(Document.fromJS(text("a"), max))
   const remoteChange = track(Change.build(edit => edit.text(textEdit => textEdit.retain(1).insert("b"))))
-  const remote = track(Update.fromChange(max, 10n, remoteChange))
+  const remote = _createUpdate(max, 10n, remoteChange)
   assert.throws(() => atMax.applyRemote(remote), error =>
     error.code === "limit_exceeded" && error.operation === "document_apply_remote")
 })
 
 testWithCleanup("Document accepts only the next server-ordered remote revision", track => {
   const document = track(Document.fromJS(text("a"), 4n))
-  const change = track(Change.build(edit => edit.text(textEdit => textEdit.retain(1).insert("b"))))
-  const skipped = track(Update.fromChange(5n, 1n, change))
+  const peer = track(Document.fromJS(text("a"), 5n))
+  const skipped = peer.transact(tx => tx.text([], t => t.retain(1).insert("b")))
   assert.throws(() => document.applyRemote(skipped), error =>
     error.code === "incompatible_change" &&
     error.operation === "document_apply_remote" &&
@@ -177,15 +183,14 @@ testWithCleanup("Document accepts only the next server-ordered remote revision",
 
 testWithCleanup("Document keeps state and pending changes intact when applying fails", track => {
   const document = track(Document.fromJS("a"))
-  const invalid = track(Change.build(edit => edit.text(textEdit => textEdit.retain(1).insert("!"))))
-  assert.throws(() => document.applyLocal(invalid), error =>
+  assert.throws(() => document.transact(tx => tx.text([], t => t.retain(1).insert("!"))), error =>
     error.code === "type_mismatch" && error.operation === "apply")
   assert.equal(document.revision, 0n)
   assert.equal(document.value().toJS(), "a")
 
-  const localChange = track(Change.build(edit => edit.replace("b")))
-  const localUpdate = track(document.applyLocal(localChange))
-  const invalidRemote = track(Update.fromChange(0n, 10n, invalid))
+  const localUpdate = document.transact(tx => tx.set([], "b"))
+  const peer = track(Document.fromJS(text("a"), 0n))
+  const invalidRemote = peer.transact(tx => tx.text([], t => t.retain(1).insert("!")))
   assert.throws(() => document.applyRemote(invalidRemote), error =>
     error.code === "type_mismatch" && error.operation === "apply")
   assert.equal(document.revision, 1n)
@@ -221,33 +226,75 @@ testWithCleanup("Document provides direct query methods without leaking handles"
   assert.equal(document.get(["count"]), 42n)
   assert.deepEqual(document.get(["items", 1]), "b")
 
-  // Test applyLocal with builder callback overload
-  const update = track(document.applyLocal(edit => {
-    edit.map(m => m.modify("title", t => t.text(s => s.retain(5).insert(" OT"))))
-  }))
+  const update = document.transact(tx => {
+    tx.text(["title"], s => s.retain(5).insert(" OT"))
+  })
   assert.equal(update.updateId, 1n)
   assert.equal(document.revision, 1n)
   assert.deepEqual(document.get(["title"]), text("Colla OT"))
 
-  // Test ack with numeric updateId
   document.ack(1)
   assert.equal(document.revision, 1n)
 
-  // Test coordinate conversion directly on document
   assert.equal(document.resolveCodePointPosition(["title"], 5), 5)
   assert.equal(document.resolveUtf16Position(["title"], 5), 5)
 })
 
+testWithCleanup("Document supports cumulative ack and state queries", track => {
+  const doc = track(Document.fromJS({ counter: 0 }))
+  assert.equal(doc.hasPending, false)
+  assert.equal(doc.pendingCount, 0)
+  assert.equal(doc.confirmedRevision, 0n)
+
+  doc.transact(tx => tx.set(["counter"], 1))
+  doc.transact(tx => tx.set(["counter"], 2))
+  const last = doc.transact(tx => tx.set(["counter"], 3))
+
+  assert.equal(doc.hasPending, true)
+  assert.equal(doc.pendingCount, 3)
+  assert.equal(doc.revision, 3n)
+  assert.equal(doc.confirmedRevision, 0n)
+
+  // Cumulative ack up to updateId 3
+  doc.ack(last.updateId)
+  assert.equal(doc.hasPending, false)
+  assert.equal(doc.pendingCount, 0)
+  assert.equal(doc.confirmedRevision, 3n)
+})
+
+testWithCleanup("Document executes multi-mutation atomic transactions", track => {
+  const doc = track(Document.fromJS({ a: "first", b: "second", list: [1, 2] }))
+  const update = doc.transact(tx => {
+    tx.set(["a"], "A")
+    tx.set(["b"], "B")
+    tx.list(["list"], l => l.retain(1).insert([99]))
+  })
+
+  assert.deepEqual(doc.get(["a"]), "A")
+  assert.deepEqual(doc.get(["b"]), "B")
+  assert.deepEqual(doc.get(["list"]), [1, 99, 2])
+
+  // Peer receives binary bytes and reproduces identical state
+  const peer = track(Document.fromJS({ a: "first", b: "second", list: [1, 2] }))
+  peer.applyRemote(update.bytes)
+  assert.deepEqual(peer.get(["a"]), "A")
+  assert.deepEqual(peer.get(["b"]), "B")
+  assert.deepEqual(peer.get(["list"]), [1, 99, 2])
+})
+
 testWithCleanup("CollaError message includes reason and path context", () => {
-  const doc = Document.fromJS("hello")
+  const base = ValueHandle.fromJS("hello")
+  const invalid = Change.build(edit => edit.text(t => t.retain(1).insert("!")))
   try {
-    const invalid = Change.build(edit => edit.text(t => t.retain(1).insert("!")))
-    doc.applyLocal(invalid)
+    apply(base, invalid)
     assert.fail("should have thrown")
   } catch (error) {
+    assert.ok(error.is("type_mismatch"))
     assert.ok(error.message.includes("apply failed: type_mismatch"))
   } finally {
-    doc.dispose()
+    base.dispose()
+    invalid.dispose()
   }
 })
+
 

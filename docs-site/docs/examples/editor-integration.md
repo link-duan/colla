@@ -3,29 +3,29 @@
 This example shows the direction of data flow between an editor and a Document.
 
 ```ts
-import { Document, Change, text } from 'colla-ot'
+import { Document, text } from 'colla-ot'
 
 const document = Document.fromJS(text('Draft'))
 
-const stop = document.on('change', event => {
-  if (event.origin === 'remote') {
-    editor.applyEditSteps(event.editSteps)
-  }
-})
-
-document.on('error', ({ error }) => {
-  telemetry.record('colla.listener_error', { code: error.code })
+const unsubscribe = document.subscribe({
+  onChange: event => {
+    if (event.origin === 'remote') {
+      editor.applyEditSteps(event.editSteps)
+    }
+  },
+  onError: ({ error }) => {
+    telemetry.record('colla.listener_error', { code: error.code })
+  },
 })
 
 editor.onInput(input => {
-  const change = Change.build(edit =>
-    edit.text(textEdit => textEdit.retain(input.position).insert(input.text)),
-  )
-  const update = document.applyLocal(change)
-  outbound.enqueue(update.encode())
+  const update = document.transact(tx => {
+    tx.text([], t => t.retain(input.position).insert(input.text))
+  })
+  outbound.enqueue(update.bytes)
 })
 
-stop()
+unsubscribe()
 document.dispose()
 ```
 

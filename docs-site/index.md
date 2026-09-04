@@ -79,16 +79,18 @@ hero:
   </div>
 
 ```ts
-import { Document, Change, text } from 'colla-ot'
+import { Document, text } from 'colla-ot'
 
-// 1. Initialize document and apply optimistic local change
+// 1. Initialize document and mutate via transaction
 const doc = Document.fromJS(text('Draft'))
-const update = doc.applyLocal(Change.build(b => b.text(t => t.retain(5).insert(' v2'))))
+const update = doc.transact(tx => {
+  tx.text([], t => t.retain(5).insert(' v2'))
+})
 
-// 2. Encode canonical binary update bytes for transport
-const bytes = update.encode()
+// 2. Transport canonical binary update bytes directly
+const bytes = update.bytes
 
-// 3. Acknowledge when server confirms ordering
+// 3. Cumulative acknowledge when server confirms ordering
 doc.ack(update.updateId)
 ```
 

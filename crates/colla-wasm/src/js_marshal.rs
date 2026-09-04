@@ -615,11 +615,11 @@ fn null_proto() -> Object {
     object
 }
 
-fn freeze(object: Object) -> JsValue {
+pub(crate) fn freeze(object: Object) -> JsValue {
     Object::freeze(&object);
     object.into()
 }
 
-fn set(object: &Object, key: &str, value: &JsValue) {
+pub(crate) fn set(object: &Object, key: &str, value: &JsValue) {
     let _ = Reflect::set(object, &JsValue::from_str(key), value);
 }

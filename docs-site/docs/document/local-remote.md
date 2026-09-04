@@ -5,41 +5,43 @@ description: Optimistic local edits, ordered remote Updates, rebasing, and ackno
 
 # Local and remote updates
 
-`applyLocal(change)` applies a Core Change to visible content immediately. It
-returns an Update whose `revision` is the current visible revision before the
-edit and whose `updateId` identifies the local queue entry. The application
-owns sending and retrying its encoded bytes.
+`transact(fn)` applies mutations to visible content immediately and atomically.
+It returns an immutable `Update` whose `revision` is the visible revision before the
+edit, whose `updateId` identifies the local queue entry, and whose `bytes` contains
+the pre-encoded canonical binary envelope ready for transport.
 
 ```ts
-// `change` and `transport` are supplied by the application.
-const update = document.applyLocal(change)
-await transport.send(update.encode())
+// `transport` is supplied by the application.
+const update = document.transact(tx => {
+  tx.set(['title'], 'New Title')
+})
+await transport.send(update.bytes)
 ```
 
-`applyRemote(update)` accepts only an Update whose revision equals the current
-confirmed revision. It applies the remote Change to confirmed content, then
-transforms each pending local Change against it using `{ order: 'left-first' }`.
-The visible value is updated with the transformed remote Change and one remote
-event is emitted.
+`applyRemote(updateOrBytes)` accepts either a decoded `Update` or raw wire bytes
+(`Uint8Array`) whose revision equals the current `confirmedRevision`. It applies
+the remote Change to confirmed content, then transforms each pending local Change
+against it using `{ order: 'left-first' }`. The visible value is updated with the
+transformed remote Change and one remote event is emitted.
 
 ```ts
-const incoming = Update.decode(await transport.receive())
-document.applyRemote(incoming)
+// Ingest incoming binary frames directly from network transport:
+document.applyRemote(await transport.receive())
 ```
 
 ## Acknowledgement
 
-When the server accepts the oldest local operation, call:
+When the server accepts a local operation, call:
 
 ```ts
 document.ack(update.updateId)
-update.dispose()
 ```
 
-`ack()` advances confirmed state and rewrites revisions on remaining pending
-Updates. It does not emit a change event. An unknown or out-of-order ID throws
-`invalid_argument`; a restored Document has no knowledge of the old instance's
-pending IDs.
+`ack()` advances confirmed state cumulatively, clearing all pending local updates
+up to and including `updateId`. It does not emit a change event because visible content
+does not change. An unknown or out-of-order ID throws `invalid_argument`; a restored
+Document has no knowledge of an old instance's pending IDs. `Update` objects are pure
+JavaScript values and require no manual disposal.
 
 ## Ordering and gaps
 

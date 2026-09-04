@@ -26,15 +26,14 @@ the data model, OT algebra, and canonical body codec.
 ## Verify JavaScript
 
 ```ts
-import { Document, Change, text } from 'colla-ot'
+import { Document, text } from 'colla-ot'
 
 const document = Document.fromJS(text('hello'))
-const change = Change.build(change => {
-  change.text(text => text.retain(5).insert(' world'))
+document.transact(tx => {
+  tx.text([], t => t.retain(5).insert(' world'))
 })
 
-document.applyLocal(change)
-console.log(document.value().toJS())
+console.log(document.get([]))
 // { type: 'text', value: 'hello world' }
 ```
 

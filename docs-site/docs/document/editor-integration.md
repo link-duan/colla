@@ -10,27 +10,29 @@ Core Change input and from Snapshot/Update wire bytes.
 
 ```ts
 // `document`, `editor`, and `report` are application-owned objects.
-const stopChange = document.on('change', event => {
-  if (event.origin === 'remote') {
-    editor.applyEditSteps(event.editSteps)
-  }
+const unsubscribe = document.subscribe({
+  onChange: event => {
+    if (event.origin === 'remote') {
+      editor.applyEditSteps(event.editSteps)
+    }
+  },
+  onError: ({ error }) => report(error),
 })
-const stopError = document.on('error', ({ error }) => report(error))
 ```
 
 ## Avoiding echo loops
 
-The local editor usually already rendered the keystroke that produced the Core
-Change. Send the returned Update to transport, but do not apply the local event
-back to the same editor. Remote events must be applied once, in arrival order:
+The local editor usually already rendered the keystroke that produced the local
+mutation. Send the returned `Update` (`update.bytes`) to transport, but do not
+apply the local event back to the same editor. Remote events must be applied once, in arrival order:
 
 | Event origin | Editor action | Network action |
 | --- | --- | --- |
-| `local` | Usually no second render | Enqueue and send the Update returned by `applyLocal()`. |
+| `local` | Usually no second render | Enqueue and send `update.bytes` returned by `transact()`. |
 | `remote` | Apply `event.editSteps` | No echo back to the server. |
 
 Keep editor transactions, network acknowledgements, and adapter retry state in
-separate controllers. Unsubscribe both listeners before unmounting the editor.
+separate controllers. Call `unsubscribe()` before unmounting the editor.
 
 ## Edit-step shape
 

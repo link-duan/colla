@@ -194,31 +194,46 @@ function freezeDetails(value: unknown): Readonly<Record<string, unknown>> {
   return deepFreeze({ ...(value as Record<string, unknown>) })
 }
 
-export class CollaError extends Error {
-  readonly code: ErrorCode
+export interface CollaErrorDetailMap {
+  invalid_encoding: { readonly reason?: string }
+  limit_exceeded: { readonly limit?: string; readonly actual?: number; readonly maximum?: number; readonly reason?: string }
+  type_mismatch: { readonly expected?: string; readonly actual?: string; readonly reason?: string }
+  missing_key: { readonly key?: string; readonly reason?: string }
+  key_already_exists: { readonly key?: string; readonly reason?: string }
+  out_of_bounds: { readonly index?: number; readonly length?: number; readonly reason?: string }
+  integer_overflow: { readonly reason?: string }
+  incompatible_change: { readonly reason?: string; readonly expected?: bigint; readonly actual?: bigint }
+  invalid_value: { readonly reason?: string }
+  invalid_state: { readonly resource?: string; readonly reason?: string }
+  invalid_argument: { readonly argument?: string; readonly reason?: string }
+  invalid_utf16_boundary: { readonly position?: number; readonly reason?: string }
+}
+
+export class CollaError<C extends ErrorCode = ErrorCode> extends Error {
+  readonly code: C
   readonly operation: string
   readonly path?: Path
-  readonly details: Readonly<Record<string, unknown>>
+  readonly details: Readonly<CollaErrorDetailMap[C] & Record<string, unknown>>
 
   constructor(
-    code: ErrorCode,
+    code: C,
     operation: string,
     details: unknown,
     path?: Path,
   ) {
     const frozenDetails = freezeDetails(details)
-    const reason = typeof frozenDetails.reason === "string" ? `: ${frozenDetails.reason}` : ""
+    const reason = typeof (frozenDetails as Record<string, unknown>).reason === "string" ? `: ${(frozenDetails as Record<string, unknown>).reason}` : ""
     const pathStr = path !== undefined && path.length > 0 ? ` at [${path.join(".")}]` : ""
     super(`${operation} failed: ${code}${reason}${pathStr}`)
     this.name = "CollaError"
     this.code = code
     this.operation = operation
     this.path = path === undefined ? undefined : Object.freeze([...path])
-    this.details = frozenDetails
+    this.details = frozenDetails as Readonly<CollaErrorDetailMap[C] & Record<string, unknown>>
   }
 
-  is(code: ErrorCode): boolean {
-    return this.code === code
+  is<K extends ErrorCode>(code: K): this is CollaError<K> {
+    return (this.code as ErrorCode) === code
   }
 }
 
@@ -1100,6 +1115,111 @@ export interface RichTextChangeBuilder {
 export interface AttrPatchBuilder {
   set(key: string, value: AttrValueData): this
   remove(key: string): this
+}
+
+export interface TextOpStream {
+  retain(length: number): this
+  insert(text: string): this
+  delete(length: number): this
+}
+
+export interface ListOpStream {
+  retain(length: number): this
+  insert(values: readonly Value[]): this
+  delete(length: number): this
+}
+
+export function countCodePoints(str: string, start: number, length: number): number {
+  let count = 0
+  const end = Math.min(start + length, str.length)
+  for (let i = start; i < end; i++) {
+    const code = str.charCodeAt(i)
+    if (code >= 0xd800 && code <= 0xdbff && i + 1 < end) {
+      const next = str.charCodeAt(i + 1)
+      if (next >= 0xdc00 && next <= 0xdfff) {
+        i++
+      }
+    }
+    count++
+  }
+  return count
+}
+
+export function buildTextOps(
+  baseText: string,
+  editOrOps: ((stream: TextOpStream) => unknown) | readonly TextChangeOpInput[],
+): readonly TextChangeOpInput[] {
+  if (typeof editOrOps !== "function") {
+    return editOrOps
+  }
+  const ops: TextChangeOpInput[] = []
+  let utf16Cursor = 0
+
+  const stream: TextOpStream = {
+    retain(length: number) {
+      if (typeof length !== "number" || !Number.isSafeInteger(length) || length <= 0) {
+        throw invalidArgument("text", "length", "expected a positive safe integer")
+      }
+      const cpCount = countCodePoints(baseText, utf16Cursor, length)
+      utf16Cursor += length
+      ops.push(Object.freeze({ type: "retain", length: cpCount }))
+      return this
+    },
+    insert(text: string) {
+      if (typeof text !== "string" || text.length === 0) {
+        throw invalidArgument("text", "text", "expected a non-empty string")
+      }
+      ops.push(Object.freeze({ type: "insert", text }))
+      return this
+    },
+    delete(length: number) {
+      if (typeof length !== "number" || !Number.isSafeInteger(length) || length <= 0) {
+        throw invalidArgument("text", "length", "expected a positive safe integer")
+      }
+      const cpCount = countCodePoints(baseText, utf16Cursor, length)
+      utf16Cursor += length
+      ops.push(Object.freeze({ type: "delete", length: cpCount }))
+      return this
+    },
+  }
+
+  editOrOps(stream)
+  return Object.freeze(ops)
+}
+
+export function buildListOps(
+  editOrOps: ((stream: ListOpStream) => unknown) | readonly ListChangeOpInput[],
+): readonly ListChangeOpInput[] {
+  if (typeof editOrOps !== "function") {
+    return editOrOps
+  }
+  const ops: ListChangeOpInput[] = []
+  const stream: ListOpStream = {
+    retain(length: number) {
+      if (typeof length !== "number" || !Number.isSafeInteger(length) || length <= 0) {
+        throw invalidArgument("list", "length", "expected a positive safe integer")
+      }
+      ops.push(Object.freeze({ type: "retain", length }))
+      return this
+    },
+    insert(values: readonly Value[]) {
+      if (!Array.isArray(values) || values.length === 0) {
+        throw invalidArgument("list", "values", "expected a non-empty array")
+      }
+      ops.push(Object.freeze({ type: "insert", values: Object.freeze([...values]) }))
+      return this
+    },
+    delete(length: number) {
+      if (typeof length !== "number" || !Number.isSafeInteger(length) || length <= 0) {
+        throw invalidArgument("list", "length", "expected a positive safe integer")
+      }
+      ops.push(Object.freeze({ type: "delete", length }))
+      return this
+    },
+  }
+
+  editOrOps(stream)
+  return Object.freeze(ops)
 }
 
 abstract class ChangeBuildScope {

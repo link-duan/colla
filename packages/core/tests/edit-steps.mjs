@@ -2,9 +2,12 @@ import assert from "node:assert/strict"
 import { test } from "node:test"
 
 import {
+  buildListOps,
+  buildTextOps,
   Change,
   CollaError,
   convertChangeToEditSteps,
+  countCodePoints,
   inspectChange,
   richText,
   resolveCodePointPosition,
@@ -289,3 +292,36 @@ test("richtext is the only JavaScript-facing RichText discriminator", () => {
     error => error instanceof CollaError && error.details.target === "richtext",
   )
 })
+
+test("buildTextOps accurately converts UTF-16 cursor with emojis to Unicode codepoints in single pass", () => {
+  const base = "A😀B🎉C"
+  assert.equal(countCodePoints(base, 0, 1), 1)
+  assert.equal(countCodePoints(base, 1, 2), 1)
+  assert.equal(countCodePoints(base, 0, 3), 2)
+
+  const ops = buildTextOps(base, stream => {
+    stream.retain(3)
+    stream.insert("🚀")
+    stream.retain(1)
+    stream.delete(2)
+  })
+
+  assert.deepEqual(ops, [
+    { type: "retain", length: 2 },
+    { type: "insert", text: "🚀" },
+    { type: "retain", length: 1 },
+    { type: "delete", length: 1 },
+  ])
+})
+
+test("CollaError has strongly typed details and is() type guard", () => {
+  const err = new CollaError("type_mismatch", "apply", { expected: "text", actual: "map" })
+  assert.equal(err.is("type_mismatch"), true)
+  assert.equal(err.is("limit_exceeded"), false)
+  assert.equal(err.code, "type_mismatch")
+  assert.equal(err.operation, "apply")
+  assert.equal(err.details.expected, "text")
+  assert.equal(err.details.actual, "map")
+  assert.ok(err.message.includes("apply failed: type_mismatch"))
+})
+

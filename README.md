@@ -38,25 +38,23 @@ edits, receive ordered remote Updates, create persistent Snapshots, or update
 an editor from change events.
 
 ```ts
-import { Document, Change, text } from "colla-ot"
+import { Document, text } from "colla-ot"
 
 const document = Document.fromJS(text("Draft"))
-const unsubscribe = document.on("change", event => {
+const unsubscribe = document.subscribe(event => {
   console.log(event.origin, event.revision, event.editSteps)
 })
 
-const change = Change.build(change => {
-  change.text(text => text.retain(5).insert(" v2"))
+// Atomic transaction. Returns a pure Update with no Wasm handles.
+// Send update.bytes through your application transport (WebSocket, HTTP, etc.).
+const update = document.transact(tx => {
+  tx.text([], stream => stream.retain(5).insert(" v2"))
 })
-
-// The visible content changes immediately. Send this Update through your
-// application-owned transport and acknowledge it after server acceptance.
-const update = document.applyLocal(change)
-const updateBytes = update.encode()
+const updateBytes = update.bytes
 
 // Persist the current visible content and revision when a checkpoint is needed.
 const snapshot = document.snapshot()
-const snapshotBytes = snapshot.encode()
+const snapshotBytes = snapshot.bytes
 
 unsubscribe()
 ```

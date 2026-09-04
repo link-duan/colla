@@ -99,23 +99,22 @@ Update:   (revision: u64, updateId: u64, change: Change)
 
 In an Update, `revision` is the base revision at which the Change was created.
 In a Snapshot, `revision` is the visible content revision. `updateId` starts at
-`1` for each JavaScript `Document` instance and is an instance-local FIFO
-acknowledgement correlation value. It is not global identity and is not stored
+`1` for each JavaScript `Document` instance and is used for cumulative
+acknowledgement correlation. It is not global identity and is not stored
 in a Snapshot.
 
-JavaScript example:
+In JavaScript, `Snapshot` and `Update` are pure data objects that expose their
+canonical envelope bytes directly via `.bytes: Uint8Array`:
 
 ```ts
 import { Document, Snapshot, Update } from 'colla-ot'
-import { Change } from 'colla-ot'
 
 const document = Document.fromJS('Draft')
-const snapshotBytes = document.snapshot().encode()
+const snapshotBytes = document.snapshot().bytes
 const snapshot = Snapshot.decode(snapshotBytes)
 
-const change = Change.build(builder => builder.replace('Draft v2'))
-const update = document.applyLocal(change)
-const updateBytes = update.encode()
+const update = document.transact(tx => tx.set([], 'Draft v2'))
+const updateBytes = update.bytes
 const received = Update.decode(updateBytes)
 ```
 

@@ -11,7 +11,7 @@ use colla::{
     MapEntryChange, Path, PathSeg, RichContent, RichText, RichTextOp, Snapshot, TextOp, TieBreak,
     TransformError, Update, Utf16PositionError, Value, ValueError, ValueKind, ValueType,
 };
-use js_marshal::{change_from_js, value_from_js, value_to_js, InputError};
+use js_marshal::{change_from_js, freeze, set, value_from_js, value_to_js, InputError};
 use serde_json::{json, Value as JsonValue};
 use wasm_bindgen::prelude::*;
 
@@ -141,97 +141,48 @@ pub struct ChangeHandle {
     change: Change,
 }
 
-#[wasm_bindgen]
-pub struct SnapshotHandle {
-    snapshot: Snapshot,
+#[wasm_bindgen(js_name = encodeUpdate)]
+pub fn encode_update(revision: u64, update_id: u64, change: &ChangeHandle) -> Vec<u8> {
+    Update::new(revision, update_id, change.change.clone()).encode()
 }
 
-#[wasm_bindgen]
-impl SnapshotHandle {
-    #[wasm_bindgen(js_name = fromValue)]
-    pub fn from_value(revision: u64, value: &ValueHandle) -> Self {
-        Self {
-            snapshot: Snapshot::new(revision, value.value.clone()),
-        }
-    }
-
-    #[wasm_bindgen(js_name = decode)]
-    pub fn decode(bytes: &[u8]) -> Result<Self, JsValue> {
-        Snapshot::decode(bytes)
-            .map(|snapshot| Self { snapshot })
-            .map_err(|error| codec_error(error, "snapshot_decode"))
-    }
-
-    pub fn encode(&self) -> Vec<u8> {
-        self.snapshot.encode()
-    }
-
-    pub fn revision(&self) -> u64 {
-        self.snapshot.revision()
-    }
-
-    #[wasm_bindgen(js_name = contentHandle)]
-    pub fn content_handle(&self) -> ValueHandle {
-        ValueHandle {
-            value: self.snapshot.content().clone(),
-        }
-    }
-
-    #[wasm_bindgen(js_name = cloneHandle)]
-    pub fn clone_handle(&self) -> Self {
-        Self {
-            snapshot: self.snapshot.clone(),
-        }
-    }
+#[wasm_bindgen(js_name = decodeUpdateEnvelope)]
+pub fn decode_update_envelope(bytes: &[u8]) -> Result<JsValue, JsValue> {
+    let update = Update::decode(bytes).map_err(|error| codec_error(error, "update_decode"))?;
+    let object = js_sys::Object::new();
+    set(&object, "revision", &JsValue::from(update.revision()));
+    set(&object, "updateId", &JsValue::from(update.update_id()));
+    Ok(freeze(object))
 }
 
-#[wasm_bindgen]
-pub struct UpdateHandle {
-    update: Update,
+#[wasm_bindgen(js_name = decodeUpdateChange)]
+pub fn decode_update_change(bytes: &[u8]) -> Result<ChangeHandle, JsValue> {
+    let update = Update::decode(bytes).map_err(|error| codec_error(error, "update_decode"))?;
+    Ok(ChangeHandle {
+        change: update.change().clone(),
+    })
 }
 
-#[wasm_bindgen]
-impl UpdateHandle {
-    #[wasm_bindgen(js_name = fromChange)]
-    pub fn from_change(revision: u64, update_id: u64, change: &ChangeHandle) -> Self {
-        Self {
-            update: Update::new(revision, update_id, change.change.clone()),
-        }
-    }
+#[wasm_bindgen(js_name = encodeSnapshot)]
+pub fn encode_snapshot(revision: u64, value: &ValueHandle) -> Vec<u8> {
+    Snapshot::new(revision, value.value.clone()).encode()
+}
 
-    #[wasm_bindgen(js_name = decode)]
-    pub fn decode(bytes: &[u8]) -> Result<Self, JsValue> {
-        Update::decode(bytes)
-            .map(|update| Self { update })
-            .map_err(|error| codec_error(error, "update_decode"))
-    }
+#[wasm_bindgen(js_name = decodeSnapshotEnvelope)]
+pub fn decode_snapshot_envelope(bytes: &[u8]) -> Result<JsValue, JsValue> {
+    let snapshot = Snapshot::decode(bytes).map_err(|error| codec_error(error, "snapshot_decode"))?;
+    let object = js_sys::Object::new();
+    set(&object, "revision", &JsValue::from(snapshot.revision()));
+    set(&object, "value", &value_to_js(snapshot.content()));
+    Ok(freeze(object))
+}
 
-    pub fn encode(&self) -> Vec<u8> {
-        self.update.encode()
-    }
-
-    pub fn revision(&self) -> u64 {
-        self.update.revision()
-    }
-
-    #[wasm_bindgen(js_name = updateId)]
-    pub fn update_id(&self) -> u64 {
-        self.update.update_id()
-    }
-
-    #[wasm_bindgen(js_name = changeHandle)]
-    pub fn change_handle(&self) -> ChangeHandle {
-        ChangeHandle {
-            change: self.update.change().clone(),
-        }
-    }
-
-    #[wasm_bindgen(js_name = cloneHandle)]
-    pub fn clone_handle(&self) -> Self {
-        Self {
-            update: self.update.clone(),
-        }
-    }
+#[wasm_bindgen(js_name = decodeSnapshotValue)]
+pub fn decode_snapshot_value(bytes: &[u8]) -> Result<ValueHandle, JsValue> {
+    let snapshot = Snapshot::decode(bytes).map_err(|error| codec_error(error, "snapshot_decode"))?;
+    Ok(ValueHandle {
+        value: snapshot.content().clone(),
+    })
 }
 
 #[wasm_bindgen]

@@ -5,20 +5,27 @@ description: Typed Document events, listener isolation, and teardown.
 
 # Events and lifecycle
 
-`Document.on()` accepts exactly `change` or `error` and returns an unsubscribe
-function. Register listeners before applying edits and keep each unsubscribe
-function with the editor or service that owns it.
+`Document.subscribe()` accepts either a change subscriber function or an object
+with `onChange` and optional `onError`, returning an unsubscription closure `() => void`.
+Register listeners before applying edits and keep each unsubscribe function with the
+editor or service that owns it.
 
 ## Change events
 
 ```ts
 // `editor`, `outboundQueue`, `metrics`, and `report` are application adapters.
-const stop = document.on('change', event => {
-  if (event.origin === 'local') {
-    outboundQueue.push(event.revision)
-    return
-  }
-  editor.applyEditSteps(event.editSteps)
+const stop = document.subscribe({
+  onChange: event => {
+    if (event.origin === 'local') {
+      outboundQueue.push(event.revision)
+      return
+    }
+    editor.applyEditSteps(event.editSteps)
+  },
+  onError: ({ error }) => {
+    metrics.increment('document.listener_error')
+    report(error)
+  },
 })
 ```
 
@@ -34,21 +41,14 @@ Every change event is emitted after the state transition commits:
 It contains paths and editor-facing operations, including UTF-16 positions where
 appropriate. The event does not expose the internal owned Change handle.
 
-## Error events
-
-```ts
-document.on('error', ({ error }) => {
-  metrics.increment('document.listener_error')
-  report(error)
-})
-```
+## Error isolation
 
 If a change listener throws, the Document remains committed, remaining change
-listeners still run, and the thrown value is delivered to error listeners (or
-logged to `console.error` if no error listeners are registered).
-Error-listener failures are swallowed and never recursively reported. Errors
-from `applyLocal`, `applyRemote`, or `ack` are operation failures instead;
-they are thrown to the caller and do not become events.
+listeners still run, and the thrown value is delivered to `onError` (or logged to
+`console.error` if no error subscriber is registered). Error-listener failures
+are swallowed and never recursively reported. Errors from `transact`,
+`applyRemote`, or `ack` are operation failures instead; they are thrown directly
+to the caller and do not become events.
 
 ## Teardown rules
 

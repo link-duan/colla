@@ -16,30 +16,31 @@ Value and Change operations directly when the caller owns document state.
 ```text
 Core Value + confirmed revision
              │
-             ├─ applyLocal(Change) ──> visible value + pending Update
-             │                                  │
-             │                                  └─ application transport
+             ├─ transact(tx => ...) ──> visible value + pending Update
+             │                                   │
+             │                                   └─ application transport (update.bytes)
              │
-             ├─ applyRemote(server Update) ──> rebase pending locals
-             │                                  │
-             │                                  └─ remote change event
+             ├─ applyRemote(bytes | Update) ──> rebase pending locals
+             │                                   │
+             │                                   └─ subscriber (remote editSteps)
              │
-             └─ ack(oldest updateId) ──> confirmed revision advances
+             └─ ack(updateId) ───────────────> confirmed revision advances (cumulative)
 ```
 
 ```ts
-import { Document, Update, Change, text } from 'colla-ot'
+import { Document, text } from 'colla-ot'
 
 const document = Document.fromJS(text('Draft'))
 // `editor` and `transport` are application-provided adapters.
-const stop = document.on('change', event => {
+const stop = document.subscribe(event => {
   if (event.origin === 'remote') editor.applyEditSteps(event.editSteps)
 })
 
-const change = Change.build(edit => edit.text(t => t.retain(5).insert(' v2')))
-const outbound = document.applyLocal(change)
-await transport.send(outbound.encode())
-document.applyRemote(Update.decode(await transport.receive()))
+const outbound = document.transact(tx => {
+  tx.text([], t => t.retain(5).insert(' v2'))
+})
+await transport.send(outbound.bytes)
+document.applyRemote(await transport.receive())
 document.ack(outbound.updateId)
 
 stop()

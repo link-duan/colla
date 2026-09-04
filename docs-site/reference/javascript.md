@@ -48,50 +48,79 @@ Update arrives.
 | `Document.fromJS(value, revision?, options?)` | Create a document from structured Core Value input; revision accepts `number` or `bigint` (defaults to `0n`). |
 | `Document.fromSnapshot(snapshot)` | Restore visible content and revision from a `Snapshot`; pending state is empty. |
 | `revision` | Current visible revision as an unsigned 64-bit `bigint`. |
+| `confirmedRevision` | Latest confirmed revision acknowledged by server as an unsigned 64-bit `bigint`. |
+| `hasPending` | Boolean indicating whether there are unconfirmed pending local changes. |
+| `pendingCount` | Number of unconfirmed local updates currently in the pending queue. |
 | `value()` | Return an independently owned `ValueHandle` for visible content. |
 | `get(path)` | Resolve a Snapshot-relative Path and borrow target `Value` without handle management. |
 | `has(path)` | Check if a Snapshot-relative Path exists in visible content. |
 | `kind(path?)` | Return the `ValueKind` at the given path (defaults to root). |
 | `resolveCodePointPosition(path, pos)` | Convert a UTF-16 position in Text/RichText to a Unicode scalar position. |
 | `resolveUtf16Position(path, pos)` | Convert a Unicode scalar position in Text/RichText to a UTF-16 position. |
-| `snapshot()` | Create a persistence Snapshot of visible content and revision. |
-| `applyLocal(change \| builder, options?)` | Apply a Core Change or builder callback, emit a local event, and return the Update. |
-| `applyRemote(update)` | Apply the next server-ordered Update and rebase pending local changes. |
-| `ack(updateId)` | Acknowledge the oldest pending Update by its instance-local ID (accepts `number` or `bigint`). |
-| `on(event, listener)` | Subscribe to `change` or `error`; returns an unsubscribe function. |
+| `snapshot()` | Create an immutable, pure `Snapshot` `{ revision, bytes, value }` of visible content. |
+| `transact(fn)` | Execute an atomic mutation transaction on visible content; returns an immutable `Update`. |
+| `applyRemote(updateOrBytes)` | Apply next server-ordered `Update` or raw `Uint8Array` bytes and rebase pending local changes. |
+| `ack(updateId)` | Acknowledge pending local updates cumulatively up to `updateId` (accepts `number` or `bigint`). |
+| `subscribe(subscriber)` | Subscribe to document change and error events; returns an unsubscription function `() => void`. |
 | `dispose()` / `Symbol.dispose` | Release owned Wasm resources; disposal is idempotent. |
+
+### `TransactionContext`
+
+`doc.transact((tx: TransactionContext) => void)` provides an ergonomic, atomic mutation interface.
+Parent map and list containers are automatically created if intermediate paths do not exist.
+
+| Method | Contract |
+| --- | --- |
+| `tx.set(path, value)` | Replace or insert a value at the specified Path. |
+| `tx.delete(path)` | Delete a key from a Map or an element from a List. |
+| `tx.text(path, editOrOps)` | Mutate a Text node with a builder callback, edit step, or operations. |
+| `tx.list(path, editOrOps)` | Mutate a List node with retain, insert, delete, or modify operations. |
 
 The normal application boundary looks like this:
 
 ```ts
-import { Document, Change, text } from 'colla-ot'
+import { Document, text } from 'colla-ot'
 
-const document = Document.fromJS(text('Draft'))
-const unsubscribe = document.on('change', event => {
-  editor.applyEditSteps(event.editSteps)
+const document = Document.fromJS({ title: 'Draft', content: text('Hello') })
+const unsubscribe = document.subscribe({
+  onChange: event => {
+    if (event.origin === 'remote') editor.applyEditSteps(event.editSteps)
+  },
+  onError: ({ error }) => {
+    console.error('Document listener failed:', error)
+  },
 })
 
-const change = Change.build(builder => {
-  builder.text(textChange => textChange.retain(5).insert(' v2'))
+const update = document.transact(tx => {
+  tx.text(['content'], t => t.retain(5).insert(' world'))
 })
 
-const update = document.applyLocal(change)
-await transport.send(update.encode())
-document.ack(update.updateId) // after the server accepts this Update
+await transport.send(update.bytes)
+document.ack(update.updateId) // cumulative ACK after server acceptance
 
 unsubscribe()
+document.dispose()
 ```
 
-`applyLocal()` changes visible content immediately. `Update.revision` is the
+`transact()` changes visible content immediately and emits a `'local'` change event. `Update.revision` is the
 base revision captured before that local change; `Document.revision` advances
 for each visible local or remote change. Acknowledgements do not emit a change
 event because they do not change visible content.
 
-### `Document` events
+### `Document` events and subscriptions
 
-The `change` event is an immutable, editor-oriented projection:
+`document.subscribe(subscriber)` accepts either a direct listener function or an object with `onChange` and optional `onError`:
 
 ```ts
+type DocumentChangeSubscriber = (event: DocumentChangeEvent) => void
+type DocumentErrorSubscriber = (event: DocumentErrorEvent) => void
+type DocumentSubscriber =
+  | DocumentChangeSubscriber
+  | {
+      readonly onChange: DocumentChangeSubscriber
+      readonly onError?: DocumentErrorSubscriber
+    }
+
 type DocumentChangeEvent = {
   readonly origin: 'local' | 'remote'
   readonly editSteps: readonly EditStep[]
@@ -104,43 +133,53 @@ type DocumentErrorEvent = { readonly error: unknown }
 Edit steps use Snapshot-relative paths and UTF-16 positions where a text editor
 expects them. The event does not expose an owned Core `Change`. If a change
 listener throws, the state transition remains committed, other listeners still
-run, and the thrown value is sent to `error` listeners. Errors from error
-listeners are ignored to prevent recursive reporting.
+run, and the thrown value is sent to `onError` (or logged to `console.error` if omitted).
 
 ### `Snapshot`
 
-`Snapshot` is a content checkpoint, not a synchronization session. Its payload
-is `(revision: u64, content: Value)` inside the `COLLAS` protocol envelope.
+`Snapshot` is an immutable, pure JavaScript checkpoint object representing visible content at a specific revision:
+
+```ts
+interface Snapshot {
+  readonly revision: bigint
+  readonly bytes: Uint8Array
+  readonly value: Value
+}
+```
 
 | Member | Contract |
 | --- | --- |
-| `Snapshot.fromValue(value, revision?)` | Wrap a Core Value handle; defaults revision to `0n`. |
-| `Snapshot.fromJS(value, revision?)` | Construct from structured JavaScript Value input. |
-| `Snapshot.decode(bytes)` | Strictly decode a `COLLAS` envelope from `Uint8Array`. |
+| `Snapshot.decode(bytes)` | Strictly decode a `COLLAS` envelope from `Uint8Array` into a pure `Snapshot`. |
+| `Snapshot.fromValue(value, revision?)` | Create a `Snapshot` from a Core `ValueHandle`; defaults revision to `0n`. |
+| `Snapshot.fromJS(input, revision?, options?)` | Construct a `Snapshot` from structured JavaScript Value input. |
 | `revision` | Stored revision as `bigint`. |
-| `content()` | Return an independently owned content handle. |
-| `encode()` | Return fresh envelope bytes. |
-| `clone()` / `dispose()` | Clone or release the envelope resource. |
+| `bytes` | Canonical binary `COLLAS` envelope as `Uint8Array`. |
+| `value` | JavaScript structured Value tree. |
 
+`Snapshot` holds no WebAssembly resources and does not require manual `dispose()`.
 Restoring a Snapshot deliberately discards pending Updates, acknowledgements,
-rebase state, transport state, and listeners. Persist an application-owned
-outbound queue as well if crash-safe delivery is required.
+rebase state, transport state, and listeners.
 
 ### `Update`
 
-`Update` carries one Core Change and the metadata needed by the local Document
-queue. Its payload is `(revision: u64, updateId: u64, change: Change)` inside a
-`COLLAU` envelope.
+`Update` is an immutable, pure JavaScript object carrying one versioned change and the metadata needed by the local Document queue:
+
+```ts
+interface Update {
+  readonly revision: bigint
+  readonly updateId: bigint
+  readonly bytes: Uint8Array
+}
+```
 
 | Member | Contract |
 | --- | --- |
-| `Update.fromChange(revision, updateId, change)` | Construct an envelope around a Core Change. |
-| `Update.decode(bytes)` | Strictly decode a `COLLAU` envelope from `Uint8Array`. |
+| `Update.decode(bytes)` | Strictly decode a `COLLAU` envelope from `Uint8Array` into a pure `Update`. |
 | `revision` | Base revision at which the Change was created. |
-| `updateId` | Per-Document `bigint` used for FIFO acknowledgement correlation. |
-| `change()` | Return an independently owned Core Change handle. |
-| `encode()` / `clone()` / `dispose()` | Encode, clone, or release the envelope. |
+| `updateId` | Per-Document `bigint` used for cumulative acknowledgement correlation. |
+| `bytes` | Canonical binary `COLLAU` envelope as `Uint8Array`. |
 
+`Update` holds no WebAssembly resources and does not require manual `dispose()`.
 `updateId` starts at `1n` for each Document instance. It is not persisted in a
 Snapshot and is not a globally unique operation identity.
 ## Values
@@ -299,11 +338,13 @@ try {
 
 ### Resource lifecycle
 
-`ValueHandle`, `Change`, `Snapshot`, and `Update` own Wasm-backed resources.
-Clones have independent ownership. Garbage-collection finalizers eventually
-release unreachable objects, but long-running or allocation-heavy applications
-should call `dispose()` (or `Symbol.dispose`) at a known ownership boundary.
-Disposal is idempotent; using a disposed handle reports `invalid_state`.
+`Document`, `ValueHandle`, and `Change` own Wasm-backed resources and provide `dispose()`
+(and `Symbol.dispose`) for deterministic release. Cloned `ValueHandle` instances have
+independent ownership. Disposal is idempotent; invoking methods on a disposed handle throws `invalid_state`.
+
+In contrast, `Snapshot` and `Update` are pure, immutable JavaScript values. They hold no
+WebAssembly handles and require zero manual memory management, relying entirely on standard
+JavaScript garbage collection.
 
 ## Related pages
 
