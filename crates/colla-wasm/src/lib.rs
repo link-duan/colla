@@ -170,7 +170,8 @@ pub fn encode_snapshot(revision: u64, value: &ValueHandle) -> Vec<u8> {
 
 #[wasm_bindgen(js_name = decodeSnapshotEnvelope)]
 pub fn decode_snapshot_envelope(bytes: &[u8]) -> Result<JsValue, JsValue> {
-    let snapshot = Snapshot::decode(bytes).map_err(|error| codec_error(error, "snapshot_decode"))?;
+    let snapshot =
+        Snapshot::decode(bytes).map_err(|error| codec_error(error, "snapshot_decode"))?;
     let object = js_sys::Object::new();
     set(&object, "revision", &JsValue::from(snapshot.revision()));
     set(&object, "value", &value_to_js(snapshot.content()));
@@ -179,7 +180,8 @@ pub fn decode_snapshot_envelope(bytes: &[u8]) -> Result<JsValue, JsValue> {
 
 #[wasm_bindgen(js_name = decodeSnapshotValue)]
 pub fn decode_snapshot_value(bytes: &[u8]) -> Result<ValueHandle, JsValue> {
-    let snapshot = Snapshot::decode(bytes).map_err(|error| codec_error(error, "snapshot_decode"))?;
+    let snapshot =
+        Snapshot::decode(bytes).map_err(|error| codec_error(error, "snapshot_decode"))?;
     Ok(ValueHandle {
         value: snapshot.content().clone(),
     })
