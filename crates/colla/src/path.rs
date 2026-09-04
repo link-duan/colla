@@ -44,30 +44,6 @@ impl Path {
         self
     }
 
-    /// Appends a Map key and returns the extended Path.
-    ///
-    /// Prefer [`Path::with_key`] when building a Path fluently.
-    pub fn push_key(self, key: impl Into<String>) -> Self {
-        self.with_key(key)
-    }
-
-    /// Appends a List index and returns the extended Path.
-    ///
-    /// Prefer [`Path::with_index`] when building a Path fluently.
-    pub fn push_index(self, index: usize) -> Self {
-        self.with_index(index)
-    }
-
-    /// Appends a Map key in place.
-    pub fn push_key_mut(&mut self, key: impl Into<String>) {
-        self.0.push(PathSeg::Key(key.into()));
-    }
-
-    /// Appends a List index in place.
-    pub fn push_index_mut(&mut self, index: usize) {
-        self.0.push(PathSeg::Index(index));
-    }
-
     /// Appends one segment in place.
     pub fn push(&mut self, segment: PathSeg) {
         self.0.push(segment);
