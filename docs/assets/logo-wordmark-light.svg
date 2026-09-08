@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 60" fill="none" width="180" height="60">
+  <!-- Colla Horizontal Lockup (Light Mode) -->
+  <g transform="translate(6, 10) scale(0.4)">
+    <polygon points="18,80 44,20 60,20 34,80" fill="#090D14"/>
+    <polygon points="40,80 66,20 82,20 56,80" fill="#71717A"/>
+  </g>
+  <text x="56" y="38" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter', 'Segoe UI', sans-serif" font-size="28" font-weight="800" letter-spacing="-0.8" fill="#090D14">Colla</text>
+</svg>

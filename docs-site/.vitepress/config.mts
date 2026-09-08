@@ -20,7 +20,10 @@ export default defineConfig({
     ['meta', { name: 'color-scheme', content: 'dark light' }],
   ],
   themeConfig: {
-    logo: '/colla-logo.svg',
+    logo: {
+      light: '/logo-light.svg',
+      dark: '/logo-dark.svg',
+    },
     siteTitle: 'Colla',
     nav: [
       { text: 'Docs', link: '/docs/getting-started', activeMatch: '/docs/' },

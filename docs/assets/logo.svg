@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" fill="none" width="100%" height="100%">
+  <!-- Colla Brand Identity: Kinetic Strata (Adaptive Theme) -->
+  <style>
+    .colla-primary { fill: #090D14; }
+    .colla-secondary { fill: #71717A; }
+    @media (prefers-color-scheme: dark) {
+      .colla-primary { fill: #FFFFFF; }
+      .colla-secondary { fill: #71717A; }
+    }
+  </style>
+  <!-- Left Primary Strata: Canonical Snapshot -->
+  <polygon class="colla-primary" points="18,80 44,20 60,20 34,80"/>
+  <!-- Right Secondary Strata: Concurrent Change / Update -->
+  <polygon class="colla-secondary" points="40,80 66,20 82,20 56,80"/>
+</svg>
