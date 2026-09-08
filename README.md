@@ -1,12 +1,10 @@
-<p align="center">
+<h1>
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/assets/logo-dark.svg">
     <source media="(prefers-color-scheme: light)" srcset="docs/assets/logo-light.svg">
-    <img alt="Colla" src="docs/assets/logo-dark.svg" width="72" height="72">
-  </picture>
-</p>
-
-# Colla
+    <img alt="Colla" src="docs/assets/logo-dark.svg" width="32" height="32" align="center">
+  </picture>&nbsp;Colla
+</h1>
 
 Colla provides Rust-native Operational Transformation primitives for immutable,
 nested values, plus a JavaScript Document model. The same data model, canonical
