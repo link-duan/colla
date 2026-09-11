@@ -1,6 +1,6 @@
 # Core Value、Change 与 JavaScript 边界
 
-状态：Accepted
+状态：Superseded by [ADR 0007](0007-stable-element-identity-and-native-move.md) for 0.4.0
 
 Core Value 使用封闭、严格的递归模型；JavaScript 输入必须通过明确的 Value marker、
 typed Change Input 或纯 TypeScript Builder 进入 Core。普通 JavaScript string 是原子

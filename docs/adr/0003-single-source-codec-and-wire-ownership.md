@@ -1,6 +1,6 @@
 # Canonical codec 单一实现与 wire ownership
 
-状态：Accepted
+状态：Superseded by [ADR 0007](0007-stable-element-identity-and-native-move.md) for 0.4.0
 
 Canonical Value/Change codec 只有一个事实来源，由 Rust Core 拥有。Wasm 边界传递结构化
 Value/Change 数据，JavaScript facade 不复制 varint、tag、排序或字节布局规则；编码和

@@ -1,0 +1,24 @@
+{
+  "sourceCommit": "d0ffba93386d44c1b7062647d589a97a946f0709",
+  "note": "Supplementary old-API measurements. Memory uses 6000 Document set transactions; History/SyncSession did not exist. Original microbenchmarks were recorded separately.",
+  "milliseconds": {
+    "encode": 0.0007232500000000073,
+    "decode": 0.0020930000000000037
+  },
+  "memory": {
+    "edits": 6000,
+    "warm": {
+      "heap": 5499200,
+      "wasm": 1966080
+    },
+    "final": {
+      "heap": 6660776,
+      "wasm": 3538944
+    }
+  },
+  "browserEntry": {
+    "raw": 671624,
+    "gzip": 219263,
+    "brotli": 169659
+  }
+}

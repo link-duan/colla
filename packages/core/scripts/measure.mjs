@@ -1,3 +1,4 @@
+import { rollup } from "rollup"
 import { execFileSync } from "node:child_process"
 import { brotliCompressSync, gzipSync } from "node:zlib"
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
@@ -23,10 +24,11 @@ execFileSync("pnpm", ["build"], {
 
 const {
   Change,
-  ValueHandle,
+  Value,
+  Document,
   apply,
   compose,
-  transformPair,
+  transform,
 } = await import(pathToFileURL(resolve(packageDir, "dist/node.js")))
 
 function median(values) {
@@ -73,6 +75,7 @@ function formatMarkdown(result, json) {
   const sizeRows = [
     ["Wasm binary", result.sizes.wasm],
     ["Browser base64 module", result.sizes.browserBase64],
+    ["Complete browser ESM bundle", result.sizes.browserEntry],
     ["npm tarball", result.sizes.npmTarball],
   ].map(([name, sizes]) =>
     `| ${name} | ${formatBytes(sizes.raw)} | ${formatBytes(sizes.gzip)} | ${formatBytes(sizes.brotli)} |`)
@@ -80,10 +83,12 @@ function formatMarkdown(result, json) {
   const timingRows = [
     ["Synchronous initialization", result.milliseconds.synchronousInitialization],
     ["Value.fromJS + toJS", result.milliseconds.valueFromJS],
-    ["Change builder", result.milliseconds.builder],
+    ["Transaction", result.milliseconds.builder],
     ["Apply", result.milliseconds.apply],
     ["Compose", result.milliseconds.compose],
-    ["Transform pair", result.milliseconds.transformPair],
+    ["Encode", result.milliseconds.encode],
+    ["Decode", result.milliseconds.decode],
+    ["Transform", result.milliseconds.transform],
   ].map(([name, milliseconds]) => `| ${name} | ${formatMilliseconds(milliseconds)} |`)
 
   return [
@@ -132,43 +137,22 @@ const input = {
   meta: { status: "draft" },
   items: ["a", "b", "c"],
 }
-const base = ValueHandle.fromJS(input)
-const first = Change.build(change => change.map(map =>
-  map.modify("count", value => value.intAdd(1n))))
-const afterFirst = apply(base, first)
-const second = Change.build(change => change.map(map =>
-  map.modify("count", value => value.intAdd(2n))))
-const concurrent = Change.build(change => change.map(map =>
-  map.modify("count", value => value.intAdd(3n))))
-
+const base = Value.fromJS(input)
+const counter = base.idAt(["count"])
+const first = Change.create([{ type: "add", target: counter, delta: 1n }])
+const second = Change.create([{ type: "add", target: counter, delta: 2n }])
+const concurrent = Change.create([{ type: "add", target: counter, delta: 3n }])
+const bytes = base.encode()
 const timings = {
-  valueFromJS: benchmark(200, () => {
-    const value = ValueHandle.fromJS(input)
-    value.toJS()
-    value.dispose()
-  }),
-  builder: benchmark(200, () => {
-    const change = Change.build(change => change.map(map =>
-      map.modify("meta", meta => meta.map(value =>
-        value.modify("status", status => status.replace("ready"))))))
-    change.dispose()
-  }),
-  apply: benchmark(500, () => {
-    const value = apply(base, first)
-    value.dispose()
-  }),
-  compose: benchmark(500, () => {
-    const change = compose(first, second)
-    change.dispose()
-  }),
-  transformPair: benchmark(500, () => {
-    const pair = transformPair(first, concurrent, { order: "left-first" })
-    pair[0].dispose()
-    pair[1].dispose()
-  }),
+  valueFromJS: benchmark(200, () => Value.fromJS(input).toJS()),
+  builder: benchmark(200, () => { const doc = Document.create(base); doc.edit(tx => tx.set(["meta", "status"], "ready")); doc.close() }),
+  apply: benchmark(500, () => apply(base, first)),
+  compose: benchmark(500, () => compose(base, first, second)),
+  transform: benchmark(500, () => transform(base, first, concurrent, { priority: "left" })),
+  encode: benchmark(500, () => base.encode()),
+  decode: benchmark(500, () => Value.decode(bytes)),
 }
-
-for (const handle of [base, first, afterFirst, second, concurrent]) handle.dispose()
+const memory = JSON.parse(execFileSync(process.execPath, ["--expose-gc", resolve(packageDir, "tests/memory.mjs")], { cwd: packageDir, encoding: "utf8" }))
 
 const initSamples = Array.from({ length: 5 }, () => Number(JSON.parse(execFileSync(
   process.execPath,
@@ -185,10 +169,14 @@ try {
   })
   const tarballName = `${packageJson.name.replace(/^@/, "").replace("/", "-")}-${packageJson.version}.tgz`
   const tarball = await readFile(join(fixtureDir, tarballName))
-  const wasmPath = resolve(packageDir, "dist/internal/colla_wasm_bg.wasm")
+  const wasmPath = resolve(packageDir, "src/internal/colla_wasm_bg.wasm")
   const browserBase64Path = resolve(packageDir, "dist/internal/wasm_base64.js")
   const wasm = await readFile(wasmPath)
   const browserBase64 = await readFile(browserBase64Path)
+  const bundle = await rollup({ input: resolve(packageDir, "dist/browser.js"), treeshake: false })
+  const generated = await bundle.generate({ format: "es" })
+  await bundle.close()
+  const browserEntry = Buffer.from(generated.output.map(chunk => chunk.code ?? "").join("\n"))
   const result = {
     version: packageJson.version,
     environment: {
@@ -196,9 +184,11 @@ try {
       platform: process.platform,
       arch: process.arch,
     },
+    memory,
     sizes: {
       wasm: compressedSizes(wasm),
       browserBase64: compressedSizes(browserBase64),
+      browserEntry: compressedSizes(browserEntry),
       npmTarball: compressedSizes(tarball),
     },
     milliseconds: {
@@ -211,6 +201,18 @@ try {
   await writeOutput("--output", json)
   await writeOutput("--markdown-output", markdown)
   process.stdout.write(markdown)
+  const budgets = JSON.parse(await readFile(resolve(packageDir, "size-budget.json"), "utf8"))
+  const exceeded = []
+  for (const [artifact, limits] of Object.entries(budgets)) {
+    for (const [encoding, limit] of Object.entries(limits)) {
+      const actual = result.sizes[artifact]?.[encoding]
+      if (!Number.isSafeInteger(limit) || limit <= 0 || !Number.isSafeInteger(actual)) {
+        throw new Error(`Invalid artifact size budget: ${artifact}.${encoding}`)
+      }
+      if (actual > limit) exceeded.push(`${artifact}.${encoding}: ${actual} > ${limit} bytes`)
+    }
+  }
+  if (exceeded.length) throw new Error(`Artifact size budget exceeded:\n${exceeded.join("\n")}`)
 } finally {
   await rm(fixtureDir, { recursive: true, force: true })
 }

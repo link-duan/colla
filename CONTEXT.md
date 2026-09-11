@@ -1,128 +1,141 @@
 # Colla
 
-Colla 定义不可变嵌套文档及其 Operational Transformation 领域语言，使不同语言
-的实现共享同一套变更语义。
+Colla 定义不可变结构化内容及其中心化协作编辑领域语言。
 
 ## Language
 
-**Colla Core**:
-定义 Core Value、Change、OT 代数和规范 codec 的基础能力边界；它不拥有
-Document、Session、历史、同步协议、网络传输或其他应用层协作状态。
-_Avoid_: Collaboration runtime, document framework
-
-**Document**:
-拥有当前可见内容与本地运行态的内容状态模型，围绕 Snapshot 和 Update 为 Consumer 提供内容恢复、
-本地/远程变更应用与可观察事件；它不等同于 Core Value 或 Change。
+**Core Value**:
+具有稳定身份的不可变拥有型内容树；包含标量、容器、Text、RichText 与 Ref。
+_Avoid_: JSON value, Document
 
 **Snapshot**:
-Document 的本地持久化 envelope，包含 revision 与完整 Core Value 内容；它不同于 Core
-语义中作为 Change 基准的 Snapshot。
+某一时刻的不可变完整 Core Value；其查询与引用解析仅观察该时刻的内容。
+_Avoid_: 已确认服务端状态, SyncSnapshot
 
-**Update**:
-Document 使用的可交换变更 envelope，包含基准 revision、当前 Document 实例内的 updateId
-以及一个 Core Change；它不是纯 Change，也不包含 client identity。
-
-**Core Value**:
-Colla 支持的不可变、封闭值树；它不等同于任意 JavaScript value。
-_Avoid_: Document, JSON value
-
-**Core Snapshot**:
-某一时刻的完整 Core Value，作为 Change 的基准状态；它与 Document 的可持久化 Snapshot 不同。
-_Avoid_: Document state
-
-**Value Handle**:
-JavaScript API 中对一个 Snapshot 的拥有型引用；它参与 OT 代数，但不等同于可递归读取的
-Core Value 数据。
-_Avoid_: Value, Core Value
-
-**Change**:
-相对于 Snapshot 的规范化前向操作；它不包含旧值、版本、作者或 operation identity。
-_Avoid_: Patch, event, command
-
-**Change Input**:
-JavaScript 构造 Change 使用的递归 typed input；它不是 Change 的规范内存表示、
-Change View、Edit Steps 或 wire format。
-_Avoid_: Change Data, serialized Change, Change View, Edit Steps
-
-**Change View**:
-结合 Change 与其 Snapshot 派生、将操作流展开为定位编辑事件的只读投影；它不是 Change
-的规范表示或构造输入。
-_Avoid_: Change Input, serialized Change, Edit Steps
-
-**Edit Steps**:
-结合 Change 与其 Snapshot 派生、保留 Core Change 原生操作边界的只读编辑投影；根 Path
-相对 Snapshot，List Modify 内嵌步骤相对被修改元素。
-_Avoid_: Change Input, serialized Change, Change View
+**Element ID**:
+元素实例的稳定身份，独立于内容、位置和同步请求身份。
+_Avoid_: List index, content hash, request identity
 
 **Path**:
-相对于特定 Snapshot 的临时 Map key/List index 导航地址，不属于 Change。
-_Avoid_: Change address
+特定 Snapshot 中由 Map key 和 List index 组成的临时导航地址。
+_Avoid_: Stable identity
 
-**Tie-break**:
-上层为无法由内容决定顺序的并发 Change 提供的一致、确定性左右优先规则。
-_Avoid_: Timestamp, operation identity
+**Move**:
+改变同一元素的拥有位置，同时保留它及其后代身份的原生结构编辑。
+_Avoid_: Copy, unrelated Delete and Insert
+
+**Copy**:
+创建一棵具有新拥有型身份的内容副本，并将内部 Ref 重映射到对应新元素。
+_Avoid_: Move, identity-preserving restore
+
+**Ref**:
+指向同一文档内某个 Element ID 的原子弱引用；允许悬空，解析只前进一步。
+_Avoid_: Owning edge, automatic traversal, cross-document reference
+
+**Change**:
+按执行顺序排列的规范操作序列；结构目标使用元素身份，序列坐标相对各步内容。
+_Avoid_: Event, protocol message, recursive patch
+
+**Edit Steps**:
+一次提交的可顺序重放操作投影，保留 Move 的来源身份和移动语义。
+_Avoid_: UI diff, UTF-16 cursor events
+
+**Document**:
+拥有当前可见内容及本地编辑状态的运行态对象。
+_Avoid_: Core Value, server revision
+
+**Transaction**:
+在同步作用域内积累并原子提交一组内容编辑的工作状态。
+_Avoid_: Long-lived editor, database transaction
+
+**Local version**:
+Document 可见内容成功提交的本地顺序号。
+_Avoid_: Server revision
+
+**History**:
+保存、分组并随远程编辑重基本地撤销与重做意图的状态。
+_Avoid_: Authority log, time-based grouping
+
+**SyncSnapshot**:
+某个文档在指定服务端 revision 的已确认内容。
+_Avoid_: Unconfirmed content snapshot
+
+**SyncSession**:
+协调已确认基准、在途请求、缓冲编辑和本地可见内容的客户端状态机。
+_Avoid_: Network connection, presence session
+
+**Submission**:
+由文档身份、客户端身份、单调序号、基准 revision 和 Change 确定的一次提交请求。
+_Avoid_: Element identity, mutable rebased payload
+
+**Commit**:
+Authority 正式排序并赋予服务端 revision 的提交；自身 Commit 同时完成请求确认。
+_Avoid_: Local edit result, independent ack
+
+**Authority**:
+维护单一提交顺序、历史基准和请求去重信息的服务端协作状态。
+_Avoid_: Database, transport, authentication service
+
+**SessionCheckpoint**:
+足以恢复客户端可见内容、同步状态和已启用 History 的完整会话恢复点。
+_Avoid_: Value, SyncSnapshot
+
+**Recovery-required**:
+无法安全继续重基时保留本地工作、停止同步发送并等待显式恢复的状态。
+_Avoid_: Automatic reset, dropped pending work
+
+**Priority**:
+对并发意图需要裁决时采用的一致左右优先规则。
+_Avoid_: Timestamp, Element ID order
+
+**Structural conflict**:
+并发合并导致拥有环、目标父节点失效或无法安全解决的 Map 占用。
+_Avoid_: Silent data removal, any concurrent Move
 
 **Canonical form**:
-同一 Colla 语义唯一合法的结构与编码表示。
-_Avoid_: Normal-looking form
+单个受控对象经规范化后的确定表示；不意味着所有效果相同的多步 Change 都具有相同序列。
+_Avoid_: Arbitrary field object, semantic equivalence class
 
 **Wire compatibility**:
-不同 Colla 版本能否直接交换或读取规范二进制 body；它独立于单一版本内的
-Canonical form，不因编码唯一就自动成立。
+版本之间直接交换规范二进制对象的能力，与单版本内编码的确定性分别定义。
 _Avoid_: Canonical encoding
 
 **Golden fixtures**:
-语言中立的固定回归用例，锁定 Colla 的规范输入、输出、规范字节和稳定错误
-分类；`colla` reference implementation 与 `colla-ot` facade 共享同一份用例验证自身，
-它们是回归证据而非规范性定义，也不是不同独立实现之间的差分证明。
-_Avoid_: Conformance corpus, executable specification
+Rust 与 JavaScript 共享的固定输入、输出和规范字节回归证据。
+_Avoid_: Independent implementation proof, normative specification
 
-**Golden fixture**:
-Golden fixtures 中的单个用例，用语言中立表示描述输入及其固定期望的输出、
-规范字节或稳定错误分类；它不是 Change 的规范内存表示、wire format 或构造用的
-Change Input。
-_Avoid_: Conformance fixture, serialized Change, Change View
-
-**Error code**:
-跨实现稳定的错误分类（如 `type_mismatch`、`out_of_bounds`），由核心 `ErrorCode`
-拥有，供 golden fixture 与跨语言契约断言；区别于各实现内部的富错误枚举。
-_Avoid_: error kind, error variant
+**CollaError**:
+通过稳定 code、operation 和 details 描述失败的公开错误。
+_Avoid_: Error message parsing
 
 **String**:
-只能整体替换的原子字符串，不参与字符级 Operational Transformation。
+只能整体替换的原子字符串。
 _Avoid_: Text
 
 **Text**:
-按 Unicode scalar value 定位并支持字符级 Operational Transformation 的文本值。
-_Avoid_: String
+支持按 Unicode scalar 编辑的协作文本；日常 JavaScript 编辑接受 UTF-16 坐标。
+_Avoid_: String, grapheme sequence
 
 **Int**:
-具有完整 `i64` 精度并支持 checked Add 的整数值。
+具有完整 i64 精度并支持 checked Add 的整数。
 _Avoid_: JavaScript number
 
 **Float**:
-有限 IEEE-754 `f64` 值；它不支持 Add。
+有限 IEEE-754 f64 值，不支持 Add。
 _Avoid_: Int, NaN, Infinity
 
-**Embed**:
-RichText 中长度为 1 的原子 Core Value；它可以整体插入、删除或替换，但不能在
-RichText 内递归修改。
-_Avoid_: Nested collaborative document
-
 **RichText**:
-由规范化 Text span 与 Embed span 构成的序列，内容和格式属性共同参与 OT。
-_Avoid_: Quill Delta, HTML
+由文本片段和原子 Embed 构成、内容与属性共同参与 OT 的序列。
+_Avoid_: HTML, editor-specific delta
 
-**RichContent**:
-RichText span 或插入操作承载的 Text/Embed 内容；它描述内容本身，不表示一次插入行为。
-_Avoid_: Insert operation, block node
+**Embed**:
+RichText 中长度为 1 的原子 Core Value。
+_Avoid_: Independently editable nested document
 
 **Change position**:
-Text 或 RichText Change 中的逻辑位置；Rust 和 JavaScript 构造 API 均按 Unicode
-scalar value 表示，RichText Embed 占 1。
-_Avoid_: Grapheme index, byte offset
+低层 Text/RichText 操作中的 Unicode scalar 坐标，Embed 占一个位置。
+_Avoid_: UTF-16 offset, byte offset
 
-**Projection position**:
-结合 Snapshot 派生的 JavaScript 用户界面位置，使用 UTF-16 code unit，并可与
-Change position 显式转换。
-_Avoid_: Change position, byte offset
+**Editing position**:
+JavaScript 日常 Text/RichText 编辑中的 UTF-16 坐标，按每步当前内容解释。
+_Avoid_: Grapheme index, low-level Change position

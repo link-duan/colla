@@ -1,6 +1,6 @@
 # 稳定错误与 Wasm 资源生命周期
 
-状态：Accepted
+状态：Superseded by [ADR 0007](0007-stable-element-identity-and-native-move.md) for 0.4.0
 
 公共失败统一映射为 `CollaError`，稳定契约包含 `code`、`operation`、可选 `path` 和
 冻结 `details`。Core 拥有错误分类，JavaScript facade 只负责跨运行时映射；错误消息、

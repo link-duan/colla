@@ -3,7 +3,51 @@
 All notable public changes to the Rust `colla` crate and the `colla-ot`
 package are recorded here. Both artifacts always use the same version.
 
-## [Unreleased]
+## [Unreleased] — 0.4.0
+
+### Breaking redesign
+
+- Stable ElementId for owning roots, Map members and List elements. Native
+  cross-parent Move preserves complete subtree identity; Copy and set imports
+  remap internal Refs. Native weak Ref supports one-hop snapshot resolution and
+  reverse-reference queries, including dangling targets.
+- Ordered identity-targeted Change operations and explicit-base apply, compose,
+  invert and **transform** in Rust and JavaScript. Transform returns
+  left-after-right then right-after-left. No old-name aliases or context-free
+  structural algebra remain.
+- Immutable Value/Change/protocol objects without public Wasm handles or
+  clone/dispose requirements. Document.create/edit/snapshot, complete scoped
+  editors, synchronous isolated subscribe, stable CollaError, atomic Noop and
+  lifecycle contracts replace the old facade.
+- Rust-owned History, SyncSession and immutable Authority provide explicit
+  undo groups, remote rebasing, one in-flight request plus a buffer, immutable
+  retry payloads, formal Commit confirmation, deduplication, revision gaps,
+  history trimming and recovery that retains local work.
+- Distinct Value, SyncSnapshot, SessionCheckpoint, HistoryCheckpoint and
+  AuthorityCheckpoint persistence. Strict typed **version 2** Rust codecs
+  preserve identities and reject old formats. There is no compatibility layer.
+
+### Documentation
+
+- Rebuilt the site around Core, Editing, History and Sync, with dedicated examples,
+  production guides and API references. Old documentation routes are removed without
+  redirects. Topic, link and anchor checks plus executable examples guard against
+  content regressions.
+
+### Validation and artifact size
+
+- Regression coverage for transaction reentry/escape, payload/revision mismatch
+  and mutable external bytes; identity-aware property tests, shared Rust/JS v2
+  fixtures, three-client restart/retry simulation, malformed-input fuzz,
+  package installation, browser/Worker/bundler and memory tests.
+- Zero npm runtime dependencies. Removed the Wasm serde_json runtime dependency;
+  reused cocodec and scalar OT, removed obsolete structural OT, and added only
+  getrandom for identity namespace entropy. Release builds use size optimization
+  and LTO. Before/after measurements are recorded in docs/quality.
+- All guides, examples and package versions target the unreleased 0.4.0 development
+  version. Actual publication is separate from this implementation.
+
+## [0.3.0] — Previous development baseline
 
 ### Changed
 

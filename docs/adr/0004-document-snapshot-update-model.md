@@ -1,6 +1,6 @@
 # Document 与 Snapshot/Update 模型
 
-状态：Accepted
+状态：Superseded by [ADR 0007](0007-stable-element-identity-and-native-move.md) for 0.4.0
 
 JavaScript API 提供可变的 `Document`，以及用于本地持久化和应用层传输的
 `Snapshot`、`Update`。Snapshot 表示完整可见内容及其 revision；Update 表示基于某个

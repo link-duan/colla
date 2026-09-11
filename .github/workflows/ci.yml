@@ -98,6 +98,7 @@ jobs:
         with:
           workspaces: fuzz
       - run: cargo install cargo-fuzz --version 0.13.2 --locked
+      - run: python3 fuzz/seed.py
       - run: cargo fuzz run decode_value -- -max_total_time=60
       - run: cargo fuzz run decode_change -- -max_total_time=60
       - run: cargo fuzz run ot_algebra -- -max_total_time=60

@@ -1,21 +1,20 @@
 #![no_main]
-
-use colla::codec::{decode_change, encode_change};
+use colla::*;
 use libfuzzer_sys::fuzz_target;
-
-// Decoding untrusted bytes must never panic, and any change the strict decoder
-// accepts must be canonical: re-encoding it and decoding again yields the same
-// change with byte-stable output.
 fuzz_target!(|data: &[u8]| {
-    if let Ok(change) = decode_change(data) {
-        let encoded = encode_change(&change);
-        let redecoded = decode_change(&encoded)
-            .expect("canonical re-encode must decode");
-        assert_eq!(change, redecoded, "decode/encode/decode must round-trip");
-        assert_eq!(
-            encoded,
-            encode_change(&redecoded),
-            "canonical encoding must be byte-stable",
-        );
+    macro_rules! canonical {
+        ($ty:ty) => {
+            if let Ok(value) = <$ty>::decode(data) {
+                let encoded = value.encode();
+                assert_eq!(encoded, data);
+                assert_eq!(<$ty>::decode(&encoded).unwrap().encode(), encoded);
+            }
+        };
     }
+    canonical!(Change);
+    canonical!(Submission);
+    canonical!(ServerMessage);
+    canonical!(SessionCheckpoint);
+    canonical!(HistoryCheckpoint);
+    canonical!(AuthorityCheckpoint);
 });

@@ -1,0 +1,33 @@
+{
+  "version": "0.3.0",
+  "environment": {
+    "node": "v26.7.0",
+    "platform": "darwin",
+    "arch": "arm64"
+  },
+  "sizes": {
+    "wasm": {
+      "raw": 421242,
+      "gzip": 145868,
+      "brotli": 111222
+    },
+    "browserBase64": {
+      "raw": 561706,
+      "gzip": 200750,
+      "brotli": 154339
+    },
+    "npmTarball": {
+      "raw": 578744,
+      "gzip": 577840,
+      "brotli": 572131
+    }
+  },
+  "milliseconds": {
+    "synchronousInitialization": 4.725125,
+    "valueFromJS": 0.021597085,
+    "builder": 0.013101045,
+    "apply": 0.0008105839999999999,
+    "compose": 0.000738666,
+    "transformPair": 0.00209375
+  }
+}

@@ -15,6 +15,7 @@ harness = false
 [dependencies]
 cocodec = "0.1"
 thiserror = "2"
+getrandom = { version = "0.2", features = ["js"] }
 
 [dev-dependencies]
 proptest = "1"
@@ -23,4 +24,4 @@ serde_json = "1"
 
 [features]
 default = []
-json = []
+bindings = []

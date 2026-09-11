@@ -13,19 +13,26 @@ This is a standalone crate, detached from the main workspace, so
 
 ## Targets
 
-- `decode_value` — decode arbitrary bytes as a `Value`; any accepted value must
-  survive a decode → encode → decode round-trip with byte-stable output.
-- `decode_change` — the same invariants for `Change`.
-- `ot_algebra` — interpret the input as an `arbitrary` stream that builds a
-  valid base `Value` and compatible `Change`s, then assert the OT laws: codec
-  round-trips, the invert law `apply(apply(v, a), invert(a, v)) == v`, the
-  compose law `apply(v, compose(a, b)) == apply(apply(v, a), b)`, and TP1
-  convergence for two concurrent changes. Deeper laws are gated on the relevant
-  `apply` succeeding, so every failure is a genuine engine invariant violation.
+- `decode_value` — decode arbitrary bytes as a version 2 `Value` or
+  `SyncSnapshot`. Accepted objects must preserve exact canonical input bytes
+  through encode → decode, including all owning IDs and Ref targets.
+- `decode_change` — the same invariants for `Change`, `Submission`,
+  `ServerMessage`, `SessionCheckpoint`, `HistoryCheckpoint` and
+  `AuthorityCheckpoint`. Old versions, wrong envelope types, malformed fields
+  and trailing bytes must be rejected without a panic.
+- `ot_algebra` — turn bytes into two valid multi-operation changes over the
+  same identity-bearing List, mixing native Move, insertion, deletion, Set and
+  Int Add. Assert codec round-trips, identity-preserving invert,
+  `apply(apply(base, a), invert(base, a)) == base`, composition equivalence and
+  TP1 for both priorities. This generator produces required-to-merge cases:
+  transform or apply errors fail the target rather than skipping the assertion.
 
-The `ot_algebra` target reaches far more of the crate than the byte decoders
-(roughly 2000+ edges versus a few hundred), because it spends its bytes on the
-semantic operations rather than on getting past the parser.
+Rust integration/property tests additionally cover cross-parent and Map moves,
+structural conflicts, Unicode Text/RichText, Ref, History and three-client sync.
+These fuzz targets complement those tests; a bounded smoke run is not exhaustive.
+
+Seed decoder corpora with the matching envelope bytes from `golden/v2.json` to
+exercise valid protocol and checkpoint branches as well as malformed input.
 
 ## Running
 
@@ -33,6 +40,7 @@ Requires a nightly toolchain and [`cargo-fuzz`](https://github.com/rust-fuzz/car
 
 ```sh
 cargo install cargo-fuzz
+python3 fuzz/seed.py
 cargo +nightly fuzz run decode_value
 cargo +nightly fuzz run decode_change
 cargo +nightly fuzz run ot_algebra

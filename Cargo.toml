@@ -5,11 +5,18 @@ default-members = ["crates/colla"]
 exclude = ["fuzz"]
 
 [workspace.package]
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 rust-version = "1.81"
 license = "MIT"
 repository = "https://github.com/link-duan/colla"
 
 [workspace.dependencies]
-colla = { path = "crates/colla", version = "0.3.0" }
+colla = { path = "crates/colla", version = "0.4.0" }
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

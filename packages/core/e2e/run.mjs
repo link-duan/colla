@@ -1,3 +1,4 @@
+import { tracer } from "../tests/public-trace.mjs"
 import assert from "node:assert/strict"
 import { execFileSync } from "node:child_process"
 import {
@@ -18,16 +19,6 @@ const fixtureDir = await mkdtemp(join(temporaryRoot, "colla-browser-e2e-"))
 await writeFile(pointerFile, fixtureDir)
 const packageSpec = process.env.COLLA_PACKAGE_SPEC
 
-const tracer = `
-import { apply, Change, ValueHandle } from "colla-ot"
-
-export function trace() {
-  const base = ValueHandle.fromJS("before")
-  const change = Change.build(change => change.replace("after"))
-  const next = apply(base, change)
-  return next.toJS()
-}
-`
 
 try {
   let installSpec = packageSpec

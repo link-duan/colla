@@ -1,0 +1,57 @@
+{
+  "version": "0.4.0",
+  "environment": {
+    "node": "v26.7.0",
+    "platform": "darwin",
+    "arch": "arm64"
+  },
+  "memory": {
+    "edits": 6000,
+    "warm": {
+      "heap": 6645880,
+      "wasm": 2031616,
+      "checkpoint": 2361
+    },
+    "final": {
+      "heap": 6649824,
+      "wasm": 2031616,
+      "checkpoint": 2361
+    },
+    "growth": {
+      "heap": 3944,
+      "wasm": 0
+    }
+  },
+  "sizes": {
+    "wasm": {
+      "raw": 439307,
+      "gzip": 166897,
+      "brotli": 130761
+    },
+    "browserBase64": {
+      "raw": 585794,
+      "gzip": 226881,
+      "brotli": 177857
+    },
+    "browserEntry": {
+      "raw": 685918,
+      "gzip": 242737,
+      "brotli": 190660
+    },
+    "npmTarball": {
+      "raw": 478195,
+      "gzip": 477959,
+      "brotli": 466410
+    }
+  },
+  "milliseconds": {
+    "synchronousInitialization": 5.962667,
+    "valueFromJS": 0.01804146,
+    "builder": 0.03111458,
+    "apply": 0.0017156659999999998,
+    "compose": 0.006533331999999999,
+    "transform": 0.009466166,
+    "encode": 0.0013859159999999998,
+    "decode": 0.004615084
+  }
+}

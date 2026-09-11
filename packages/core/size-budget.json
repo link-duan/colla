@@ -1,0 +1,5 @@
+{
+  "wasm": { "raw": 500000, "gzip": 190000 },
+  "browserEntry": { "gzip": 275000 },
+  "npmTarball": { "raw": 550000 }
+}

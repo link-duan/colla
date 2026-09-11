@@ -1,1835 +1,858 @@
-import {
-  applyHandles,
-  ChangeHandle,
-  composeHandles,
-  convertChangeToEditStepsHandle,
-  inspectChangeHandle,
-  invertHandle,
-  resolveCodePointPositionHandle,
-  resolveUtf16PositionHandle,
-  transformPairHandles,
-  ValueHandle as WasmValueHandle,
-} from "./internal/colla_wasm.js"
-
-export type Path = readonly (string | number)[]
-export type ValueKind =
-  | "null"
-  | "bool"
-  | "int"
-  | "float"
-  | "string"
-  | "text"
-  | "richtext"
-  | "list"
-  | "map"
-
-export type ChangeKind =
-  | "noop"
-  | "replace"
-  | "map"
-  | "list"
-  | "text"
-  | "richtext"
-  | "int"
-
-export type Value =
-  | null
-  | boolean
-  | bigint
-  | number
-  | string
-  | Text
-  | RichText
-  | readonly Value[]
-  | ValueMap
-export interface ValueMap {
-  readonly [key: string]: Value
-}
-export interface Text {
-  readonly type: "text"
-  readonly value: string
-}
-export type AttrValueData = boolean | bigint | number | string
-export interface AttrsData {
-  readonly [key: string]: AttrValueData
-}
-export type RichTextSpan =
-  | { readonly type: "text"; readonly text: string; readonly attrs?: AttrsData }
-  | { readonly type: "embed"; readonly value: Value; readonly attrs?: AttrsData }
-export interface RichText {
-  readonly type: "richtext"
-  readonly spans: readonly RichTextSpan[]
-}
-
-export type ChangeInput =
-  | { readonly type: "noop" }
-  | { readonly type: "replace"; readonly value: Value }
-  | { readonly type: "map"; readonly entries: readonly MapChangeEntryInput[] }
-  | { readonly type: "list"; readonly ops: readonly ListChangeOpInput[] }
-  | { readonly type: "text"; readonly ops: readonly TextChangeOpInput[] }
-  | { readonly type: "richtext"; readonly ops: readonly RichTextChangeOpInput[] }
-  | { readonly type: "int"; readonly delta: bigint }
-
-export type MapChangeEntryInput =
-  | { readonly key: string; readonly type: "insert"; readonly value: Value }
-  | { readonly key: string; readonly type: "delete" }
-  | { readonly key: string; readonly type: "modify"; readonly change: ChangeInput }
-
-export type ListChangeOpInput =
-  | { readonly type: "retain"; readonly length: number }
-  | { readonly type: "insert"; readonly values: readonly Value[] }
-  | { readonly type: "delete"; readonly length: number }
-  | { readonly type: "modify"; readonly change: ChangeInput }
-
-export type TextChangeOpInput =
-  | { readonly type: "retain"; readonly length: number }
-  | { readonly type: "insert"; readonly text: string }
-  | { readonly type: "delete"; readonly length: number }
-
-export type AttrPatch = Readonly<Record<
-  string,
-  | { readonly type: "set"; readonly value: AttrValueData }
-  | { readonly type: "remove" }
->>
-
-export type RichTextChangeOpInput =
-  | { readonly type: "retain"; readonly length: number; readonly patch?: AttrPatch }
-  | { readonly type: "insert"; readonly content: RichTextSpan }
-  | { readonly type: "delete"; readonly length: number }
-
-export type MapEditOp =
-  | { readonly type: "insert"; readonly value: Value }
-  | { readonly type: "delete" }
-
-export type ListEditOp =
-  | { readonly type: "retain"; readonly length: number }
-  | { readonly type: "insert"; readonly values: readonly Value[] }
-  | { readonly type: "delete"; readonly length: number }
-  | { readonly type: "modify"; readonly steps: readonly EditStep[] }
-
-export type TextEditOp =
-  | { readonly type: "retain"; readonly length: number }
-  | { readonly type: "insert"; readonly text: string }
-  | { readonly type: "delete"; readonly length: number }
-
-export type RichTextEditOp =
-  | { readonly type: "retain"; readonly length: number; readonly patch?: AttrPatch }
-  | { readonly type: "insert"; readonly span: RichTextSpan }
-  | { readonly type: "delete"; readonly length: number }
-
-export type EditStep =
-  | { readonly type: "replace"; readonly path: Path; readonly value: Value }
-  | { readonly type: "int"; readonly path: Path; readonly delta: bigint }
-  | { readonly type: "map"; readonly path: Path; readonly op: MapEditOp }
-  | { readonly type: "list"; readonly path: Path; readonly ops: readonly ListEditOp[] }
-  | { readonly type: "text"; readonly path: Path; readonly ops: readonly TextEditOp[] }
-  | { readonly type: "richtext"; readonly path: Path; readonly ops: readonly RichTextEditOp[] }
-
-export interface InputLimits {
-  readonly maxDepth: number
-  readonly maxValueNodes: number
-  readonly maxChangeNodes: number
-  readonly maxContainerLength: number
-  readonly maxStringBytes: number
-  readonly maxSequenceOps: number
-  readonly maxSequenceLength: number
-}
-
-export interface InputOptions {
-  readonly limits?: Partial<InputLimits>
-}
-
-export const DEFAULT_INPUT_LIMITS: Readonly<InputLimits> = Object.freeze({
-  maxDepth: 128,
-  maxValueNodes: 1_000_000,
-  maxChangeNodes: 1_000_000,
-  maxContainerLength: 1_000_000,
-  maxStringBytes: 16 * 1024 * 1024,
-  maxSequenceOps: 1_000_000,
-  maxSequenceLength: 1_000_000,
-})
-
-type ErrorPayload = {
-  code?: string
-  operation?: string
-  details?: unknown
-}
-
-/**
- * Stable, cross-implementation error classification.
- *
- * The first group mirrors the `colla` core crate's `ErrorCode` (the single source
- * of truth, asserted by the golden fixtures). The trailing codes are produced
- * only by this JavaScript facade: `invalid_state` for operations on a disposed or
- * consumed handle, `invalid_argument` for malformed JavaScript input, and
- * `invalid_utf16_boundary` for UTF-16 position conversions. Maintained by hand to
- * match the core classification; see docs/adr/0005-errors-and-resource-lifecycle.md.
- */
-export type ErrorCode =
-  | "invalid_encoding"
-  | "limit_exceeded"
-  | "type_mismatch"
-  | "missing_key"
-  | "key_already_exists"
-  | "out_of_bounds"
-  | "integer_overflow"
-  | "incompatible_change"
-  | "invalid_value"
-  | "invalid_state"
-  | "invalid_argument"
-  | "invalid_utf16_boundary"
-
-function deepFreeze<T>(value: T): T {
-  if (value !== null && typeof value === "object" && !Object.isFrozen(value)) {
-    for (const child of Object.values(value)) deepFreeze(child)
-    Object.freeze(value)
-  }
-  return value
-}
-
-function freezeDetails(value: unknown): Readonly<Record<string, unknown>> {
-  if (value === null || typeof value !== "object") {
-    return Object.freeze({ reason: String(value ?? "unknown error") })
-  }
-  return deepFreeze({ ...(value as Record<string, unknown>) })
-}
-
-export interface CollaErrorDetailMap {
-  invalid_encoding: { readonly reason?: string }
-  limit_exceeded: { readonly limit?: string; readonly actual?: number; readonly maximum?: number; readonly reason?: string }
-  type_mismatch: { readonly expected?: string; readonly actual?: string; readonly reason?: string }
-  missing_key: { readonly key?: string; readonly reason?: string }
-  key_already_exists: { readonly key?: string; readonly reason?: string }
-  out_of_bounds: { readonly index?: number; readonly length?: number; readonly reason?: string }
-  integer_overflow: { readonly reason?: string }
-  incompatible_change: { readonly reason?: string; readonly expected?: bigint; readonly actual?: bigint }
-  invalid_value: { readonly reason?: string }
-  invalid_state: { readonly resource?: string; readonly reason?: string }
-  invalid_argument: { readonly argument?: string; readonly reason?: string }
-  invalid_utf16_boundary: { readonly position?: number; readonly reason?: string }
-}
-
-export class CollaError<C extends ErrorCode = ErrorCode> extends Error {
-  readonly code: C
-  readonly operation: string
-  readonly path?: Path
-  readonly details: Readonly<CollaErrorDetailMap[C] & Record<string, unknown>>
-
-  constructor(
-    code: C,
-    operation: string,
-    details: unknown,
-    path?: Path,
-  ) {
-    const frozenDetails = freezeDetails(details)
-    const reason = typeof (frozenDetails as Record<string, unknown>).reason === "string" ? `: ${(frozenDetails as Record<string, unknown>).reason}` : ""
-    const pathStr = path !== undefined && path.length > 0 ? ` at [${path.join(".")}]` : ""
-    super(`${operation} failed: ${code}${reason}${pathStr}`)
-    this.name = "CollaError"
-    this.code = code
-    this.operation = operation
-    this.path = path === undefined ? undefined : Object.freeze([...path])
-    this.details = frozenDetails as Readonly<CollaErrorDetailMap[C] & Record<string, unknown>>
-  }
-
-  is<K extends ErrorCode>(code: K): this is CollaError<K> {
-    return (this.code as ErrorCode) === code
-  }
-}
-
-function invalidArgument(operation: string, argument: string, reason: string): CollaError {
-  return new CollaError("invalid_argument", operation, { argument, reason })
-}
-
-function invalidState(
-  operation: string,
-  resource: string,
-  reason: "disposed" | "consumed" | "scope_closed",
-): CollaError {
-  return new CollaError("invalid_state", operation, { resource, reason })
-}
-
-function fromWasmError(error: unknown, fallbackOperation: string, path?: Path): CollaError {
-  if (error instanceof CollaError) return error
-  let payload: ErrorPayload = {}
-  try {
-    payload = JSON.parse(String(error)) as ErrorPayload
-  } catch {
-    payload = {}
-  }
-  return new CollaError(
-    (payload.code ?? "invalid_argument") as ErrorCode,
-    payload.operation ?? fallbackOperation,
-    payload.details ?? { reason: String(error) },
-    path,
-  )
-}
-
-const I64_MIN = -(1n << 63n)
-const I64_MAX = (1n << 63n) - 1n
-
-export function int(value: number | bigint): bigint {
-  if (typeof value === "number" && !Number.isSafeInteger(value)) {
-    throw invalidArgument("int", "value", "expected a safe integer")
-  }
-  if (typeof value !== "number" && typeof value !== "bigint") {
-    throw invalidArgument("int", "value", "expected a number or bigint")
-  }
-  const result = BigInt(value)
-  if (result < I64_MIN || result > I64_MAX) {
-    throw invalidArgument("int", "value", "outside the signed 64-bit range")
-  }
-  return result
-}
-
-function assertWellFormedString(value: string, operation: string): string {
-  for (let index = 0; index < value.length; index += 1) {
-    const unit = value.charCodeAt(index)
-    if (unit >= 0xd800 && unit <= 0xdbff) {
-      const next = value.charCodeAt(index + 1)
-      if (!(next >= 0xdc00 && next <= 0xdfff)) {
-        throw new CollaError("invalid_value", operation, { reason: "unpaired UTF-16 surrogate" })
-      }
-      index += 1
-    } else if (unit >= 0xdc00 && unit <= 0xdfff) {
-      throw new CollaError("invalid_value", operation, { reason: "unpaired UTF-16 surrogate" })
+import { CoreValue, CoreChange, CoreDocument, CoreHistory, CoreWire, CoreSession, CoreAuthority, core_validate_id, core_apply, core_invert, core_compose, core_transform, } from "./internal/colla_wasm.js";
+export type ElementId = string & {
+    readonly __elementId: unique symbol;
+};
+export type Path = readonly (string | number)[];
+export type Location = Path | ElementId;
+export type ValueKind = "null" | "bool" | "int" | "float" | "string" | "text" | "richtext" | "ref" | "list" | "map";
+export type ErrorCode = "invalid_argument" | "invalid_value" | "invalid_encoding" | "invalid_state" | "limit_exceeded" | "type_mismatch" | "missing_key" | "out_of_bounds" | "integer_overflow" | "incompatible_change" | "invalid_utf16_boundary" | "structural_conflict" | "missing_revision" | "history_expired";
+export class CollaError extends Error {
+    readonly code: ErrorCode;
+    readonly operation: string;
+    readonly details: Readonly<Record<string, string>>;
+    readonly elementId?: ElementId;
+    constructor(code: ErrorCode, operation: string, details: Readonly<Record<string, string>> = {}) {
+        super(details.reason ?? code);
+        this.name = "CollaError";
+        this.code = code;
+        this.operation = operation;
+        this.details = Object.freeze({ ...details });
+        this.elementId = details.elementId as ElementId | undefined;
+        Object.freeze(this);
     }
-  }
-  return value
 }
-
-export function text(value: string): Text {
-  if (typeof value !== "string") throw invalidArgument("text", "value", "expected a string")
-  return Object.freeze({ type: "text", value: assertWellFormedString(value, "text") })
-}
-
-type AttrEntry = {
-  readonly key: string
-  readonly kind: "bool" | "int" | "float" | "string"
-  readonly value: boolean | string | number
-}
-
-function attrEntries(
-  attrs: AttrsData | undefined,
-  operation: string,
-  limits?: InputLimits,
-): AttrEntry[] {
-  if (attrs === undefined) return []
-  if (!isRecord(attrs)) throw new CollaError("invalid_value", operation, { reason: "attributes must be a plain record" })
-  const entries = ownDataEntries(attrs, operation)
-  if (limits !== undefined && entries.length > limits.maxContainerLength) {
-    limitExceeded("container length", entries.length, limits.maxContainerLength, operation)
-  }
-  const result: AttrEntry[] = []
-  for (const [key, value] of entries) {
-    assertWellFormedString(key, operation)
-    const keyBytes = utf8.encode(key).length
-    if (limits !== undefined && keyBytes > limits.maxStringBytes) {
-      limitExceeded("string bytes", keyBytes, limits.maxStringBytes, operation)
-    }
-    if (typeof value === "boolean") {
-      result.push({ key, kind: "bool", value })
-    } else if (typeof value === "bigint") {
-      if (value < I64_MIN || value > I64_MAX) {
-        throw new CollaError("invalid_value", operation, { reason: "attribute Int is out of range" })
-      }
-      result.push({ key, kind: "int", value: value.toString() })
-    } else if (typeof value === "number") {
-      if (!Number.isFinite(value)) {
-        throw new CollaError("invalid_value", operation, { reason: "attribute Float must be finite" })
-      }
-      result.push({ key, kind: "float", value: Object.is(value, -0) ? 0 : value })
-    } else if (typeof value === "string") {
-      assertWellFormedString(value, operation)
-      const valueBytes = utf8.encode(value).length
-      if (limits !== undefined && valueBytes > limits.maxStringBytes) {
-        limitExceeded("string bytes", valueBytes, limits.maxStringBytes, operation)
-      }
-      result.push({ key, kind: "string", value })
-    } else {
-      throw new CollaError("invalid_value", operation, { reason: "unsupported attribute value" })
-    }
-  }
-  return result.sort((left, right) => compareUtf8(left.key, right.key))
-}
-
-function attrsData(entries: readonly AttrEntry[]): AttrsData | undefined {
-  if (entries.length === 0) return undefined
-  const result = Object.create(null) as Record<string, AttrValueData>
-  for (const entry of entries) {
-    result[entry.key] = entry.kind === "int" ? BigInt(entry.value) : entry.value
-  }
-  return Object.freeze(result)
-}
-
-function sameAttrs(left: readonly AttrEntry[], right: readonly AttrEntry[]): boolean {
-  return JSON.stringify(left) === JSON.stringify(right)
-}
-
-type NormalizedRichSpan =
-  | { type: "text"; text: string; attrs: AttrEntry[] }
-  | { type: "embed"; value: Value; attrs: AttrEntry[] }
-
-function normalizedRichSpans(
-  spans: readonly RichTextSpan[],
-  operation: string,
-  limits?: InputLimits,
-): NormalizedRichSpan[] {
-  if (!Array.isArray(spans)) throw new CollaError("invalid_value", operation, { reason: "RichText spans must be an array" })
-  const values = ownArrayDataValues(spans, operation)
-  const result: NormalizedRichSpan[] = []
-  for (const span of values) {
-    if (!isRecord(span)) throw new CollaError("invalid_value", operation, { reason: "RichText span must be a plain record" })
-    const entries = ownDataEntries(span, operation)
-    const type = entries.find(([key]) => key === "type")?.[1]
-    const attrs = attrEntries(entries.find(([key]) => key === "attrs")?.[1] as AttrsData | undefined, operation, limits)
-    if (type === "text") {
-      if (entries.some(([key]) => !["type", "text", "attrs"].includes(key))) {
-        throw new CollaError("invalid_value", operation, { reason: "unknown RichText Text span field" })
-      }
-      const value = entries.find(([key]) => key === "text")?.[1]
-      if (typeof value !== "string") throw new CollaError("invalid_value", operation, { reason: "RichText Text span requires text" })
-      assertWellFormedString(value, operation)
-      const bytes = utf8.encode(value).length
-      if (limits !== undefined && bytes > limits.maxStringBytes) {
-        limitExceeded("string bytes", bytes, limits.maxStringBytes, operation)
-      }
-      if (value.length === 0) continue
-      const previous = result.at(-1)
-      if (previous?.type === "text" && sameAttrs(previous.attrs, attrs)) {
-        previous.text += value
-      } else {
-        result.push({ type: "text", text: value, attrs })
-      }
-    } else if (type === "embed") {
-      if (entries.some(([key]) => !["type", "value", "attrs"].includes(key))) {
-        throw new CollaError("invalid_value", operation, { reason: "unknown RichText Embed span field" })
-      }
-      const valueEntry = entries.find(([key]) => key === "value")
-      if (valueEntry === undefined) throw new CollaError("invalid_value", operation, { reason: "RichText Embed span requires value" })
-      result.push({ type: "embed", value: valueEntry[1] as Value, attrs })
-    } else {
-      throw new CollaError("invalid_value", operation, { reason: "unknown RichText span type" })
-    }
-  }
-  if (limits !== undefined && result.length > limits.maxContainerLength) {
-    limitExceeded("container length", result.length, limits.maxContainerLength, operation)
-  }
-  return result
-}
-
-export function richText(spans: readonly RichTextSpan[]): RichText {
-  const normalized = normalizedRichSpans(spans, "rich_text")
-  const frozen = normalized.map(span => {
-    const attrs = attrsData(span.attrs)
-    return Object.freeze(span.type === "text"
-      ? { type: "text" as const, text: span.text, ...(attrs === undefined ? {} : { attrs }) }
-      : { type: "embed" as const, value: span.value, ...(attrs === undefined ? {} : { attrs }) })
-  })
-  return Object.freeze({ type: "richtext", spans: Object.freeze(frozen) })
-}
-
-const inputLimitNames = Object.keys(DEFAULT_INPUT_LIMITS) as (keyof InputLimits)[]
-const utf8 = new TextEncoder()
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  if (value === null || typeof value !== "object") return false
-  const prototype = Object.getPrototypeOf(value)
-  return prototype === Object.prototype || prototype === null
-}
-
-function ownDataEntries(
-  value: Record<string, unknown>,
-  operation: string,
-): readonly (readonly [string, unknown])[] {
-  const entries: [string, unknown][] = []
-  for (const key of Reflect.ownKeys(value)) {
-    if (typeof key !== "string") {
-      throw new CollaError("invalid_value", operation, { reason: "symbol keys are not supported" })
-    }
-    const descriptor = Object.getOwnPropertyDescriptor(value, key)
-    if (descriptor === undefined || !("value" in descriptor)) {
-      throw new CollaError("invalid_value", operation, { reason: "accessor properties are not supported" })
-    }
-    entries.push([key, descriptor.value])
-  }
-  return entries
-}
-
-function ownArrayDataValues(value: readonly unknown[], operation: string): readonly unknown[] {
-  const result: unknown[] = []
-  for (const key of Reflect.ownKeys(value)) {
-    if (typeof key !== "string") {
-      throw new CollaError("invalid_value", operation, { reason: "symbol keys are not supported" })
-    }
-    if (key === "length") continue
-    const index = Number(key)
-    if (!Number.isSafeInteger(index) || index < 0 || index >= value.length || String(index) !== key) {
-      throw new CollaError("invalid_value", operation, { reason: "array has non-index properties" })
-    }
-    const descriptor = Object.getOwnPropertyDescriptor(value, key)
-    if (descriptor === undefined || !("value" in descriptor)) {
-      throw new CollaError("invalid_value", operation, { reason: "array accessors are not supported" })
-    }
-    result[index] = descriptor.value
-  }
-  for (let index = 0; index < value.length; index += 1) {
-    if (!Object.hasOwn(value, index)) {
-      throw new CollaError("invalid_value", operation, { reason: "sparse arrays are not supported" })
-    }
-  }
-  return result
-}
-
-function normalizeInputLimits(options: InputOptions | undefined, operation: string): InputLimits {
-  if (options !== undefined && !isRecord(options)) {
-    throw invalidArgument(operation, "options", "expected a plain record")
-  }
-  const optionEntries = options === undefined ? [] : ownDataEntries(options, operation)
-  for (const [key] of optionEntries) {
-    if (key !== "limits") throw invalidArgument(operation, "options", `unknown field ${key}`)
-  }
-  const overrides = options?.limits
-  if (overrides !== undefined && !isRecord(overrides)) {
-    throw invalidArgument(operation, "options.limits", "expected a plain record")
-  }
-  const result = { ...DEFAULT_INPUT_LIMITS }
-  for (const [key, value] of overrides === undefined ? [] : ownDataEntries(overrides, operation)) {
-    if (!inputLimitNames.includes(key as keyof InputLimits)) {
-      throw invalidArgument(operation, "options.limits", `unknown field ${key}`)
-    }
-    if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
-      throw invalidArgument(operation, `options.limits.${key}`, "expected a non-negative safe integer")
-    }
-    result[key as keyof InputLimits] = value
-  }
-  return Object.freeze(result)
-}
-
-function limitExceeded(limit: string, actual: number, maximum: number, operation: string): never {
-  throw new CollaError("limit_exceeded", operation, { limit, actual, maximum })
-}
-
-function compareUtf8(left: string, right: string): number {
-  const a = utf8.encode(left)
-  const b = utf8.encode(right)
-  const length = Math.min(a.length, b.length)
-  for (let index = 0; index < length; index += 1) {
-    if (a[index] !== b[index]) return a[index] - b[index]
-  }
-  return a.length - b.length
-}
-
-function validateValue(input: Value, operation: string): void {
-  const active = new WeakSet<object>()
-
-  const visit = (value: Value): void => {
-    if (value === null || typeof value === "boolean") {
-      return
-    }
-    if (typeof value === "bigint") {
-      if (value < I64_MIN || value > I64_MAX) {
-        throw new CollaError("invalid_value", operation, {
-          reason: "integer is outside the signed 64-bit range",
-        })
-      }
-      return
-    }
-    if (typeof value === "number") {
-      if (!Number.isFinite(value)) {
-        throw new CollaError("invalid_value", operation, { reason: "number must be finite" })
-      }
-      return
-    }
-    if (typeof value === "string") {
-      assertWellFormedString(value, operation)
-      return
-    }
-    if (Array.isArray(value)) {
-      if (active.has(value)) {
-        throw new CollaError("invalid_value", operation, { reason: "cyclic Value" })
-      }
-      const values = ownArrayDataValues(value, operation)
-      active.add(value)
-      try {
-        for (const child of values) visit(child as Value)
-      } finally {
-        active.delete(value)
-      }
-      return
-    }
-    if (isRecord(value)) {
-      const entries = [...ownDataEntries(value, operation)]
-      const marker = entries.find(([key]) => key === "type")
-      if (marker?.[1] === "text") {
-        if (entries.length !== 2 || !entries.some(([key]) => key === "value")) {
-          throw new CollaError("invalid_value", operation, { reason: "invalid Text marker" })
-        }
-        const textValue = entries.find(([key]) => key === "value")?.[1]
-        if (typeof textValue !== "string") {
-          throw new CollaError("invalid_value", operation, { reason: "Text value must be a string" })
-        }
-        assertWellFormedString(textValue, operation)
-        return
-      }
-      if (marker?.[1] === "richtext") {
-        if (entries.length !== 2 || !entries.some(([key]) => key === "spans")) {
-          throw new CollaError("invalid_value", operation, { reason: "invalid RichText marker" })
-        }
-        if (active.has(value)) {
-          throw new CollaError("invalid_value", operation, { reason: "cyclic Value" })
-        }
-        active.add(value)
-        try {
-          const spans = normalizedRichSpans(
-            entries.find(([key]) => key === "spans")?.[1] as readonly RichTextSpan[],
-            operation,
-          )
-          for (const span of spans) {
-            if (span.type === "embed") visit(span.value)
-          }
-        } finally {
-          active.delete(value)
-        }
-        return
-      }
-      if (active.has(value)) {
-        throw new CollaError("invalid_value", operation, { reason: "cyclic Value" })
-      }
-      for (const [key] of entries) assertWellFormedString(key, operation)
-      active.add(value)
-      try {
-        for (const [, child] of entries) visit(child as Value)
-      } finally {
-        active.delete(value)
-      }
-      return
-    }
-    throw new CollaError("invalid_value", operation, { reason: "unsupported Value" })
-  }
-
-  visit(input)
-}
-
-function changeInputFields(
-  value: unknown,
-  allowed: readonly string[],
-  required: readonly string[],
-  operation: string,
-  context: string,
-): Map<string, unknown> {
-  if (!isRecord(value)) throw invalidArgument(operation, context, "expected a plain record")
-  const fields = new Map(ownDataEntries(value, operation))
-  for (const key of fields.keys()) {
-    if (!allowed.includes(key)) throw invalidArgument(operation, context, `unknown field ${key}`)
-  }
-  for (const key of required) {
-    if (!fields.has(key)) throw invalidArgument(operation, context, `missing field ${key}`)
-  }
-  return fields
-}
-
-function changeInputArray(value: unknown, operation: string, context: string): readonly unknown[] {
-  if (!Array.isArray(value)) throw invalidArgument(operation, context, "expected an array")
-  return ownArrayDataValues(value, operation)
-}
-
-function changeInputLength(value: unknown, operation: string, context: string): number {
-  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
-    throw invalidArgument(operation, context, "expected a non-negative safe integer")
-  }
-  return value
-}
-
-function validateChangeAttrPatch(input: unknown, operation: string): void {
-  if (input === undefined) return
-  if (!isRecord(input)) throw invalidArgument(operation, "patch", "expected a plain record")
-  for (const [key, value] of ownDataEntries(input, operation)) {
-    assertWellFormedString(key, operation)
-    const fields = changeInputFields(value, ["type", "value"], ["type"], operation, `patch.${key}`)
-    const type = fields.get("type")
-    if (type === "remove") {
-      if (fields.has("value")) throw invalidArgument(operation, `patch.${key}`, "remove must not include value")
-    } else if (type === "set" && fields.has("value")) {
-      const record = Object.create(null) as Record<string, AttrValueData>
-      record[key] = fields.get("value") as AttrValueData
-      attrEntries(record, operation)
-    } else {
-      throw invalidArgument(operation, `patch.${key}`, "expected set with value or remove")
-    }
-  }
-}
-
-function validateChangeInput(input: ChangeInput, operation: string): void {
-  const active = new WeakSet<object>()
-
-  const visit = (value: unknown, context: string): void => {
-    const fields = changeInputFields(
-      value,
-      ["type", "value", "entries", "ops", "delta"],
-      ["type"],
-      operation,
-      context,
-    )
-    const record = value as object
-    if (active.has(record)) throw invalidArgument(operation, context, "cyclic ChangeInput")
-    active.add(record)
+function fail(code: ErrorCode, operation: string, reason: string): never { throw new CollaError(code, operation, { reason }); }
+function invoke<T>(operation: string, fn: () => T): T {
     try {
-      switch (fields.get("type")) {
-        case "noop": {
-          if (fields.size !== 1) throw invalidArgument(operation, context, "noop has unknown fields")
-          break
+        return fn();
+    }
+    catch (error) {
+        if (error instanceof CollaError)
+            throw error;
+        if (error && typeof error === "object" && "code" in error) {
+            const native = error as {
+                code: ErrorCode;
+                details?: Record<string, string>;
+            };
+            throw new CollaError(native.code, operation, native.details);
         }
-        case "replace": {
-          if (fields.size !== 2 || !fields.has("value")) {
-            throw invalidArgument(operation, context, "replace requires value")
-          }
-          validateValue(fields.get("value") as Value, operation)
-          break
+        throw new CollaError("invalid_state", operation, { reason: error instanceof Error ? error.message : String(error) });
+    }
+}
+function checkedString(value: unknown, operation = "input"): string {
+    if (typeof value !== "string")
+        fail("invalid_argument", operation, "expected a string");
+    for (let i = 0; i < value.length; i++) {
+        const c = value.charCodeAt(i);
+        if (c >= 0xd800 && c <= 0xdbff) {
+            const next = value.charCodeAt(++i);
+            if (!(next >= 0xdc00 && next <= 0xdfff))
+                fail("invalid_value", operation, "unpaired UTF-16 surrogate");
         }
-        case "map": {
-          if (fields.size !== 2 || !fields.has("entries")) {
-            throw invalidArgument(operation, context, "map requires entries")
-          }
-          const entries = changeInputArray(fields.get("entries"), operation, `${context}.entries`)
-          entries.forEach((entry, index) => {
-            const entryContext = `${context}.entries[${index}]`
-            const item = changeInputFields(
-              entry,
-              ["key", "type", "value", "change"],
-              ["key", "type"],
-              operation,
-              entryContext,
-            )
-            const key = item.get("key")
-            if (typeof key !== "string") throw invalidArgument(operation, `${entryContext}.key`, "expected a string")
-            assertWellFormedString(key, operation)
-            if (item.get("type") === "insert" && item.size === 3 && item.has("value")) {
-              validateValue(item.get("value") as Value, operation)
-            } else if (item.get("type") === "delete" && item.size === 2) {
-              // structurally valid
-            } else if (item.get("type") === "modify" && item.size === 3 && item.has("change")) {
-              visit(item.get("change"), `${entryContext}.change`)
-            } else {
-              throw invalidArgument(operation, entryContext, "invalid map entry")
-            }
-          })
-          break
-        }
-        case "list": {
-          if (fields.size !== 2 || !fields.has("ops")) {
-            throw invalidArgument(operation, context, "list requires ops")
-          }
-          const ops = changeInputArray(fields.get("ops"), operation, `${context}.ops`)
-          ops.forEach((op, index) => {
-            const opContext = `${context}.ops[${index}]`
-            const item = changeInputFields(
-              op,
-              ["type", "length", "values", "change"],
-              ["type"],
-              operation,
-              opContext,
-            )
-            if (item.get("type") === "retain" && item.size === 2 && item.has("length")) {
-              changeInputLength(item.get("length"), operation, `${opContext}.length`)
-            } else if (item.get("type") === "insert" && item.size === 2 && item.has("values")) {
-              const values = changeInputArray(item.get("values"), operation, `${opContext}.values`)
-              values.forEach(value => validateValue(value as Value, operation))
-            } else if (item.get("type") === "delete" && item.size === 2 && item.has("length")) {
-              changeInputLength(item.get("length"), operation, `${opContext}.length`)
-            } else if (item.get("type") === "modify" && item.size === 2 && item.has("change")) {
-              visit(item.get("change"), `${opContext}.change`)
-            } else {
-              throw invalidArgument(operation, opContext, "invalid list operation")
-            }
-          })
-          break
-        }
-        case "text": {
-          if (fields.size !== 2 || !fields.has("ops")) {
-            throw invalidArgument(operation, context, "text requires ops")
-          }
-          const ops = changeInputArray(fields.get("ops"), operation, `${context}.ops`)
-          ops.forEach((op, index) => {
-            const opContext = `${context}.ops[${index}]`
-            const item = changeInputFields(op, ["type", "length", "text"], ["type"], operation, opContext)
-            if (item.get("type") === "retain" && item.size === 2 && item.has("length")) {
-              changeInputLength(item.get("length"), operation, `${opContext}.length`)
-            } else if (item.get("type") === "insert" && item.size === 2 && item.has("text")) {
-              const text = item.get("text")
-              if (typeof text !== "string") throw invalidArgument(operation, `${opContext}.text`, "expected a string")
-              assertWellFormedString(text, operation)
-            } else if (item.get("type") === "delete" && item.size === 2 && item.has("length")) {
-              changeInputLength(item.get("length"), operation, `${opContext}.length`)
-            } else {
-              throw invalidArgument(operation, opContext, "invalid text operation")
-            }
-          })
-          break
-        }
-        case "richtext": {
-          if (fields.size !== 2 || !fields.has("ops")) {
-            throw invalidArgument(operation, context, "richtext requires ops")
-          }
-          const ops = changeInputArray(fields.get("ops"), operation, `${context}.ops`)
-          ops.forEach((op, index) => {
-            const opContext = `${context}.ops[${index}]`
-            const item = changeInputFields(
-              op,
-              ["type", "length", "patch", "content"],
-              ["type"],
-              operation,
-              opContext,
-            )
-            if (
-              item.get("type") === "retain" &&
-              item.has("length") &&
-              !item.has("content") &&
-              item.size <= 3
-            ) {
-              changeInputLength(item.get("length"), operation, `${opContext}.length`)
-              validateChangeAttrPatch(item.get("patch"), operation)
-            } else if (item.get("type") === "insert" && item.size === 2 && item.has("content")) {
-              const contentContext = `${opContext}.content`
-              const content = changeInputFields(
-                item.get("content"),
-                ["type", "text", "value", "attrs"],
-                ["type"],
-                operation,
-                contentContext,
-              )
-              if (
-                content.get("type") === "text" &&
-                content.has("text") &&
-                !content.has("value") &&
-                content.size <= 3
-              ) {
-                const text = content.get("text")
-                if (typeof text !== "string") throw invalidArgument(operation, `${contentContext}.text`, "expected a string")
-                assertWellFormedString(text, operation)
-              } else if (
-                content.get("type") === "embed" &&
-                content.has("value") &&
-                !content.has("text") &&
-                content.size <= 3
-              ) {
-                validateValue(content.get("value") as Value, operation)
-              } else {
-                throw invalidArgument(operation, contentContext, "invalid RichText content")
-              }
-              attrEntries(content.get("attrs") as AttrsData | undefined, operation)
-            } else if (item.get("type") === "delete" && item.size === 2 && item.has("length")) {
-              changeInputLength(item.get("length"), operation, `${opContext}.length`)
-            } else {
-              throw invalidArgument(operation, opContext, "invalid richtext operation")
-            }
-          })
-          break
-        }
-        case "int": {
-          if (fields.size !== 2 || !fields.has("delta")) {
-            throw invalidArgument(operation, context, "int requires delta")
-          }
-          const delta = fields.get("delta")
-          if (typeof delta !== "bigint" || delta < I64_MIN || delta > I64_MAX) {
-            throw invalidArgument(operation, `${context}.delta`, "expected a signed 64-bit bigint")
-          }
-          break
-        }
-        default:
-          throw invalidArgument(operation, `${context}.type`, "unknown ChangeInput type")
-      }
-    } finally {
-      active.delete(record)
+        else if (c >= 0xdc00 && c <= 0xdfff)
+            fail("invalid_value", operation, "unpaired UTF-16 surrogate");
     }
-  }
-
-  visit(input, "change")
+    return value;
 }
-
-function valueFromBytes(bytes: Uint8Array): Value {
-  const handle = WasmValueHandle.decode(bytes)
-  try {
-    return handle.toJs() as Value
-  } finally {
-    handle.free()
-  }
+function checkedIndex(value: unknown): number {
+    if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0)
+        fail("invalid_argument", "position", "expected a nonnegative safe integer");
+    return value;
 }
-
-function pathJson(path: Path, operation: string): string {
-  if (!Array.isArray(path)) throw invalidArgument(operation, "path", "expected an array")
-  const segments = path.map((segment, index) => {
-    if (typeof segment === "string") return segment
-    if (typeof segment === "number" && Number.isSafeInteger(segment) && segment >= 0) return segment
-    throw invalidArgument(operation, `path[${index}]`, "expected a string or non-negative safe integer")
-  })
-  return JSON.stringify(segments)
+function bytes(value: unknown): Uint8Array {
+    if (!(value instanceof Uint8Array))
+        fail("invalid_argument", "decode", "expected Uint8Array");
+    return value;
 }
-
-export class ValueHandle {
-  #handle: WasmValueHandle | undefined
-
-  private constructor(handle: WasmValueHandle) {
-    this.#handle = handle
-  }
-
-  static fromJS(input: Value, options?: InputOptions): ValueHandle {
-    try {
-      const limits = normalizeInputLimits(options, "value_from_js")
-      validateValue(input, "value_from_js")
-      return new ValueHandle(WasmValueHandle.fromJs(input, JSON.stringify(limits)))
-    } catch (error) {
-      throw fromWasmError(error, "value_from_js")
-    }
-  }
-
-  static decode(bytes: Uint8Array): ValueHandle {
-    if (!(bytes instanceof Uint8Array)) {
-      throw invalidArgument("value_decode", "bytes", "expected Uint8Array")
-    }
-    try {
-      return new ValueHandle(WasmValueHandle.decode(bytes))
-    } catch (error) {
-      throw fromWasmError(error, "value_decode")
-    }
-  }
-
-  kind(path: Path = []): ValueKind {
-    try {
-      return this.#get("value_kind").kind(pathJson(path, "value_kind")) as ValueKind
-    } catch (error) {
-      throw fromWasmError(error, "value_kind", path)
-    }
-  }
-
-  has(path: Path): boolean {
-    try {
-      return this.#get("value_has").has(pathJson(path, "value_has"))
-    } catch (error) {
-      throw fromWasmError(error, "value_has", path)
-    }
-  }
-
-  get(path: Path): Value {
-    try {
-      const bytes = this.#get("value_get").getBytes(pathJson(path, "value_get"))
-      return valueFromBytes(new Uint8Array(bytes))
-    } catch (error) {
-      throw fromWasmError(error, "value_get", path)
-    }
-  }
-
-  toJS(): Value {
-    return this.#get("value_to_js").toJs() as Value
-  }
-
-  encode(): Uint8Array {
-    return new Uint8Array(this.#get("value_encode").encode())
-  }
-
-  clone(): ValueHandle {
-    return new ValueHandle(this.#get("value_clone").cloneHandle())
-  }
-
-  dispose(): void {
-    const handle = this.#handle
-    if (handle === undefined) return
-    this.#handle = undefined
-    handle.free()
-  }
-
-  [Symbol.dispose](): void {
-    this.dispose()
-  }
-
-  #get(operation: string): WasmValueHandle {
-    if (this.#handle === undefined) {
-      throw invalidState(operation, "ValueHandle", "disposed")
-    }
-    return this.#handle
-  }
-
-  /** @internal */
-  static _handle(value: ValueHandle, operation: string): WasmValueHandle {
-    if (!(value instanceof ValueHandle)) {
-      throw invalidArgument(operation, "value", "expected ValueHandle")
-    }
-    return value.#get(operation)
-  }
-
-  /** @internal */
-  static _fromHandle(handle: WasmValueHandle): ValueHandle {
-    return new ValueHandle(handle)
-  }
-
+export const ElementId = Object.freeze({ parse(value: string): ElementId { return invoke("ElementId.parse", () => core_validate_id(checkedString(value)) as ElementId); } });
+function locate(value: Location): string | (string | number)[] {
+    if (typeof value === "string")
+        return ElementId.parse(value);
+    if (!Array.isArray(value))
+        fail("invalid_argument", "location", "expected a Path or ElementId");
+    return value.map(part => typeof part === "string" ? checkedString(part) : checkedIndex(part));
 }
-
-export class Change {
-  #handle: ChangeHandle | undefined
-
-  private constructor(handle: ChangeHandle) {
-    this.#handle = handle
-  }
-
-  static fromJS(input: ChangeInput, options?: InputOptions): Change {
-    try {
-      const limits = normalizeInputLimits(options, "change_from_js")
-      validateChangeInput(input, "change_from_js")
-      return new Change(ChangeHandle.fromJs(input, JSON.stringify(limits)))
-    } catch (error) {
-      throw fromWasmError(error, "change_from_js")
-    }
-  }
-
-  static build(
-    edit: (change: ChangeBuilder) => unknown,
-    options?: InputOptions,
-  ): Change {
-    if (typeof edit !== "function") {
-      throw invalidArgument("change_build", "edit", "expected a function")
-    }
-    return Change.fromJS(buildChangeInput(edit), options)
-  }
-
-  static decode(bytes: Uint8Array): Change {
-    if (!(bytes instanceof Uint8Array)) {
-      throw invalidArgument("change_decode", "bytes", "expected Uint8Array")
-    }
-    try {
-      return new Change(ChangeHandle.decode(bytes))
-    } catch (error) {
-      throw fromWasmError(error, "change_decode")
-    }
-  }
-
-  kind(): ChangeKind {
-    return this.#get("change_kind").kind() as ChangeKind
-  }
-
-  isNoop(): boolean {
-    return this.#get("change_is_noop").isNoop()
-  }
-
-  encode(): Uint8Array {
-    return new Uint8Array(this.#get("change_encode").encode())
-  }
-
-  clone(): Change {
-    return new Change(this.#get("change_clone").cloneHandle())
-  }
-
-  dispose(): void {
-    const handle = this.#handle
-    if (handle === undefined) return
-    this.#handle = undefined
-    handle.free()
-  }
-
-  [Symbol.dispose](): void {
-    this.dispose()
-  }
-
-  #get(operation: string): ChangeHandle {
-    if (this.#handle === undefined) {
-      throw invalidState(operation, "Change", "disposed")
-    }
-    return this.#handle
-  }
-
-  /** @internal */
-  static _fromHandle(handle: ChangeHandle): Change {
-    return new Change(handle)
-  }
-
-  /** @internal */
-  static _handle(change: Change, operation: string): ChangeHandle {
-    if (!(change instanceof Change)) {
-      throw invalidArgument(operation, "change", "expected Change")
-    }
-    return change.#get(operation)
-  }
+export type AttrValue = boolean | bigint | number | string;
+export type Attrs = Readonly<Record<string, AttrValue>>;
+export type AttrPatch = Readonly<Record<string, AttrValue | null>>;
+export type Input = null | boolean | bigint | number | string | Text | RichText | Ref | Value | readonly Input[] | InputMap;
+export interface InputMap {
+    readonly [key: string]: Input;
 }
-
-export interface IndexRange {
-  readonly from: number
-  readonly to: number
-}
-
-interface ChangeViewEntryBase {
-  readonly path: Path
-}
-
-export type ChangeViewEntry =
-  | (ChangeViewEntryBase & { readonly type: "value.replace"; readonly value: Value })
-  | (ChangeViewEntryBase & { readonly type: "int.add"; readonly delta: bigint })
-  | (ChangeViewEntryBase & { readonly type: "map.set"; readonly key: string; readonly value: Value })
-  | (ChangeViewEntryBase & { readonly type: "map.delete"; readonly key: string })
-  | (ChangeViewEntryBase & { readonly type: "list.insert"; readonly index: number; readonly values: readonly Value[] })
-  | (ChangeViewEntryBase & { readonly type: "list.set"; readonly index: number; readonly value: Value })
-  | (ChangeViewEntryBase & { readonly type: "list.delete"; readonly range: IndexRange })
-  | (ChangeViewEntryBase & { readonly type: "text.insert"; readonly at: number; readonly text: string })
-  | (ChangeViewEntryBase & { readonly type: "text.delete"; readonly range: IndexRange })
-  | (ChangeViewEntryBase & { readonly type: "richtext.insertText"; readonly at: number; readonly text: string; readonly attrs?: AttrsData })
-  | (ChangeViewEntryBase & { readonly type: "richtext.insertEmbed"; readonly at: number; readonly embed: Value; readonly attrs?: AttrsData })
-  | (ChangeViewEntryBase & { readonly type: "richtext.delete"; readonly range: IndexRange })
-  | (ChangeViewEntryBase & { readonly type: "richtext.format"; readonly range: IndexRange; readonly patch: AttrPatch })
-
-export type ChangeView = readonly ChangeViewEntry[]
-
-export interface ChangeBuilder {
-  noop(): this
-  replace(value: Value): this
-  map(edit: (map: MapChangeBuilder) => unknown): this
-  list(edit: (list: ListChangeBuilder) => unknown): this
-  text(edit: (text: TextChangeBuilder) => unknown): this
-  richText(edit: (richText: RichTextChangeBuilder) => unknown): this
-  intAdd(delta: number | bigint): this
-}
-
-export interface MapChangeBuilder {
-  insert(key: string, value: Value): this
-  delete(key: string): this
-  modify(key: string, edit: (change: ChangeBuilder) => unknown): this
-}
-
-export interface ListChangeBuilder {
-  retain(length: number): this
-  insert(values: readonly Value[]): this
-  delete(length: number): this
-  modify(edit: (change: ChangeBuilder) => unknown): this
-}
-
-export interface TextChangeBuilder {
-  retain(length: number): this
-  insert(text: string): this
-  delete(length: number): this
-}
-
-export interface RichTextChangeBuilder {
-  retain(length: number, edit?: (patch: AttrPatchBuilder) => unknown): this
-  insertText(text: string, attrs?: AttrsData): this
-  insertEmbed(value: Value, attrs?: AttrsData): this
-  delete(length: number): this
-}
-
-export interface AttrPatchBuilder {
-  set(key: string, value: AttrValueData): this
-  remove(key: string): this
-}
-
-export interface TextOpStream {
-  retain(length: number): this
-  insert(text: string): this
-  delete(length: number): this
-}
-
-export interface ListOpStream {
-  retain(length: number): this
-  insert(values: readonly Value[]): this
-  delete(length: number): this
-}
-
-export function countCodePoints(str: string, start: number, length: number): number {
-  let count = 0
-  const end = Math.min(start + length, str.length)
-  for (let i = start; i < end; i++) {
-    const code = str.charCodeAt(i)
-    if (code >= 0xd800 && code <= 0xdbff && i + 1 < end) {
-      const next = str.charCodeAt(i + 1)
-      if (next >= 0xdc00 && next <= 0xdfff) {
-        i++
-      }
-    }
-    count++
-  }
-  return count
-}
-
-export function buildTextOps(
-  baseText: string,
-  editOrOps: ((stream: TextOpStream) => unknown) | readonly TextChangeOpInput[],
-): readonly TextChangeOpInput[] {
-  if (typeof editOrOps !== "function") {
-    return editOrOps
-  }
-  const ops: TextChangeOpInput[] = []
-  let utf16Cursor = 0
-
-  const stream: TextOpStream = {
-    retain(length: number) {
-      if (typeof length !== "number" || !Number.isSafeInteger(length) || length <= 0) {
-        throw invalidArgument("text", "length", "expected a positive safe integer")
-      }
-      const cpCount = countCodePoints(baseText, utf16Cursor, length)
-      utf16Cursor += length
-      ops.push(Object.freeze({ type: "retain", length: cpCount }))
-      return this
-    },
-    insert(text: string) {
-      if (typeof text !== "string" || text.length === 0) {
-        throw invalidArgument("text", "text", "expected a non-empty string")
-      }
-      ops.push(Object.freeze({ type: "insert", text }))
-      return this
-    },
-    delete(length: number) {
-      if (typeof length !== "number" || !Number.isSafeInteger(length) || length <= 0) {
-        throw invalidArgument("text", "length", "expected a positive safe integer")
-      }
-      const cpCount = countCodePoints(baseText, utf16Cursor, length)
-      utf16Cursor += length
-      ops.push(Object.freeze({ type: "delete", length: cpCount }))
-      return this
-    },
-  }
-
-  editOrOps(stream)
-  return Object.freeze(ops)
-}
-
-export function buildListOps(
-  editOrOps: ((stream: ListOpStream) => unknown) | readonly ListChangeOpInput[],
-): readonly ListChangeOpInput[] {
-  if (typeof editOrOps !== "function") {
-    return editOrOps
-  }
-  const ops: ListChangeOpInput[] = []
-  const stream: ListOpStream = {
-    retain(length: number) {
-      if (typeof length !== "number" || !Number.isSafeInteger(length) || length <= 0) {
-        throw invalidArgument("list", "length", "expected a positive safe integer")
-      }
-      ops.push(Object.freeze({ type: "retain", length }))
-      return this
-    },
-    insert(values: readonly Value[]) {
-      if (!Array.isArray(values) || values.length === 0) {
-        throw invalidArgument("list", "values", "expected a non-empty array")
-      }
-      ops.push(Object.freeze({ type: "insert", values: Object.freeze([...values]) }))
-      return this
-    },
-    delete(length: number) {
-      if (typeof length !== "number" || !Number.isSafeInteger(length) || length <= 0) {
-        throw invalidArgument("list", "length", "expected a positive safe integer")
-      }
-      ops.push(Object.freeze({ type: "delete", length }))
-      return this
-    },
-  }
-
-  editOrOps(stream)
-  return Object.freeze(ops)
-}
-
-abstract class ChangeBuildScope {
-  #active = true
-
-  close(): void {
-    this.#active = false
-  }
-
-  protected assertActive(): void {
-    if (!this.#active) throw invalidState("change_build", "ChangeBuilder", "scope_closed")
-  }
-}
-
-function runBuildCallback<T extends ChangeBuildScope, R>(
-  scope: T,
-  edit: (scope: T) => unknown,
-  finish: () => R,
-): R {
-  if (typeof edit !== "function") {
-    scope.close()
-    throw invalidArgument("change_build", "edit", "expected a function")
-  }
-  try {
-    const result = edit(scope)
-    if (
-      result !== null &&
-      (typeof result === "object" || typeof result === "function") &&
-      typeof (result as { then?: unknown }).then === "function"
-    ) {
-      throw invalidArgument("change_build", "edit", "callback must be synchronous")
-    }
-    return finish()
-  } finally {
-    scope.close()
-  }
-}
-
-class RootChangeScope extends ChangeBuildScope implements ChangeBuilder {
-  #input: ChangeInput | undefined
-
-  noop(): this {
-    return this.#select(Object.freeze({ type: "noop" }))
-  }
-
-  replace(value: Value): this {
-    return this.#select(Object.freeze({ type: "replace", value }))
-  }
-
-  map(edit: (map: MapChangeBuilder) => unknown): this {
-    this.#assertUnselected()
-    const scope = new MapChangeScope()
-    const entries = runBuildCallback(scope, edit, () => scope.finish())
-    return this.#select(Object.freeze({ type: "map", entries }))
-  }
-
-  list(edit: (list: ListChangeBuilder) => unknown): this {
-    this.#assertUnselected()
-    const scope = new ListChangeScope()
-    const ops = runBuildCallback(scope, edit, () => scope.finish())
-    return this.#select(Object.freeze({ type: "list", ops }))
-  }
-
-  text(edit: (text: TextChangeBuilder) => unknown): this {
-    this.#assertUnselected()
-    const scope = new TextChangeScope()
-    const ops = runBuildCallback(scope, edit, () => scope.finish())
-    return this.#select(Object.freeze({ type: "text", ops }))
-  }
-
-  richText(edit: (richText: RichTextChangeBuilder) => unknown): this {
-    this.#assertUnselected()
-    const scope = new RichTextChangeScope()
-    const ops = runBuildCallback(scope, edit, () => scope.finish())
-    return this.#select(Object.freeze({ type: "richtext", ops }))
-  }
-
-  intAdd(delta: number | bigint): this {
-    return this.#select(Object.freeze({ type: "int", delta: int(delta) }))
-  }
-
-  finish(): ChangeInput {
-    this.assertActive()
-    if (this.#input === undefined) {
-      throw invalidArgument("change_build", "edit", "missing_change_kind")
-    }
-    return this.#input
-  }
-
-  #select(input: ChangeInput): this {
-    this.#assertUnselected()
-    this.#input = input
-    return this
-  }
-
-  #assertUnselected(): void {
-    this.assertActive()
-    if (this.#input !== undefined) {
-      throw invalidArgument("change_build", "edit", "duplicate_change_kind")
-    }
-  }
-}
-
-class MapChangeScope extends ChangeBuildScope implements MapChangeBuilder {
-  readonly #entries: MapChangeEntryInput[] = []
-
-  insert(key: string, value: Value): this {
-    this.assertActive()
-    this.#entries.push(Object.freeze({ key, type: "insert", value }))
-    return this
-  }
-
-  delete(key: string): this {
-    this.assertActive()
-    this.#entries.push(Object.freeze({ key, type: "delete" }))
-    return this
-  }
-
-  modify(key: string, edit: (change: ChangeBuilder) => unknown): this {
-    this.assertActive()
-    const child = new RootChangeScope()
-    const change = runBuildCallback(child, edit, () => child.finish())
-    this.#entries.push(Object.freeze({ key, type: "modify", change }))
-    return this
-  }
-
-  finish(): readonly MapChangeEntryInput[] {
-    this.assertActive()
-    return Object.freeze([...this.#entries])
-  }
-}
-
-class ListChangeScope extends ChangeBuildScope implements ListChangeBuilder {
-  readonly #ops: ListChangeOpInput[] = []
-
-  retain(length: number): this {
-    this.assertActive()
-    this.#ops.push(Object.freeze({ type: "retain", length }))
-    return this
-  }
-
-  insert(values: readonly Value[]): this {
-    this.assertActive()
-    if (!Array.isArray(values)) {
-      throw invalidArgument("change_build", "values", "expected an array")
-    }
-    this.#ops.push(Object.freeze({
-      type: "insert",
-      values: Object.freeze([...ownArrayDataValues(values, "change_build")]) as readonly Value[],
-    }))
-    return this
-  }
-
-  delete(length: number): this {
-    this.assertActive()
-    this.#ops.push(Object.freeze({ type: "delete", length }))
-    return this
-  }
-
-  modify(edit: (change: ChangeBuilder) => unknown): this {
-    this.assertActive()
-    const child = new RootChangeScope()
-    const change = runBuildCallback(child, edit, () => child.finish())
-    this.#ops.push(Object.freeze({ type: "modify", change }))
-    return this
-  }
-
-  finish(): readonly ListChangeOpInput[] {
-    this.assertActive()
-    return Object.freeze([...this.#ops])
-  }
-}
-
-class TextChangeScope extends ChangeBuildScope implements TextChangeBuilder {
-  readonly #ops: TextChangeOpInput[] = []
-
-  retain(length: number): this {
-    this.assertActive()
-    this.#ops.push(Object.freeze({ type: "retain", length }))
-    return this
-  }
-
-  insert(text: string): this {
-    this.assertActive()
-    this.#ops.push(Object.freeze({ type: "insert", text }))
-    return this
-  }
-
-  delete(length: number): this {
-    this.assertActive()
-    this.#ops.push(Object.freeze({ type: "delete", length }))
-    return this
-  }
-
-  finish(): readonly TextChangeOpInput[] {
-    this.assertActive()
-    return Object.freeze([...this.#ops])
-  }
-}
-
-class PatchChangeScope extends ChangeBuildScope implements AttrPatchBuilder {
-  readonly #patch = Object.create(null) as Record<
+export type RichTextSpan = {
+    readonly type: "text";
+    readonly text: string;
+    readonly attrs?: Attrs;
+} | {
+    readonly type: "embed";
+    readonly value: Input;
+    readonly attrs?: Attrs;
+};
+function entries(value: object): [
     string,
-    { readonly type: "set"; readonly value: AttrValueData } | { readonly type: "remove" }
-  >
-
-  set(key: string, value: AttrValueData): this {
-    this.assertActive()
-    this.#patch[key] = Object.freeze({ type: "set", value })
-    return this
-  }
-
-  remove(key: string): this {
-    this.assertActive()
-    this.#patch[key] = Object.freeze({ type: "remove" })
-    return this
-  }
-
-  finish(): AttrPatch {
-    this.assertActive()
-    return Object.freeze(this.#patch)
-  }
+    unknown
+][] {
+    if (Object.getPrototypeOf(value) !== Object.prototype && Object.getPrototypeOf(value) !== null)
+        fail("invalid_argument", "input", "expected a plain object");
+    if (Object.getOwnPropertySymbols(value).length)
+        fail("invalid_argument", "input", "symbol keys are unsupported");
+    return Object.entries(Object.getOwnPropertyDescriptors(value)).map(([key, descriptor]) => {
+        if (!("value" in descriptor))
+            fail("invalid_argument", "input", "accessor properties are unsupported");
+        checkedString(key);
+        return [key, descriptor.value];
+    });
 }
-
-class RichTextChangeScope extends ChangeBuildScope implements RichTextChangeBuilder {
-  readonly #ops: RichTextChangeOpInput[] = []
-
-  retain(length: number, edit?: (patch: AttrPatchBuilder) => unknown): this {
-    this.assertActive()
-    if (edit === undefined) {
-      this.#ops.push(Object.freeze({ type: "retain", length }))
-    } else {
-      const scope = new PatchChangeScope()
-      const patch = runBuildCallback(scope, edit, () => scope.finish())
-      this.#ops.push(Object.freeze({ type: "retain", length, patch }))
+function attributes(value: Attrs | AttrPatch = {}, patch = false): [
+    string,
+    AttrValue | null
+][] {
+    return entries(value).map(([key, value]) => {
+        if (value === null && patch)
+            return [key, null];
+        if (!["boolean", "bigint", "number", "string"].includes(typeof value))
+            fail("invalid_argument", "attributes", "attribute values must be atomic");
+        if (typeof value === "string")
+            checkedString(value);
+        return [key, value as AttrValue];
+    });
+}
+function dataObject<T>(items: readonly (readonly [
+    string,
+    T
+])[]): Readonly<Record<string, T>> {
+    const out: Record<string, T> = {};
+    for (const [key, value] of items)
+        Object.defineProperty(out, key, { value, enumerable: true });
+    return Object.freeze(out);
+}
+export class Text {
+    readonly type = "text";
+    readonly value: string;
+    constructor(value: string) { this.value = checkedString(value); Object.freeze(this); }
+}
+export class Ref {
+    readonly target: ElementId;
+    constructor(target: ElementId) { this.target = ElementId.parse(target); Object.freeze(this); }
+}
+export class RichText {
+    readonly type = "richtext";
+    readonly spans: readonly RichTextSpan[];
+    constructor(spans: readonly RichTextSpan[]) {
+        if (!Array.isArray(spans))
+            fail("invalid_argument", "richText", "expected spans array");
+        this.spans = Object.freeze(spans.map(span => span.type === "text"
+            ? Object.freeze({ type: "text" as const, text: checkedString(span.text), attrs: dataObject(attributes(span.attrs)) as Attrs })
+            : span.type === "embed"
+                ? Object.freeze({ type: "embed" as const, value: immutableInput(span.value), attrs: dataObject(attributes(span.attrs)) as Attrs })
+                : fail("invalid_argument", "richText", "invalid span type")));
+        Object.freeze(this);
     }
-    return this
-  }
-
-  insertText(text: string, attrs?: AttrsData): this {
-    this.assertActive()
-    const content = Object.freeze({
-      type: "text" as const,
-      text,
-      ...(attrs === undefined ? {} : { attrs }),
-    })
-    this.#ops.push(Object.freeze({ type: "insert", content }))
-    return this
-  }
-
-  insertEmbed(value: Value, attrs?: AttrsData): this {
-    this.assertActive()
-    const content = Object.freeze({
-      type: "embed" as const,
-      value,
-      ...(attrs === undefined ? {} : { attrs }),
-    })
-    this.#ops.push(Object.freeze({ type: "insert", content }))
-    return this
-  }
-
-  delete(length: number): this {
-    this.assertActive()
-    this.#ops.push(Object.freeze({ type: "delete", length }))
-    return this
-  }
-
-  finish(): readonly RichTextChangeOpInput[] {
-    this.assertActive()
-    return Object.freeze([...this.#ops])
-  }
 }
-
-function buildChangeInput(edit: (change: ChangeBuilder) => unknown): ChangeInput {
-  const scope = new RootChangeScope()
-  return runBuildCallback(scope, edit, () => scope.finish())
+export function text(value: string): Text { return new Text(value); }
+export function richText(spans: readonly RichTextSpan[]): RichText { return new RichText(spans); }
+export function ref(target: ElementId): Ref { return new Ref(target); }
+function immutableInput(input: Input, active = new Set<object>(), depth = 0): Input {
+    if (depth > 100)
+        fail("limit_exceeded", "input", "value depth exceeded");
+    if (input instanceof Value || input instanceof Text || input instanceof RichText || input instanceof Ref)
+        return input;
+    if (typeof input === "string")
+        return checkedString(input);
+    if (input === null || ["boolean", "bigint", "number"].includes(typeof input))
+        return input;
+    if (!input || typeof input !== "object")
+        fail("invalid_argument", "input", "unsupported value");
+    if (active.has(input))
+        fail("invalid_value", "input", "owning content cannot contain cycles");
+    active.add(input);
+    const out = Array.isArray(input) ? Object.freeze(input.map(v => immutableInput(v, active, depth + 1)))
+        : dataObject(entries(input).map(([k, v]) => [k, immutableInput(v as Input, active, depth + 1)]));
+    active.delete(input);
+    return out;
 }
-
-function indexArgument(value: unknown, operation: string, argument: string): number {
-  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
-    throw invalidArgument(operation, argument, "expected a non-negative safe integer")
-  }
-  return value
+type Tagged = unknown[];
+function inputNode(input: Input, active = new Set<object>(), depth = 0): Tagged {
+    if (depth > 100)
+        fail("limit_exceeded", "input", "value depth exceeded");
+    if (input instanceof Value)
+        return [10, input.encode()];
+    if (input instanceof Text)
+        return [5, input.value];
+    if (input instanceof Ref)
+        return [7, input.target];
+    if (input instanceof RichText)
+        return [6, input.spans.map(span => spanInput(span, active, depth + 1))];
+    if (input === null)
+        return [0];
+    if (typeof input === "boolean")
+        return [1, input];
+    if (typeof input === "bigint")
+        return [2, input];
+    if (typeof input === "number")
+        return [3, input];
+    if (typeof input === "string")
+        return [4, checkedString(input)];
+    if (!input || typeof input !== "object")
+        fail("invalid_argument", "input", "unsupported value");
+    if (active.has(input))
+        fail("invalid_value", "input", "owning content cannot contain cycles");
+    active.add(input);
+    const out = Array.isArray(input) ? [8, input.map(v => inputNode(v, active, depth + 1))]
+        : [9, entries(input).map(([key, value]) => [key, inputNode(value as Input, active, depth + 1)])];
+    active.delete(input);
+    return out;
 }
-
-export function apply(base: ValueHandle, change: Change): ValueHandle {
-  try {
-    return ValueHandle._fromHandle(
-      applyHandles(
-        ValueHandle._handle(base, "apply"),
-        Change._handle(change, "apply"),
-      ),
-    )
-  } catch (error) {
-    throw fromWasmError(error, "apply")
-  }
+function spanInput(span: RichTextSpan, active = new Set<object>(), depth = 0): Tagged {
+    if (span.type === "text")
+        return [0, checkedString(span.text), attributes(span.attrs)];
+    if (span.type === "embed")
+        return [1, inputNode(span.value, active, depth + 1), attributes(span.attrs)];
+    return fail("invalid_argument", "richText", "invalid span type");
 }
-
-export function compose(first: Change, second: Change): Change {
-  try {
-    return Change._fromHandle(composeHandles(
-      Change._handle(first, "compose"),
-      Change._handle(second, "compose"),
-    ))
-  } catch (error) {
-    throw fromWasmError(error, "compose")
-  }
+function projectedSpan(span: any[]): RichTextSpan {
+    return span[0] === 0 ? Object.freeze({ type: "text", text: span[1], attrs: dataObject(span[2]) as Attrs })
+        : Object.freeze({ type: "embed", value: span[1] instanceof CoreValue ? wrapValue(span[1]) : project(span[1]), attrs: dataObject(span[2]) as Attrs });
 }
-
-export function invert(change: Change, base: ValueHandle): Change {
-  try {
-    return Change._fromHandle(invertHandle(
-      Change._handle(change, "invert"),
-      ValueHandle._handle(base, "invert"),
-    ))
-  } catch (error) {
-    throw fromWasmError(error, "invert")
-  }
+function project(node: any[]): Input {
+    switch (node[0]) {
+        case 0: return null;
+        case 1:
+        case 2:
+        case 3:
+        case 4: return node[1];
+        case 5: return text(node[1]);
+        case 6: return richText(node[1].map(projectedSpan));
+        case 7: return ref(node[1]);
+        case 8: return Object.freeze(node[1].map(project));
+        case 9: return dataObject(node[1].map(([key, value]: [
+            string,
+            any[]
+        ]) => [key, project(value)]));
+        default: return fail("invalid_state", "projection", "invalid Rust projection");
+    }
 }
-
-export interface TransformPairOptions {
-  readonly order: "left-first" | "right-first"
+const token = Symbol("Colla internal construction");
+const values = new WeakMap<Value, CoreValue>();
+const changes = new WeakMap<Change, CoreChange>();
+function rawValue(value: Value): CoreValue { const raw = values.get(value); if (!raw)
+    fail("invalid_argument", "Value", "expected Value"); return raw; }
+function rawChange(change: Change): CoreChange { const raw = changes.get(change); if (!raw)
+    fail("invalid_argument", "Change", "expected Change"); return raw; }
+function wrapValue(raw: CoreValue): Value { return new (Value as any)(token, raw); }
+function wrapChange(raw: CoreChange): Change { return new (Change as any)(token, raw); }
+export class Value {
+    private constructor(key: symbol, raw: CoreValue) {
+        if (key !== token)
+            fail("invalid_argument", "Value", "use Value.fromJS or Value.decode");
+        values.set(this, raw);
+        Object.freeze(this);
+    }
+    static fromJS(input: Input): Value { if (input instanceof Value)
+        return input; return invoke("Value.fromJS", () => wrapValue(CoreValue.from_input(inputNode(input)))); }
+    static decode(input: Uint8Array): Value { return invoke("Value.decode", () => wrapValue(CoreValue.decode(bytes(input)))); }
+    get id(): ElementId { return rawValue(this).id() as ElementId; }
+    encode(): Uint8Array { return invoke("Value.encode", () => rawValue(this).encode()); }
+    toJS(): Input { return invoke("Value.toJS", () => project(rawValue(this).projection())); }
+    get(location: Location = []): Value | undefined {
+        try {
+            return invoke("Value.get", () => wrapValue(rawValue(this).get(locate(location))));
+        }
+        catch (error) {
+            if (error instanceof CollaError && (error.code === "missing_key" || error.code === "out_of_bounds"))
+                return undefined;
+            throw error;
+        }
+    }
+    has(location: Location): boolean { return this.get(location) !== undefined; }
+    kind(location: Location = []): ValueKind | undefined { const value = Array.isArray(location) && location.length === 0 ? this : this.get(location); return value && invoke("Value.kind", () => rawValue(value).kind() as ValueKind); }
+    idAt(path: Path): ElementId { const value = this.get(path); if (!value)
+        fail("missing_key", "Value.idAt", "element does not exist"); return value.id; }
+    pathOf(id: ElementId): Path | undefined { const path = invoke("Value.pathOf", () => rawValue(this).path_of(ElementId.parse(id))); return path && Object.freeze(path); }
+    resolve(reference: Ref): Value | undefined {
+        if (!(reference instanceof Ref))
+            fail("invalid_argument", "Value.resolve", "expected Ref");
+        const value = invoke("Value.resolve", () => rawValue(this).resolve(reference.target));
+        return value && wrapValue(value);
+    }
+    referencesTo(id: ElementId): readonly ElementId[] { return Object.freeze(invoke("Value.referencesTo", () => rawValue(this).references_to(ElementId.parse(id))) as ElementId[]); }
+    equals(other: Value): boolean { return invoke("Value.equals", () => rawValue(this).equals(rawValue(other))); }
+    contentEquals(other: Value): boolean { return invoke("Value.contentEquals", () => rawValue(this).content_equals(rawValue(other))); }
+    copy(): Value { return invoke("Value.copy", () => wrapValue(rawValue(this).copied())); }
 }
-
-export function transformPair(
-  left: Change,
-  right: Change,
-  options: TransformPairOptions,
-): readonly [Change, Change] {
-  const operation = "transform_pair"
-  if (!isRecord(options)) throw invalidArgument(operation, "options", "expected a plain record")
-  const entries = ownDataEntries(options, operation)
-  if (entries.length !== 1 || entries[0][0] !== "order") {
-    throw invalidArgument(operation, "options", "expected only the order field")
-  }
-  const order = entries[0][1]
-  if (order !== "left-first" && order !== "right-first") {
-    throw invalidArgument(operation, "options.order", "expected left-first or right-first")
-  }
-  try {
-    const pair = transformPairHandles(
-      Change._handle(left, operation),
-      Change._handle(right, operation),
-      order === "left-first",
-    )
+export type Destination = {
+    readonly parent: ElementId;
+    readonly key: string;
+    readonly index?: never;
+} | {
+    readonly parent: ElementId;
+    readonly index: number;
+    readonly key?: never;
+};
+export type MoveTarget = {
+    readonly parent: Location;
+    readonly key: string;
+    readonly index?: never;
+} | {
+    readonly parent: Location;
+    readonly index: number;
+    readonly key?: never;
+};
+export type TextOp = {
+    readonly type: "retain" | "delete";
+    readonly length: number;
+} | {
+    readonly type: "insert";
+    readonly text: string;
+};
+export type RichTextOp = {
+    readonly type: "retain";
+    readonly length: number;
+    readonly attrs?: AttrPatch;
+} | {
+    readonly type: "delete";
+    readonly length: number;
+} | {
+    readonly type: "insert";
+    readonly span: RichTextSpan;
+};
+export type Operation = {
+    readonly type: "insert";
+    readonly destination: Destination;
+    readonly value: Value;
+} | {
+    readonly type: "delete";
+    readonly target: ElementId;
+} | {
+    readonly type: "set";
+    readonly target: ElementId;
+    readonly value: Value;
+} | {
+    readonly type: "move";
+    readonly target: ElementId;
+    readonly destination: Destination;
+} | {
+    readonly type: "text";
+    readonly target: ElementId;
+    readonly operations: readonly TextOp[];
+} | {
+    readonly type: "add";
+    readonly target: ElementId;
+    readonly delta: bigint;
+} | {
+    readonly type: "richtext";
+    readonly target: ElementId;
+    readonly operations: readonly RichTextOp[];
+};
+export type EditStep = Operation;
+function destinationInput(value: Destination | MoveTarget, identity = true): Tagged {
+    if ((value.key === undefined) === (value.index === undefined))
+        fail("invalid_argument", "destination", "provide exactly one key or index");
+    return [identity ? ElementId.parse(value.parent as ElementId) : locate(value.parent), value.key === undefined ? checkedIndex(value.index) : checkedString(value.key)];
+}
+function textOperationInput(op: TextOp): Tagged {
+    if (op.type === "retain")
+        return [0, checkedIndex(op.length)];
+    if (op.type === "insert")
+        return [1, checkedString(op.text)];
+    if (op.type === "delete")
+        return [2, checkedIndex(op.length)];
+    return fail("invalid_argument", "Change.create", "unknown Text operation");
+}
+function richOperationInput(op: RichTextOp): Tagged {
+    if (op.type === "retain")
+        return [0, checkedIndex(op.length), attributes(op.attrs, true)];
+    if (op.type === "insert")
+        return [1, spanInput(op.span)];
+    if (op.type === "delete")
+        return [2, checkedIndex(op.length)];
+    return fail("invalid_argument", "Change.create", "unknown RichText operation");
+}
+function operationInput(op: Operation): Tagged {
+    switch (op.type) {
+        case "insert": return [0, destinationInput(op.destination), inputNode(op.value)];
+        case "delete": return [1, ElementId.parse(op.target)];
+        case "set": return [2, ElementId.parse(op.target), inputNode(op.value)];
+        case "move": return [3, ElementId.parse(op.target), destinationInput(op.destination)];
+        case "text": return [4, ElementId.parse(op.target), op.operations.map(textOperationInput)];
+        case "add": return [5, ElementId.parse(op.target), op.delta];
+        case "richtext": return [6, ElementId.parse(op.target), op.operations.map(richOperationInput)];
+        default: return fail("invalid_argument", "Change.create", "unknown operation");
+    }
+}
+function operationProjection(op: any[]): Operation {
+    const destination = (d: any[]): Destination => Object.freeze(typeof d[1] === "string" ? { parent: d[0], key: d[1] } : { parent: d[0], index: d[1] });
+    switch (op[0]) {
+        case 0: return Object.freeze({ type: "insert", destination: destination(op[1]), value: wrapValue(op[2]) });
+        case 1: return Object.freeze({ type: "delete", target: op[1] });
+        case 2: return Object.freeze({ type: "set", target: op[1], value: wrapValue(op[2]) });
+        case 3: return Object.freeze({ type: "move", target: op[1], destination: destination(op[2]) });
+        case 4: return Object.freeze({ type: "text", target: op[1], operations: Object.freeze(op[2].map((op: any[]) => Object.freeze(op[0] === 1 ? { type: "insert", text: op[1] } : { type: op[0] === 0 ? "retain" : "delete", length: op[1] }))) });
+        case 5: return Object.freeze({ type: "add", target: op[1], delta: op[2] });
+        case 6: return Object.freeze({ type: "richtext", target: op[1], operations: Object.freeze(op[2].map((op: any[]) => Object.freeze(op[0] === 1 ? { type: "insert", span: projectedSpan(op[1]) } : op[0] === 0 ? { type: "retain", length: op[1], attrs: dataObject(op[2]) } : { type: "delete", length: op[1] }))) });
+        default: return fail("invalid_state", "Change.operations", "invalid Rust operation projection");
+    }
+}
+export class Change {
+    private constructor(key: symbol, raw: CoreChange) { if (key !== token)
+        fail("invalid_argument", "Change", "use Change.create or Change.decode"); changes.set(this, raw); Object.freeze(this); }
+    static create(operations: readonly Operation[]): Change { if (!Array.isArray(operations))
+        fail("invalid_argument", "Change.create", "expected operations array"); return invoke("Change.create", () => wrapChange(CoreChange.from_input(operations.map(operationInput)))); }
+    static decode(input: Uint8Array): Change { return invoke("Change.decode", () => wrapChange(CoreChange.decode(bytes(input)))); }
+    static noop(): Change { return Change.create([]); }
+    get isNoop(): boolean { return rawChange(this).is_noop(); }
+    get operations(): readonly Operation[] { return Object.freeze(invoke("Change.operations", () => rawChange(this).operations().map(operationProjection))); }
+    encode(): Uint8Array { return invoke("Change.encode", () => rawChange(this).encode()); }
+}
+export function apply(base: Value, change: Change): Value { return invoke("apply", () => wrapValue(core_apply(rawValue(base), rawChange(change)))); }
+export function invert(base: Value, change: Change): Change { return invoke("invert", () => wrapChange(core_invert(rawValue(base), rawChange(change)))); }
+export function compose(base: Value, first: Change, second: Change): Change { return invoke("compose", () => wrapChange(core_compose(rawValue(base), rawChange(first), rawChange(second)))); }
+export function transform(base: Value, left: Change, right: Change, options: {
+    readonly priority: "left" | "right";
+}): readonly [
+    Change,
+    Change
+] {
+    if (!options || !["left", "right"].includes(options.priority))
+        fail("invalid_argument", "transform", "priority must be left or right");
+    return invoke("transform", () => { const result = core_transform(rawValue(base), rawChange(left), rawChange(right), options.priority === "left"); return Object.freeze([wrapChange(result[0]), wrapChange(result[1])]); });
+}
+export type Origin = "local" | "remote" | "undo" | "redo";
+export interface EditResult {
+    readonly before: Value;
+    readonly after: Value;
+    readonly change: Change;
+    readonly inverse: Change;
+    readonly editSteps: readonly EditStep[];
+    readonly version: bigint;
+    readonly origin: Origin;
+}
+export type EditEvent = EditResult;
+export interface SubscribeOptions {
+    readonly onError?: (error: unknown) => void;
+}
+type Listener<T> = {
+    listener: (event: T) => void;
+    onError?: (error: unknown) => void;
+};
+function subscribe<T>(listeners: Set<Listener<T>>, listener: (event: T) => void, options: SubscribeOptions = {}): () => void {
+    if (typeof listener !== "function" || (options.onError !== undefined && typeof options.onError !== "function"))
+        fail("invalid_argument", "subscribe", "expected listener functions");
+    const item = { listener, onError: options.onError };
+    listeners.add(item);
+    return () => { listeners.delete(item); };
+}
+function dispatch<T>(listeners: Set<Listener<T>>, event: T): void {
+    for (const item of [...listeners]) {
+        try {
+            item.listener(event);
+        }
+        catch (error) {
+            try {
+                item.onError?.(error);
+            }
+            catch { /* Listener diagnostics are isolated too. */ }
+        }
+    }
+}
+function editResult(raw: any): EditResult | null {
+    return raw === null ? null : Object.freeze({ before: wrapValue(raw.before), after: wrapValue(raw.after), change: wrapChange(raw.change), inverse: wrapChange(raw.inverse), editSteps: Object.freeze(raw.editSteps.map(operationProjection)), version: raw.version, origin: raw.origin });
+}
+abstract class Reader {
+    abstract snapshot(): Value;
+    get(location: Location = []): Value | undefined { return this.snapshot().get(location); }
+    has(location: Location): boolean { return this.snapshot().has(location); }
+    kind(location: Location = []): ValueKind | undefined { return this.snapshot().kind(location); }
+    idAt(path: Path): ElementId { return this.snapshot().idAt(path); }
+    pathOf(id: ElementId): Path | undefined { return this.snapshot().pathOf(id); }
+    resolve(reference: Ref): Value | undefined { return this.snapshot().resolve(reference); }
+    referencesTo(id: ElementId): readonly ElementId[] { return this.snapshot().referencesTo(id); }
+}
+type DocumentState = {
+    raw: CoreDocument;
+    editing: boolean;
+    dispatching: boolean;
+    closed: boolean;
+    listeners: Set<Listener<EditEvent>>;
+    session?: SyncSession;
+};
+const documents = new WeakMap<Document, DocumentState>();
+function documentState(doc: Document): DocumentState { const state = documents.get(doc); if (!state)
+    fail("invalid_argument", "Document", "expected Document"); return state; }
+function checkRead(doc: Document): DocumentState { const state = documentState(doc); if (state.closed)
+    fail("invalid_state", "Document", "document is closed"); return state; }
+function checkWrite(doc: Document): DocumentState { const state = checkRead(doc); if (state.editing || state.dispatching)
+    fail("invalid_state", "Document", "modification during an active edit or event dispatch"); return state; }
+function wrapDocument(raw: CoreDocument): Document { return new (Document as any)(token, raw); }
+function deliver(doc: Document, raw: any): EditResult | null {
+    const result = editResult(raw);
+    const state = documentState(doc);
+    if (result) {
+        state.dispatching = true;
+        try {
+            dispatch(state.listeners, result);
+        }
+        finally {
+            state.dispatching = false;
+        }
+    }
+    if (state.session)
+        notifySession(state.session);
+    return result;
+}
+export class Document extends Reader {
+    private constructor(key: symbol, raw: CoreDocument) {
+        super();
+        if (key !== token)
+            fail("invalid_argument", "Document", "use Document.create");
+        documents.set(this, { raw, editing: false, dispatching: false, closed: false, listeners: new Set() });
+        Object.freeze(this);
+    }
+    static create(input: Input): Document { return invoke("Document.create", () => wrapDocument(CoreDocument.create(rawValue(Value.fromJS(input))))); }
+    snapshot(): Value { return invoke("Document.snapshot", () => wrapValue(checkRead(this).raw.snapshot())); }
+    get version(): bigint { return invoke("Document.version", () => checkRead(this).raw.version()); }
+    edit(callback: (tx: Transaction) => unknown, options: {
+        readonly group?: string;
+    } = {}): EditResult | null {
+        const state = checkWrite(this);
+        if (typeof callback !== "function")
+            fail("invalid_argument", "Document.edit", "expected a synchronous callback");
+        const group = options.group === undefined ? undefined : checkedString(options.group);
+        invoke("Document.edit", () => state.raw.begin(group));
+        state.editing = true;
+        const scope: Scope = { state, active: true };
+        let result: any;
+        try {
+            const returned = callback(new (Transaction as any)(token, scope));
+            if (returned !== null && (typeof returned === "object" || typeof returned === "function") && typeof (returned as any).then === "function") {
+                // Observe real Promise rejection without executing an arbitrary thenable.
+                try {
+                    Promise.prototype.then.call(returned, undefined, () => { });
+                }
+                catch { /* not a Promise */ }
+                fail("invalid_state", "Document.edit", "callback must be synchronous");
+            }
+            result = invoke("Document.edit", () => state.raw.commit());
+        }
+        catch (error) {
+            if (error instanceof CollaError)
+                throw error;
+            throw new CollaError("invalid_state", "Document.edit", { reason: error instanceof Error ? error.message : String(error) });
+        }
+        finally {
+            scope.active = false;
+            state.raw.rollback();
+            state.editing = false;
+        }
+        return deliver(this, result);
+    }
+    apply(change: Change): EditResult | null { const state = checkWrite(this); return deliver(this, invoke("Document.apply", () => state.raw.apply(rawChange(change)))); }
+    subscribe(listener: (event: EditEvent) => void, options: SubscribeOptions = {}): () => void { return subscribe(checkRead(this).listeners, listener, options); }
+    close(): void {
+        const state = documentState(this);
+        if (state.closed)
+            return;
+        checkWrite(this);
+        invoke("Document.close", () => state.raw.close());
+        state.closed = true;
+        state.listeners.clear();
+        if (state.session)
+            notifySession(state.session);
+    }
+}
+type Scope = {
+    state: DocumentState;
+    active: boolean;
+};
+const scopes = new WeakMap<Transaction, Scope>();
+function scoped(tx: Transaction): Scope { const scope = scopes.get(tx); if (!scope || !scope.active)
+    fail("invalid_state", "Transaction", "transaction scope has ended"); return scope; }
+function command(tx: Transaction, args: Tagged): any { const scope = scoped(tx); return invoke("Transaction.edit", () => scope.state.raw.command(args)); }
+export class Transaction extends Reader {
+    private constructor(key: symbol, scope: Scope) { super(); if (key !== token)
+        fail("invalid_argument", "Transaction", "transactions come from Document.edit"); scopes.set(this, scope); Object.freeze(this); }
+    snapshot(): Value { return invoke("Transaction.snapshot", () => wrapValue(scoped(this).state.raw.transaction_snapshot())); }
+    set(location: Location, value: Input): void { scoped(this); command(this, [0, locate(location), inputNode(value)]); }
+    delete(location: Location): void { scoped(this); command(this, [1, locate(location)]); }
+    move(source: Location, target: MoveTarget): void { scoped(this); const [parent, slot] = destinationInput(target, false); command(this, [2, locate(source), parent, slot]); }
+    copy(source: Location, target: MoveTarget): ElementId { scoped(this); const [parent, slot] = destinationInput(target, false); return command(this, [3, locate(source), parent, slot]) as ElementId; }
+    increment(location: Location, delta: bigint): void { scoped(this); command(this, [4, locate(location), delta]); }
+    apply(change: Change): void { invoke("Transaction.apply", () => scoped(this).state.raw.transaction_apply(rawChange(change))); }
+    list(location: Location): ListEditor { return new (ListEditor as any)(token, this, editorTarget(this, location, "list")); }
+    text(location: Location): TextEditor { return new (TextEditor as any)(token, this, editorTarget(this, location, "text")); }
+    richText(location: Location): RichTextEditor { return new (RichTextEditor as any)(token, this, editorTarget(this, location, "richtext")); }
+}
+function editorTarget(tx: Transaction, location: Location, kind: ValueKind): ElementId {
+    const value = tx.get(location);
+    if (!value)
+        fail("missing_key", "Transaction", "editor target does not exist");
+    if (value.kind() !== kind)
+        fail("type_mismatch", "Transaction", `expected ${kind}`);
+    return value.id;
+}
+const editors = new WeakMap<object, {
+    tx: Transaction;
+    target: ElementId;
+}>();
+function editor(editor: object): {
+    tx: Transaction;
+    target: ElementId;
+} { const item = editors.get(editor); if (!item)
+    fail("invalid_state", "editor", "invalid editor"); scoped(item.tx); return item; }
+export class ListEditor {
+    private constructor(key: symbol, tx: Transaction, target: ElementId) { if (key !== token)
+        fail("invalid_argument", "ListEditor", "use tx.list"); editors.set(this, { tx, target }); Object.freeze(this); }
+    insert(index: number, values: readonly Input[]): void { this.replace(index, 0, values); }
+    delete(index: number, count: number): void { this.replace(index, count, []); }
+    replace(index: number, count: number, values: readonly Input[]): void {
+        const { tx, target } = editor(this);
+        if (!Array.isArray(values))
+            fail("invalid_argument", "ListEditor.replace", "expected values array");
+        command(tx, [5, target, checkedIndex(index), checkedIndex(count), values.map(v => inputNode(v))]);
+    }
+}
+export class TextEditor {
+    private constructor(key: symbol, tx: Transaction, target: ElementId) { if (key !== token)
+        fail("invalid_argument", "TextEditor", "use tx.text"); editors.set(this, { tx, target }); Object.freeze(this); }
+    insert(index: number, value: string): void { this.replace(index, 0, value); }
+    delete(index: number, count: number): void { this.replace(index, count, ""); }
+    replace(index: number, count: number, value: string): void { const { tx, target } = editor(this); command(tx, [6, target, checkedIndex(index), checkedIndex(count), checkedString(value)]); }
+}
+export class RichTextEditor {
+    private constructor(key: symbol, tx: Transaction, target: ElementId) { if (key !== token)
+        fail("invalid_argument", "RichTextEditor", "use tx.richText"); editors.set(this, { tx, target }); Object.freeze(this); }
+    insertText(index: number, value: string, attrs: Attrs = {}): void { this.replace(index, 0, [{ type: "text", text: value, attrs }]); }
+    insertEmbed(index: number, value: Input, attrs: Attrs = {}): void { this.replace(index, 0, [{ type: "embed", value, attrs }]); }
+    delete(index: number, count: number): void { this.replace(index, count, []); }
+    replace(index: number, count: number, spans: readonly RichTextSpan[]): void {
+        const { tx, target } = editor(this);
+        if (!Array.isArray(spans))
+            fail("invalid_argument", "RichTextEditor.replace", "expected spans array");
+        command(tx, [7, target, checkedIndex(index), checkedIndex(count), spans.map(span => spanInput(span))]);
+    }
+    format(index: number, count: number, patch: AttrPatch): void { const { tx, target } = editor(this); command(tx, [8, target, checkedIndex(index), checkedIndex(count), attributes(patch, true)]); }
+}
+const wires = new WeakMap<WireObject, CoreWire>();
+function rawWire(value: WireObject): CoreWire { const wire = wires.get(value); if (!wire)
+    fail("invalid_argument", "protocol", "expected a controlled protocol object"); return wire; }
+class WireObject {
+    /** @internal */
+    protected constructor(key: symbol, raw: CoreWire) { if (key !== token)
+        fail("invalid_argument", "protocol", "use a codec or runtime constructor"); wires.set(this, raw); }
+    encode(): Uint8Array { return invoke("encode", () => rawWire(this).encode()); }
+}
+export class SyncSnapshot extends WireObject {
+    readonly documentId: string;
+    readonly revision: bigint;
+    readonly value: Value;
+    private constructor(key: symbol, raw: CoreWire) { super(key, raw); const info = raw.info(); this.documentId = info.documentId; this.revision = info.revision; this.value = wrapValue(info.value); Object.freeze(this); }
+    static decode(input: Uint8Array): SyncSnapshot { return invoke("SyncSnapshot.decode", () => new SyncSnapshot(token, CoreWire.decode(3, bytes(input)))); }
+}
+export class Submission extends WireObject {
+    readonly documentId: string;
+    readonly clientId: string;
+    readonly sequence: bigint;
+    readonly baseRevision: bigint;
+    readonly change: Change;
+    private constructor(key: symbol, raw: CoreWire) { super(key, raw); const info = raw.info(); this.documentId = info.documentId; this.clientId = info.clientId; this.sequence = info.sequence; this.baseRevision = info.baseRevision; this.change = wrapChange(info.change); Object.freeze(this); }
+    static decode(input: Uint8Array): Submission { return invoke("Submission.decode", () => new Submission(token, CoreWire.decode(4, bytes(input)))); }
+}
+export class ServerMessage extends WireObject {
+    readonly type: "commit" | "rejection";
+    readonly documentId: string;
+    readonly clientId: string;
+    readonly sequence: bigint;
+    readonly revision?: bigint;
+    readonly change?: Change;
+    readonly reason?: CollaError;
+    private constructor(key: symbol, raw: CoreWire) {
+        super(key, raw);
+        const info = raw.info();
+        this.type = info.type;
+        this.documentId = info.documentId;
+        this.clientId = info.clientId;
+        this.sequence = info.sequence;
+        this.revision = info.revision;
+        this.change = info.change && wrapChange(info.change);
+        this.reason = info.reason && new CollaError(info.reason.code, info.reason.operation, info.reason.details);
+        Object.freeze(this);
+    }
+    static decode(input: Uint8Array): ServerMessage { return invoke("ServerMessage.decode", () => new ServerMessage(token, CoreWire.decode(5, bytes(input)))); }
+}
+export class SessionCheckpoint extends WireObject {
+    private constructor(key: symbol, raw: CoreWire) { super(key, raw); Object.freeze(this); }
+    static decode(input: Uint8Array): SessionCheckpoint { return invoke("SessionCheckpoint.decode", () => new SessionCheckpoint(token, CoreWire.decode(6, bytes(input)))); }
+}
+export class HistoryCheckpoint extends WireObject {
+    private constructor(key: symbol, raw: CoreWire) { super(key, raw); Object.freeze(this); }
+    static decode(input: Uint8Array): HistoryCheckpoint { return invoke("HistoryCheckpoint.decode", () => new HistoryCheckpoint(token, CoreWire.decode(7, bytes(input)))); }
+}
+export class AuthorityCheckpoint extends WireObject {
+    private constructor(key: symbol, raw: CoreWire) { super(key, raw); Object.freeze(this); }
+    static decode(input: Uint8Array): AuthorityCheckpoint { return invoke("AuthorityCheckpoint.decode", () => new AuthorityCheckpoint(token, CoreWire.decode(8, bytes(input)))); }
+}
+function wrapWire<T extends WireObject>(kind: {
+    prototype: T;
+}, wire: CoreWire): T { return new (kind as any)(token, wire); }
+type HistoryState = {
+    raw: CoreHistory;
+    document: Document;
+    closed: boolean;
+};
+const histories = new WeakMap<History, HistoryState>();
+const attached = new WeakMap<Document, History>();
+function historyState(history: History): HistoryState { const state = histories.get(history); if (!state || state.closed)
+    fail("invalid_state", "History", "history is closed"); return state; }
+export class History {
+    private constructor(key: symbol, raw: CoreHistory, document: Document) { if (key !== token)
+        fail("invalid_argument", "History", "use History.attach"); histories.set(this, { raw, document, closed: false }); Object.freeze(this); }
+    static attach(document: Document, options: {
+        readonly capacity?: number;
+    } = {}): History {
+        const existing = attached.get(document);
+        if (existing)
+            return existing;
+        const state = checkWrite(document);
+        const history = new History(token, invoke("History.attach", () => state.raw.history(checkedIndex(options.capacity ?? 100))), document);
+        attached.set(document, history);
+        return history;
+    }
+    static restore(document: Document, checkpoint: HistoryCheckpoint): History {
+        if (!(checkpoint instanceof HistoryCheckpoint))
+            fail("invalid_argument", "History.restore", "expected HistoryCheckpoint");
+        const raw = invoke("History.restore", () => checkWrite(document).raw.restore_history(rawWire(checkpoint)));
+        const existing = attached.get(document);
+        if (existing) {
+            historyState(existing).raw = raw;
+            return existing;
+        }
+        const history = new History(token, raw, document);
+        attached.set(document, history);
+        return history;
+    }
+    get canUndo(): boolean { return invoke("History.canUndo", () => historyState(this).raw.can_undo()); }
+    get canRedo(): boolean { return invoke("History.canRedo", () => historyState(this).raw.can_redo()); }
+    undo(): EditResult | null { const state = historyState(this); checkWrite(state.document); return deliver(state.document, invoke("History.undo", () => state.raw.undo())); }
+    redo(): EditResult | null { const state = historyState(this); checkWrite(state.document); return deliver(state.document, invoke("History.redo", () => state.raw.redo())); }
+    clear(): void { const state = historyState(this); checkWrite(state.document); invoke("History.clear", () => state.raw.clear()); }
+    checkpoint(): HistoryCheckpoint { return invoke("History.checkpoint", () => wrapWire(HistoryCheckpoint, historyState(this).raw.checkpoint())); }
+    close(): void {
+        const state = histories.get(this);
+        if (!state || state.closed)
+            return;
+        if (!documentState(state.document).closed)
+            checkWrite(state.document);
+        invoke("History.close", () => state.raw.close());
+        state.closed = true;
+        if (attached.get(state.document) === this)
+            attached.delete(state.document);
+    }
+}
+const authorities = new WeakMap<Authority, CoreAuthority>();
+function rawAuthority(authority: Authority): CoreAuthority { const raw = authorities.get(authority); if (!raw)
+    fail("invalid_argument", "Authority", "expected Authority"); return raw; }
+export class Authority {
+    private constructor(key: symbol, raw: CoreAuthority) { if (key !== token)
+        fail("invalid_argument", "Authority", "use Authority.create or Authority.restore"); authorities.set(this, raw); Object.freeze(this); }
+    static create(options: {
+        readonly documentId: string;
+        readonly value: Input;
+    }): Authority { return invoke("Authority.create", () => new Authority(token, CoreAuthority.create(checkedString(options.documentId), rawValue(Value.fromJS(options.value))))); }
+    static restore(checkpoint: AuthorityCheckpoint): Authority { if (!(checkpoint instanceof AuthorityCheckpoint))
+        fail("invalid_argument", "Authority.restore", "expected AuthorityCheckpoint"); return invoke("Authority.restore", () => new Authority(token, CoreAuthority.restore(rawWire(checkpoint)))); }
+    get revision(): bigint { return invoke("Authority.revision", () => rawAuthority(this).revision()); }
+    snapshot(): SyncSnapshot { return wrapWire(SyncSnapshot, rawAuthority(this).snapshot()); }
+    checkpoint(): AuthorityCheckpoint { return wrapWire(AuthorityCheckpoint, rawAuthority(this).checkpoint()); }
+    compact(throughRevision: bigint): Authority { return invoke("Authority.compact", () => new Authority(token, rawAuthority(this).compact(throughRevision))); }
+    commitsSince(revision: bigint): readonly ServerMessage[] { return invoke("Authority.commitsSince", () => Object.freeze(rawAuthority(this).commits_since(revision).map(raw => wrapWire(ServerMessage, raw)))); }
+    accept(submission: Submission): {
+        readonly authority: Authority;
+        readonly message: ServerMessage;
+    } {
+        if (!(submission instanceof Submission))
+            fail("invalid_argument", "Authority.accept", "expected Submission");
+        return invoke("Authority.accept", () => { const [authority, message] = rawAuthority(this).accept(rawWire(submission)); return Object.freeze({ authority: new Authority(token, authority), message: wrapWire(ServerMessage, message) }); });
+    }
+}
+export interface SyncState {
+    readonly status: "active" | "recovery-required" | "closed";
+    readonly revision: bigint;
+    readonly hasOutbound: boolean;
+    readonly recoveryReason?: CollaError;
+}
+type SessionState = {
+    raw: CoreSession;
+    document: Document;
+    listeners: Set<Listener<SyncState>>;
+    last: SyncState;
+    fingerprint: string;
+};
+const sessions = new WeakMap<SyncSession, SessionState>();
+function sessionState(session: SyncSession): SessionState { const state = sessions.get(session); if (!state)
+    fail("invalid_argument", "SyncSession", "expected SyncSession"); return state; }
+function currentSyncState(state: SessionState): SyncState {
+    if (documentState(state.document).closed)
+        return Object.freeze({ ...state.last, status: "closed", hasOutbound: false });
+    const raw = invoke("SyncSession.state", () => ({ revision: state.raw.revision(), outbound: state.raw.outbound(), reason: state.raw.recovery_reason() }));
+    return Object.freeze({ revision: raw.revision, status: raw.reason ? "recovery-required" : "active", hasOutbound: raw.outbound !== undefined, recoveryReason: raw.reason && new CollaError(raw.reason.code, raw.reason.operation, raw.reason.details) });
+}
+function syncFingerprint(state: SyncState): string { return `${state.status}:${state.revision}:${state.hasOutbound}:${state.recoveryReason?.code}:${state.recoveryReason?.message}`; }
+function notifySession(session: SyncSession): void {
+    const state = sessionState(session);
+    const next = currentSyncState(state);
+    const fingerprint = syncFingerprint(next);
+    if (fingerprint === state.fingerprint)
+        return;
+    state.fingerprint = fingerprint;
+    state.last = next;
+    const document = documentState(state.document);
+    const previous = document.dispatching;
+    document.dispatching = true;
     try {
-      return Object.freeze([
-        Change._fromHandle(pair.leftHandle()),
-        Change._fromHandle(pair.rightHandle()),
-      ])
-    } finally {
-      pair.free()
+        dispatch(state.listeners, next);
     }
-  } catch (error) {
-    throw fromWasmError(error, operation)
-  }
+    finally {
+        document.dispatching = previous;
+    }
 }
-
-type RawChangeViewEntry = {
-  type: ChangeViewEntry["type"]
-  path: (string | number)[]
-  key?: string
-  index?: number
-  at?: number
-  from?: number
-  to?: number
-  text?: string
-  delta?: string
-  valueBytes?: number[]
-  embedBytes?: number[]
-  valuesBytes?: number[][]
-  attrs?: AttrEntry[]
-  patch?: ({ key: string; action: "remove" } | ({ action: "set" } & AttrEntry))[]
-}
-
-function viewValue(bytes: number[] | undefined): Value {
-  return valueFromBytes(Uint8Array.from(bytes ?? []))
-}
-
-function viewRange(entry: RawChangeViewEntry): IndexRange {
-  return Object.freeze({ from: entry.from ?? 0, to: entry.to ?? 0 })
-}
-
-function viewAttrs(entries: AttrEntry[] | undefined): AttrsData | undefined {
-  return attrsData(entries ?? [])
-}
-
-function viewPatch(entries: RawChangeViewEntry["patch"]): AttrPatch {
-  const patch = Object.create(null) as Record<string,
-    | { readonly type: "set"; readonly value: AttrValueData }
-    | { readonly type: "remove" }
-  >
-  for (const entry of entries ?? []) {
-    patch[entry.key] = entry.action === "remove"
-      ? Object.freeze({ type: "remove" as const })
-      : Object.freeze({
-          type: "set" as const,
-          value: entry.kind === "int" ? BigInt(entry.value) : entry.value,
-        })
-  }
-  return Object.freeze(patch)
-}
-
-type RawMapEditOp =
-  | { type: "insert"; valueBytes: number[] }
-  | { type: "delete" }
-
-type RawListEditOp =
-  | { type: "retain"; length: number }
-  | { type: "insert"; valuesBytes: number[][] }
-  | { type: "delete"; length: number }
-  | { type: "modify"; steps: RawEditStep[] }
-
-type RawTextEditOp =
-  | { type: "retain"; length: number }
-  | { type: "insert"; text: string }
-  | { type: "delete"; length: number }
-
-type RawRichTextSpan =
-  | { type: "text"; text: string; attrs?: AttrEntry[] }
-  | { type: "embed"; valueBytes: number[]; attrs?: AttrEntry[] }
-
-type RawRichTextEditOp =
-  | { type: "retain"; length: number; patch?: RawChangeViewEntry["patch"] }
-  | { type: "insert"; span: RawRichTextSpan }
-  | { type: "delete"; length: number }
-
-type RawEditStep =
-  | { type: "replace"; path: (string | number)[]; valueBytes: number[] }
-  | { type: "int"; path: (string | number)[]; delta: string }
-  | { type: "map"; path: (string | number)[]; op: RawMapEditOp }
-  | { type: "list"; path: (string | number)[]; ops: RawListEditOp[] }
-  | { type: "text"; path: (string | number)[]; ops: RawTextEditOp[] }
-  | { type: "richtext"; path: (string | number)[]; ops: RawRichTextEditOp[] }
-
-function editStepsFromRaw(raw: readonly RawEditStep[]): readonly EditStep[] {
-  const steps = raw.map((step): EditStep => {
-    const path = [...step.path]
-    switch (step.type) {
-      case "replace":
-        return { type: step.type, path, value: viewValue(step.valueBytes) }
-      case "int":
-        return { type: step.type, path, delta: BigInt(step.delta) }
-      case "map":
-        return {
-          type: step.type,
-          path,
-          op: step.op.type === "delete"
-            ? { type: "delete" }
-            : { type: "insert", value: viewValue(step.op.valueBytes) },
+export class SyncSession {
+    readonly document: Document;
+    private constructor(key: symbol, raw: CoreSession) {
+        if (key !== token)
+            fail("invalid_argument", "SyncSession", "use SyncSession.create or SyncSession.restore");
+        this.document = wrapDocument(raw.document());
+        const state: SessionState = { raw, document: this.document, listeners: new Set(), last: Object.freeze({ status: "active", revision: 0n, hasOutbound: false }), fingerprint: "" };
+        sessions.set(this, state);
+        documentState(this.document).session = this;
+        state.last = currentSyncState(state);
+        state.fingerprint = syncFingerprint(state.last);
+        Object.freeze(this);
+    }
+    static create(options: {
+        readonly clientId: string;
+        readonly snapshot: SyncSnapshot;
+    }): SyncSession {
+        if (!(options.snapshot instanceof SyncSnapshot))
+            fail("invalid_argument", "SyncSession.create", "expected SyncSnapshot");
+        return invoke("SyncSession.create", () => new SyncSession(token, CoreSession.create(checkedString(options.clientId), rawWire(options.snapshot))));
+    }
+    static restore(checkpoint: SessionCheckpoint): SyncSession { if (!(checkpoint instanceof SessionCheckpoint))
+        fail("invalid_argument", "SyncSession.restore", "expected SessionCheckpoint"); return invoke("SyncSession.restore", () => new SyncSession(token, CoreSession.restore(rawWire(checkpoint)))); }
+    get state(): SyncState { return currentSyncState(sessionState(this)); }
+    get revision(): bigint { return this.state.revision; }
+    outbound(): Submission | null { return invoke("SyncSession.outbound", () => { const raw = sessionState(this).raw.outbound(); return raw ? wrapWire(Submission, raw) : null; }); }
+    receive(message: ServerMessage): EditResult | null {
+        checkWrite(this.document);
+        if (!(message instanceof ServerMessage))
+            fail("invalid_argument", "SyncSession.receive", "expected ServerMessage");
+        try {
+            return deliver(this.document, invoke("SyncSession.receive", () => sessionState(this).raw.receive(rawWire(message))));
         }
-      case "list":
-        return {
-          type: step.type,
-          path,
-          ops: step.ops.map((op): ListEditOp => {
-            switch (op.type) {
-              case "retain": return { type: op.type, length: op.length }
-              case "insert": return { type: op.type, values: op.valuesBytes.map(viewValue) }
-              case "delete": return { type: op.type, length: op.length }
-              case "modify": return { type: op.type, steps: editStepsFromRaw(op.steps) }
-            }
-          }),
-        }
-      case "text":
-        return {
-          type: step.type,
-          path,
-          ops: step.ops.map((op): TextEditOp => op.type === "insert"
-            ? { type: op.type, text: op.text }
-            : { type: op.type, length: op.length }),
-        }
-      case "richtext":
-        return {
-          type: step.type,
-          path,
-          ops: step.ops.map((op): RichTextEditOp => {
-            if (op.type === "retain") {
-              return op.patch === undefined
-                ? { type: op.type, length: op.length }
-                : { type: op.type, length: op.length, patch: viewPatch(op.patch) }
-            }
-            if (op.type === "delete") return { type: op.type, length: op.length }
-            const attrs = viewAttrs(op.span.attrs)
-            const span: RichTextSpan = op.span.type === "text"
-              ? {
-                  type: "text",
-                  text: op.span.text,
-                  ...(attrs === undefined ? {} : { attrs }),
-                }
-              : {
-                  type: "embed",
-                  value: viewValue(op.span.valueBytes),
-                  ...(attrs === undefined ? {} : { attrs }),
-                }
-            return { type: op.type, span }
-          }),
+        finally {
+            notifySession(this);
         }
     }
-  })
-  return deepFreeze(steps)
-}
-
-export function convertChangeToEditSteps(
-  change: Change,
-  base: ValueHandle,
-): readonly EditStep[] {
-  const operation = "convert_change_to_edit_steps"
-  try {
-    const raw = JSON.parse(convertChangeToEditStepsHandle(
-      Change._handle(change, operation),
-      ValueHandle._handle(base, operation),
-    )) as RawEditStep[]
-    return editStepsFromRaw(raw)
-  } catch (error) {
-    throw fromWasmError(error, operation)
-  }
-}
-
-export function inspectChange(change: Change, base: ValueHandle): ChangeView {
-  const operation = "inspect_change"
-  try {
-    const raw = JSON.parse(inspectChangeHandle(
-      Change._handle(change, operation),
-      ValueHandle._handle(base, operation),
-    )) as RawChangeViewEntry[]
-    const view = raw.map((entry): ChangeViewEntry => {
-      const path = Object.freeze([...entry.path])
-      switch (entry.type) {
-        case "value.replace": return Object.freeze({ type: entry.type, path, value: viewValue(entry.valueBytes) })
-        case "int.add": return Object.freeze({ type: entry.type, path, delta: BigInt(entry.delta ?? "0") })
-        case "map.set": return Object.freeze({ type: entry.type, path, key: entry.key ?? "", value: viewValue(entry.valueBytes) })
-        case "map.delete": return Object.freeze({ type: entry.type, path, key: entry.key ?? "" })
-        case "list.insert": return Object.freeze({
-          type: entry.type,
-          path,
-          index: entry.index ?? 0,
-          values: Object.freeze((entry.valuesBytes ?? []).map(viewValue)),
-        })
-        case "list.set": return Object.freeze({ type: entry.type, path, index: entry.index ?? 0, value: viewValue(entry.valueBytes) })
-        case "list.delete": return Object.freeze({ type: entry.type, path, range: viewRange(entry) })
-        case "text.insert": return Object.freeze({ type: entry.type, path, at: entry.at ?? 0, text: entry.text ?? "" })
-        case "text.delete": return Object.freeze({ type: entry.type, path, range: viewRange(entry) })
-        case "richtext.insertText": {
-          const attrs = viewAttrs(entry.attrs)
-          return Object.freeze({
-            type: entry.type,
-            path,
-            at: entry.at ?? 0,
-            text: entry.text ?? "",
-            ...(attrs === undefined ? {} : { attrs }),
-          })
-        }
-        case "richtext.insertEmbed": {
-          const attrs = viewAttrs(entry.attrs)
-          return Object.freeze({
-            type: entry.type,
-            path,
-            at: entry.at ?? 0,
-            embed: viewValue(entry.embedBytes),
-            ...(attrs === undefined ? {} : { attrs }),
-          })
-        }
-        case "richtext.delete": return Object.freeze({ type: entry.type, path, range: viewRange(entry) })
-        case "richtext.format": return Object.freeze({
-          type: entry.type,
-          path,
-          range: viewRange(entry),
-          patch: viewPatch(entry.patch),
-        })
-      }
-    })
-    return Object.freeze(view)
-  } catch (error) {
-    throw fromWasmError(error, operation)
-  }
-}
-
-export function resolveCodePointPosition(
-  value: ValueHandle,
-  path: Path,
-  utf16Position: number,
-): number {
-  const operation = "resolve_code_point_position"
-  const position = indexArgument(utf16Position, operation, "utf16Position")
-  try {
-    return resolveCodePointPositionHandle(
-      ValueHandle._handle(value, operation),
-      pathJson(path, operation),
-      position,
-    )
-  } catch (error) {
-    throw fromWasmError(error, operation, path)
-  }
-}
-
-export function resolveUtf16Position(
-  value: ValueHandle,
-  path: Path,
-  codePointPosition: number,
-): number {
-  const operation = "resolve_utf16_position"
-  const position = indexArgument(codePointPosition, operation, "codePointPosition")
-  try {
-    return resolveUtf16PositionHandle(
-      ValueHandle._handle(value, operation),
-      pathJson(path, operation),
-      position,
-    )
-  } catch (error) {
-    throw fromWasmError(error, operation, path)
-  }
+    checkpoint(): SessionCheckpoint { return invoke("SyncSession.checkpoint", () => wrapWire(SessionCheckpoint, sessionState(this).raw.checkpoint())); }
+    subscribe(listener: (event: SyncState) => void, options: SubscribeOptions = {}): () => void { checkRead(this.document); return subscribe(sessionState(this).listeners, listener, options); }
+    close(): void { this.document.close(); sessionState(this).listeners.clear(); }
 }

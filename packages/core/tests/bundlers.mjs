@@ -1,3 +1,4 @@
+import { tracer } from "./public-trace.mjs"
 import assert from "node:assert/strict"
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
@@ -15,20 +16,9 @@ const fixtureDir = await mkdtemp(join(tmpdir(), "colla-bundlers-"))
 const packageSpec = process.env.COLLA_PACKAGE_SPEC
 
 async function writeFixture(name, extra = "") {
-  await writeFile(join(fixtureDir, name), `
-    import { Document } from "colla-ot"
-    import { apply, Change, ValueHandle } from "colla-ot"
-    const base = ValueHandle.fromJS("before")
-    const change = Change.build(builder => builder.replace("after"))
-    const next = apply(base, change)
-    if (next.toJS() !== "after") throw new Error("Colla tracer failed")
-    const document = Document.fromJS("before")
-    const update = document.transact(tx => tx.set([], "after"))
-    const documentValue = document.value()
-    if (documentValue.toJS() !== "after" || update.updateId !== 1n) {
-      throw new Error("Colla Document failed")
-    }
-    export const result = "after"
+  await writeFile(join(fixtureDir, name), tracer + `
+    export const result = trace()
+    if (result !== "after") throw Error("public facade tracer failed")
     ${extra}
   `)
 }

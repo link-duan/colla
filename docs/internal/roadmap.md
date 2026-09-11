@@ -1,54 +1,14 @@
-# Colla Core Roadmap
+# Colla delivery scope
 
-This roadmap describes future work only. Released behavior belongs in the
-[changelog](../../CHANGELOG.md), while normative behavior belongs in the
-[specifications](../README.md#normative-specifications).
+The active delivery is the [0.4.0 implementation contract](../implementation-0.4.0.md):
+stable identities, native Move and Ref, complete transactional editing, History,
+centralized SyncSession/Authority, recovery and strict version-2 codecs.
+The project is in development and has no official release yet.
 
-Colla remains focused on foundational OT primitives: Core Value, Change, OT
-algebra, canonical codecs, and the official Rust and JavaScript APIs. Document,
-Session, history, synchronization protocols, transport, presence, cursors, and
-editor adapters remain outside this repository's milestones.
+Transport, storage engines, authentication, presence, editor-specific adapters,
+cross-document references and arbitrary peer-to-peer synchronization remain
+application concerns. A future scope decision must preserve the small-artifact
+constraint and record any dependency/format tradeoff explicitly.
 
-## Current: Colla Core 0.2 Hardening
-
-Goal: use the pre-1.0 adjustment window to simplify public APIs and strengthen
-the correctness, resource, compatibility, and performance evidence behind the
-foundational data model.
-
-Planned work:
-
-- refine Rust and JavaScript APIs based on real consumption, documenting all
-  breaking changes and migrations;
-- expand property, malformed-input, fuzz, and shared golden fixture coverage;
-- run Chromium, Firefox, and WebKit coverage for main-thread and Worker package
-  entry points where the host supports them;
-- verify long-running memory behavior, explicit disposal, clone independence,
-  and error-path resource release;
-- establish reviewed artifact-size and performance baselines before enforcing
-  regression budgets.
-
-Completion requires repeatable test evidence for the known correctness,
-resource-lifecycle, browser, packaging, and performance risks. Baselines may be
-updated only through explicit review.
-
-## Next: Colla Core 1.0 Stability
-
-Goal: freeze a durable public contract after the 0.2 hardening evidence and
-real-world API feedback are sufficient.
-
-Planned work:
-
-- complete the human-readable data model, OT, and binary format specifications;
-- maintain reviewed, versioned golden fixtures for canonical bytes, core
-  semantics, and public facade behavior, consumed from both the Rust reference
-  implementation and the JavaScript facade (see the
-  [golden fixtures design](golden-tests.md));
-- freeze public API, error, semantic, and wire-compatibility commitments;
-- confirm supported Rust, Node.js, bundler, and browser baselines at release
-  time;
-- publish migration guidance and a long-term maintenance policy.
-
-Colla 1.0 is an evidence-based milestone, not a scheduled feature bundle. Extra
-0.x iterations may be added when hardening reveals unresolved foundational
-issues. New Value kinds or OT operations require separate consumer-driven
-proposals and do not enter the roadmap automatically.
+Publishing is separate from implementation and follows the coordinated release
+runbook only after all required validation and explicit release authorization.
