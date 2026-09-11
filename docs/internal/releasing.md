@@ -39,11 +39,13 @@ pnpm release:preflight
 ## Start a release
 
 Create one annotated tag after reviewing the release commit. The tag version
-must equal both package manifests.
+must equal both package manifests. Stop if the version check fails.
 
 ```sh
-git tag -a v0.1.0 -m "Colla Core 0.1.0"
-git push origin v0.1.0
+pnpm check:versions
+release_version=$(node -p "require('./packages/core/package.json').version")
+git tag -a "v${release_version}" -m "Colla ${release_version}"
+git push origin "v${release_version}"
 ```
 
 Pushing the tag starts the Release workflow. The workflow:
@@ -80,10 +82,13 @@ artifact or claim that the two registry writes are atomic.
 ## Verify manually
 
 The public verification command rejects aliases such as `latest` and local
-paths. It accepts only an exact SemVer:
+paths. It accepts only an exact SemVer. Run from the release tag checkout and stop
+if the version check fails:
 
 ```sh
-pnpm release:verify --version 0.1.0 --output artifacts/release-0.1.0.json
+pnpm check:versions
+release_version=$(node -p "require('./packages/core/package.json').version")
+pnpm release:verify --version "$release_version" --output "artifacts/release-${release_version}.json"
 ```
 
 Attach the evidence file and workflow URL to the release tracking issue before

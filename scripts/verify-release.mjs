@@ -48,22 +48,8 @@ colla = "=${version}"
 
 [workspace]
 `)
-    await writeFile(join(rustDir, "src/main.rs"), `use colla::{apply, Change, TextChange, TextOp, Value};
-
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let base = Value::text("Draft");
-    let change: Change = TextChange::from_ops([
-        TextOp::Retain(5),
-        TextOp::Insert(" v2".into()),
-    ])?
-    .into();
-    let next = apply(&base, &change)?;
-    assert_eq!(next, Value::text("Draft v2"));
-    assert_eq!(Value::decode(&next.encode())?, next);
-    assert_eq!(colla::Change::decode(&change.encode())?, change);
-    Ok(())
-}
-`)
+    const source = await readFile(join(workspaceDir, "crates/colla/tests/release_consumer.rs"), "utf8")
+    await writeFile(join(rustDir, "src/main.rs"), source)
     execFileSync("cargo", ["generate-lockfile"], { cwd: rustDir, stdio: "inherit" })
     execFileSync("cargo", ["run", "--locked", "--quiet"], {
       cwd: rustDir,
