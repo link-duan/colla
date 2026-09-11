@@ -6,9 +6,12 @@
     "dev": "vitepress dev .",
     "build": "vitepress build .",
     "preview": "vitepress preview .",
-    "check": "node check.mjs && vitepress build ."
+    "check": "node --test check.test.mjs && node check.mjs && vitepress build .",
+    "test:examples": "pnpm --filter colla-ot build && node prepare-examples.mjs && pnpm --filter colla-ot exec tsc -p ../../docs-site/tsconfig.examples.json && node --test examples.test.mjs",
+    "test:rust-examples": "node --test rust-examples.test.mjs"
   },
   "devDependencies": {
-    "vitepress": "^1.6.4"
+    "vitepress": "^1.6.4",
+    "colla-ot": "workspace:*"
   }
 }

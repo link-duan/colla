@@ -1,77 +1,38 @@
----
-title: Text
-description: Unicode-aware collaborative text in Colla Core.
----
-
 # Text
 
-<p class="lead">Text is an explicit collaborative sequence. Its retain and delete lengths count Unicode scalar values, so Rust and JavaScript agree on positions.</p>
+Use `text('Draft')` for collaboratively editable text. A plain string is an atomic
+value and cannot be opened with `tx.text`. Text is valid Unicode; malformed strings
+with unpaired UTF-16 surrogates are rejected.
 
-## Text values
-
-Use `text(value)` to distinguish collaborative text from an atomic `string`:
-
-```ts
-import { text, ValueHandle } from 'colla-ot'
-
-const value = ValueHandle.fromJS(text('A😀B'))
-```
-
-The constructor requires a string and rejects unpaired UTF-16 surrogates. The
-returned `{ type: 'text', value }` record is immutable. Text is still stored as
-valid UTF-8; JavaScript UTF-16 is only a host representation.
-
-## Text changes
-
-Text changes are left-to-right streams of `retain(length)`, `insert(text)`, and
-`delete(length)` operations. Use `Change.build` for readable construction:
+## High-level editing
 
 ```ts
-import { Change, apply } from 'colla-ot'
-
-const change = Change.build(change => {
-  change.text(text => text.retain(1).delete(1).insert('😀'))
+import { Document, text } from 'colla-ot'
+const doc = Document.create({ title: text('A😀B') })
+doc.edit(tx => {
+  const title = tx.text(['title'])
+  title.insert(3, '!')
+  console.log('Working text after insertion:', tx.get(['title'])?.toJS()) // Text containing A😀!B
+  title.replace(1, 2, '🐬')
+  console.log('Working text after replacement:', tx.get(['title'])?.toJS()) // Text containing A🐬!B
+  title.delete(3, 1)
 })
-const next = apply(value, change)
+console.log('Committed text:', doc.get(['title'])?.toJS()) // Text containing A🐬B
+doc.close()
 ```
 
-For `A😀B`, the sequence length is 3: `A`, `😀`, `B`. The emoji counts as one
-Unicode scalar, even though JavaScript reports two UTF-16 code units in
-`'A😀B'.length`. A retain or delete that splits a scalar is invalid. An omitted
-tail is retained implicitly, and constructors merge adjacent compatible ops and
-remove zero-length operations.
+JavaScript editor offsets and deletion counts are UTF-16 code units, evaluated against
+the working content at each step. In `A😀B`, index 3 is after the emoji; index 2 splits
+its surrogate pair and raises `invalid_utf16_boundary`. Out-of-range spans also fail.
+A failed operation rolls back the entire transaction.
 
-## Applying and inspecting edits
+## Low-level changes
 
-`apply()` returns a new `ValueHandle`; it does not alter the base. To drive an
-editor, `convertChangeToEditSteps(change, base)` projects the recursive Change
-to path-relative text operations. `inspectChange(change, base)` returns a
-human-readable `ChangeView`, including text insertion positions and deletion
-ranges.
+Change Text operations use ordered retain, insert and delete streams with Unicode
+scalar lengths. The same emoji has length one in that interface. Retained trailing
+content need not be written explicitly. Rust text editing also uses scalar coordinates.
+For example, retaining `A😀` requires scalar length 2, while a high-level JavaScript
+editor inserts after it at UTF-16 offset 3.
 
-```ts
-import {
-  Change, ValueHandle, apply, convertChangeToEditSteps, text,
-} from 'colla-ot'
-
-const base = ValueHandle.fromJS(text('Draft'))
-const edit = Change.build(change => change.text(text => text.retain(5).insert(' v2')))
-const steps = convertChangeToEditSteps(edit, base)
-// [{ type: 'text', path: [], ops: [...]}]
-const result = apply(base, edit)
-```
-
-The base is required for projection because a Change stores an operation, not
-the original content. Paths and editor offsets are views of that snapshot and
-are not part of the Change wire format. See [Coordinates](/docs/core/coordinates)
-for conversion to and from UTF-16 offsets.
-
-## Limits and errors
-
-`Change.fromJS` and `Change.build` accept `InputOptions` to cap sequence length,
-operation count, string bytes, and recursive depth. Invalid types, out-of-range
-lengths, malformed strings, and oversized input raise `CollaError` with a
-stable error code. Use the [JavaScript API reference](/reference/javascript)
-for the complete builder and error surface.
-
-Next: [RichText](/docs/core/richtext).
+For editor lifetime, see [Runtime lifecycle](/docs/editing/lifecycle#transaction-and-event-boundaries).
+Read [Text coordinates](./coordinates) before translating low-level Edit Steps to UI offsets.

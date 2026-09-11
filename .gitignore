@@ -8,3 +8,7 @@ packages/core/e2e/.fixture-dir
 .pi/remote-pi
 docs-site/.vitepress/cache/
 docs-site/.vitepress/dist/
+docs-site/.examples-dist/
+
+# Extracted documentation snippets
+docs-site/.examples-generated/

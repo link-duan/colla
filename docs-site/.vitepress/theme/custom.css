@@ -242,21 +242,12 @@ a {
   background: var(--vp-c-divider);
 }
 
-/* Ensure collapsibles, carets, and tree indicators are completely eliminated */
-.VPSidebarItem .caret,
-.VPSidebarItem .caret-icon,
-.VPSidebarItem .indicator {
-  display: none !important;
-}
-
 /* Section headers (level-0) */
 .VPSidebarItem.level-0 {
   padding-bottom: 24px;
 }
 
 .VPSidebarItem.level-0 > .item {
-  cursor: default !important;
-  pointer-events: none;
   user-select: none;
   padding: 0 8px 6px 8px;
 }
@@ -271,7 +262,7 @@ a {
 }
 
 /* Items list without vertical tree lines */
-.VPSidebarItem.level-0 > .items {
+.VPSidebarItem.level-0:not(.collapsed) > .items {
   border-left: none !important;
   margin-left: 0 !important;
   padding-left: 0 !important;
@@ -319,8 +310,6 @@ a {
 
 /* Nested sub-group headers (level-1 non-link items) */
 .VPSidebarItem.level-1:not(.is-link) > .item {
-  cursor: default !important;
-  pointer-events: none;
   user-select: none;
   padding: 8px 8px 4px 8px;
 }

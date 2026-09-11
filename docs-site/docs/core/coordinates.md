@@ -1,76 +1,36 @@
----
-title: Coordinates
-description: Snapshot-relative paths and Unicode-aware positions in Colla Core.
----
+# Text coordinates
 
-# Coordinates
+Colla has three distinct address systems: element IDs, Paths, and positions within
+Text/RichText. A text offset is not an element ID or a List index.
 
-<p class="lead">Coordinates are temporary views into a particular Value. They connect Core’s Unicode-scalar model to editor APIs without becoming part of the Change format.</p>
+## Coordinate units
 
-## Paths
+| Surface | Position unit |
+| --- | --- |
+| JavaScript TextEditor / RichTextEditor | UTF-16 code units |
+| Low-level Change and EditStep | Unicode scalars |
+| Rust text editing | Unicode scalars |
+| RichText embed | One position in either sequence system |
 
-The JavaScript `Path` type is a readonly array of string map keys and
-non-negative safe-integer list indexes. The root is `[]`:
+For `A😀B`, UTF-16 boundaries are 0, 1, 3, 4; scalar boundaries are 0, 1, 2, 3.
+Neither system counts user-perceived grapheme clusters. Combining marks can occupy
+multiple scalar positions even when rendered as one glyph.
 
-```ts
-import { ValueHandle, text } from 'colla-ot'
+## Convert using the working content
 
-const value = ValueHandle.fromJS({
-  sections: [{ body: text('A short paragraph') }],
-})
-const bodyPath = ['sections', 0, 'body']
-value.kind(bodyPath)
-value.get(bodyPath)
-```
+To convert a scalar position to UTF-16, walk that many code points in the current
+string and sum each code point's JavaScript string length. To convert the other way,
+walk code points until their cumulative UTF-16 length equals the requested offset;
+reject an offset inside a surrogate pair. For RichText, include embeds as length one.
 
-Paths are snapshot-relative. A list insertion or deletion can shift every later
-index, and a concurrent map or sequence edit can make a path invalid. Therefore
-paths are useful for lookup, diagnostics, and editor projections, but are not
-stable object identifiers and are not encoded inside a Change.
+Repeat conversion against the content before each operation. Earlier insertions and
+deletions shift later positions. Do not convert every step against the transaction's
+original snapshot or pass browser offsets directly to `Change.create`.
 
-`ValueHandle.kind(path)`, `has(path)`, and `get(path)` validate each segment and
-report failures such as `missing_key`, `out_of_bounds`, or `type_mismatch` as a
-classified `CollaError`.
+## Practical adapter choice
 
-## Unicode positions
-
-Core sequence lengths count Unicode scalar values. JavaScript editor APIs often
-use UTF-16 offsets, so the Core package provides explicit conversion functions:
-
-```ts
-import {
-  resolveCodePointPosition,
-  resolveUtf16Position,
-  text,
-  ValueHandle,
-} from 'colla-ot'
-
-const value = ValueHandle.fromJS({ body: text('A😀B') })
-
-resolveCodePointPosition(value, ['body'], 3) // 2
-resolveUtf16Position(value, ['body'], 2)     // 3
-```
-
-`resolveCodePointPosition(value, path, utf16Position)` converts a UTF-16 offset
-to a Unicode-scalar offset. `resolveUtf16Position(value, path,
-codePointPosition)` performs the reverse conversion. Both validate the path and
-range against the supplied snapshot. An offset inside an emoji’s surrogate
-pair raises `invalid_utf16_boundary` rather than silently splitting it.
-
-RichText text uses scalar positions, while an embed counts as one sequence unit.
-This makes the same retain/delete lengths meaningful in Rust and JavaScript.
-
-## Coordinates and edit steps
-
-`convertChangeToEditSteps(change, base)` produces recursive steps with a path
-and sequence operations. Use the base Value when converting because the same
-Change can only be interpreted relative to its expected snapshot. Convert
-editor UTF-16 selections at the boundary, then build Core Changes using scalar
-lengths.
-
-Coordinates do not carry revisions or survive rebasing. The `Document` layer
-emits edit steps after applying and rebasing updates; see the
-[document lifecycle](/docs/document/lifecycle) and the
-[OT model](/docs/ot/).
-
-Next: [Values](/docs/core/values).
+Send browser selection ranges into high-level editors, which perform boundary checking.
+For an incremental UI projection, process Edit Steps sequentially from `event.before`.
+A simpler adapter can rerender from `event.after`, at the cost of explicitly restoring
+selection and composition state. The [editor example](/docs/examples/editor) maintains
+a model mirror without incorrectly interpreting scalar steps as browser offsets.

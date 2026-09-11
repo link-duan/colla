@@ -1,0 +1,18 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "skipLibCheck": true,
+    "types": [],
+    "outDir": ".examples-dist",
+    "rootDir": ".",
+    "noEmitOnError": true
+  },
+  "include": [
+    "examples/*.ts",
+    "tests/examples/*.ts",
+    ".examples-generated/*.ts"
+  ]
+}

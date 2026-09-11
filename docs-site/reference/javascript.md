@@ -1,358 +1,238 @@
----
-title: JavaScript API reference
-description: Import paths, public types, and runtime contracts for colla-ot.
----
-
 # JavaScript API
 
-<p class="eyebrow">Reference</p>
-<p class="lead">One WebAssembly-backed package exposes document state, immutable values and changes, codecs, and OT operations from a single JavaScript entry point: <code>colla-ot</code>.</p>
+Import from `colla-ot` in Node.js 22+, browsers and workers. The package selects its
+platform entry through ESM exports. All editing and codec calls are synchronous; no
+public Wasm initialization, handle cloning or disposal is required.
 
-This page is an index of the stable public surface. For task-oriented examples,
-start with [Getting started](/docs/getting-started), then read the
-[Document state](/docs/document/) or the [JavaScript example](/docs/examples/javascript-document).
-The generated declaration files shipped in the npm package are the definitive
-TypeScript signatures.
+Use the [tutorials](/docs/getting-started/) for complete workflows and the
+[two-client example](/docs/examples/sync) for checked code. This page lists the public
+surface; optional results are written explicitly. Type declarations below describe API
+shapes and are not standalone programs.
 
-## Import
+## Input and locations
 
-All public JavaScript symbols are imported from `colla-ot`:
+| Type or helper | Definition / result |
+| --- | --- |
+| Input | null, boolean, bigint, finite number, string, Text, RichText, Ref, Value, readonly Input array or plain InputMap |
+| ElementId | Branded string; `ElementId.parse(string)` validates a serialized ID |
+| Path | readonly array of string keys and number indexes; `[]` is the root |
+| Location | Path or ElementId |
+| `text(value: string): Text` | Immutable collaborative text wrapper; also `new Text(value)` |
+| `richText(spans: readonly RichTextSpan[]): RichText` | Immutable formatted sequence; also `new RichText(spans)` |
+| `ref(target: ElementId): Ref` | Immutable one-hop weak reference; also `new Ref(target)` |
+| AttrValue | boolean, bigint, finite number or string |
+| Attrs / AttrPatch | String-keyed attributes; patches also permit null for removal |
+
+Text exposes `type: 'text'` and `value: string`; Ref exposes `target: ElementId`.
+RichText exposes `type: 'richtext'` and readonly `spans`. A RichTextSpan is
+`{ type: 'text', text: string, attrs? }` or `{ type: 'embed', value: Input, attrs? }`.
+Int is signed i64 represented by bigint; number represents finite Float.
+
+## Value and shared reads
+
+| Member | Result / behavior |
+| --- | --- |
+| `Value.fromJS(input: Input): Value` | Construct immutable content; a Value input is returned as-is |
+| `Value.decode(bytes: Uint8Array): Value` | Strict v2 decode preserving identities |
+| `value.id: ElementId` | Root identity of this Value |
+| `encode(): Uint8Array` | Fresh independent canonical bytes |
+| `toJS(): Input` | Immutable content projection, omitting owning IDs |
+| `equals(other: Value): boolean` | Compare content and identities |
+| `contentEquals(other: Value): boolean` | Ignore owning IDs; still compare Ref targets literally |
+| `copy(): Value` | Fresh identities and remapped internal Refs |
+
+Value, Document and Transaction share these reads. Document/Transaction operate on their
+current or working snapshot; Value operates on its own immutable content.
+
+| Read | Result |
+| --- | --- |
+| `get(location?: Location): Value \| undefined` | Root by default; absent target returns undefined |
+| `has(location: Location): boolean` | Whether the target exists |
+| `kind(location?: Location): ValueKind \| undefined` | null, bool, int, float, string, text, richtext, ref, list or map |
+| `idAt(path: Path): ElementId` | Throws when no target exists |
+| `pathOf(id: ElementId): Path \| undefined` | Location in this snapshot |
+| `resolve(reference: Ref): Value \| undefined` | One hop; dangling target returns undefined |
+| `referencesTo(id: ElementId): readonly ElementId[]` | IDs of referring elements |
+
+Invalid argument shapes still throw on reads. Path traversal never implicitly follows a
+Ref. See [identity](/docs/core/identity) and [references](/docs/core/references).
+
+## Change and operations
+
+| Member | Result |
+| --- | --- |
+| `Change.create(operations: readonly Operation[]): Change` | Validated ordered sequence |
+| `Change.noop(): Change` | Empty sequence |
+| `Change.decode(bytes: Uint8Array): Change` | Strict decode |
+| `change.isNoop: boolean` | Whether the sequence is empty |
+| `change.operations: readonly Operation[]` | Immutable operation projection |
+| `change.encode(): Uint8Array` | Canonical bytes |
+
+`Destination` contains an ElementId parent and exactly one key or index. `MoveTarget`
+uses a Location parent instead, for high-level Transaction methods.
 
 ```ts
-import {
-  Document,
-  Snapshot,
-  Update,
-  ValueHandle,
-  Change,
-  apply,
-  compose,
-  invert,
-  transformPair,
-  text,
-} from 'colla-ot'
+type Destination =
+  | { readonly parent: ElementId; readonly key: string; readonly index?: never }
+  | { readonly parent: ElementId; readonly index: number; readonly key?: never }
+type Operation =
+  | { readonly type: 'insert'; readonly destination: Destination; readonly value: Value }
+  | { readonly type: 'delete'; readonly target: ElementId }
+  | { readonly type: 'set'; readonly target: ElementId; readonly value: Value }
+  | { readonly type: 'move'; readonly target: ElementId; readonly destination: Destination }
+  | { readonly type: 'text'; readonly target: ElementId; readonly operations: readonly TextOp[] }
+  | { readonly type: 'add'; readonly target: ElementId; readonly delta: bigint }
+  | { readonly type: 'richtext'; readonly target: ElementId; readonly operations: readonly RichTextOp[] }
 ```
 
+TextOp is retain/delete with a numeric length, or insert with a string text.
+RichTextOp is retain with length and optional AttrPatch, delete with length, or insert
+with a RichTextSpan. All low-level sequence lengths count Unicode scalars; embeds count
+one. Operations run in order against the content produced by previous operations.
 
-## Document
+## Algebra
 
-### `Document`
-
-`Document` owns the current visible `ValueHandle`, a confirmed revision, and
-the queue of local Updates that have not been acknowledged. It applies local
-changes optimistically and rebases those pending changes when an ordered remote
-Update arrives.
-
-| Member | Contract |
+| Function | Return |
 | --- | --- |
-| `Document.fromJS(value, revision?, options?)` | Create a document from structured Core Value input; revision accepts `number` or `bigint` (defaults to `0n`). |
-| `Document.fromSnapshot(snapshot)` | Restore visible content and revision from a `Snapshot`; pending state is empty. |
-| `revision` | Current visible revision as an unsigned 64-bit `bigint`. |
-| `confirmedRevision` | Latest confirmed revision acknowledged by server as an unsigned 64-bit `bigint`. |
-| `hasPending` | Boolean indicating whether there are unconfirmed pending local changes. |
-| `pendingCount` | Number of unconfirmed local updates currently in the pending queue. |
-| `value()` | Return an independently owned `ValueHandle` for visible content. |
-| `get(path)` | Resolve a Snapshot-relative Path and borrow target `Value` without handle management. |
-| `has(path)` | Check if a Snapshot-relative Path exists in visible content. |
-| `kind(path?)` | Return the `ValueKind` at the given path (defaults to root). |
-| `resolveCodePointPosition(path, pos)` | Convert a UTF-16 position in Text/RichText to a Unicode scalar position. |
-| `resolveUtf16Position(path, pos)` | Convert a Unicode scalar position in Text/RichText to a UTF-16 position. |
-| `snapshot()` | Create an immutable, pure `Snapshot` `{ revision, bytes, value }` of visible content. |
-| `transact(fn)` | Execute an atomic mutation transaction on visible content; returns an immutable `Update`. |
-| `applyRemote(updateOrBytes)` | Apply next server-ordered `Update` or raw `Uint8Array` bytes and rebase pending local changes. |
-| `ack(updateId)` | Acknowledge pending local updates cumulatively up to `updateId` (accepts `number` or `bigint`). |
-| `subscribe(subscriber)` | Subscribe to document change and error events; returns an unsubscription function `() => void`. |
-| `dispose()` / `Symbol.dispose` | Release owned Wasm resources; disposal is idempotent. |
+| `apply(base: Value, change: Change)` | Value |
+| `invert(base: Value, change: Change)` | Change |
+| `compose(base: Value, first: Change, second: Change)` | Change |
+| `transform(base: Value, left: Change, right: Change, options: { priority: 'left' \| 'right' })` | readonly [Change, Change] |
 
-### `TransactionContext`
+Transform returns **left-after-right first, right-after-left second**. Both inputs share
+a base. Compose's second input applies after the first. Invert restores content and IDs
+when applied after change. Structural conflicts fail explicitly; TP1 holds for mergeable
+cases. See [Changes and OT algebra](/docs/core/changes).
 
-`doc.transact((tx: TransactionContext) => void)` provides an ergonomic, atomic mutation interface.
-Parent map and list containers are automatically created if intermediate paths do not exist.
+## Document and Transaction
 
-| Method | Contract |
+| Document member | Result / behavior |
 | --- | --- |
-| `tx.set(path, value)` | Replace or insert a value at the specified Path. |
-| `tx.delete(path)` | Delete a key from a Map or an element from a List. |
-| `tx.text(path, editOrOps)` | Mutate a Text node with a builder callback, edit step, or operations. |
-| `tx.list(path, editOrOps)` | Mutate a List node with retain, insert, delete, or modify operations. |
+| `Document.create(input: Input): Document` | Standalone runtime |
+| `snapshot(): Value` | Immutable current content |
+| `version: bigint` | Local content version, not server revision |
+| `edit(callback: (tx: Transaction) => unknown, options?: { group?: string })` | EditResult or null for Noop |
+| `apply(change: Change)` | EditResult or null |
+| `subscribe(listener: (event: EditEvent) => void, options?: SubscribeOptions)` | Unsubscribe function |
+| `close(): void` | Idempotent close |
 
-The normal application boundary looks like this:
+Transaction has shared reads, `snapshot(): Value`, and these scoped mutations:
+
+| Transaction member | Return |
+| --- | --- |
+| `set(location: Location, input: Input)` | void |
+| `delete(location: Location)` | void |
+| `move(source: Location, destination: MoveTarget)` | void |
+| `copy(source: Location, destination: MoveTarget)` | ElementId of the copy |
+| `increment(location: Location, delta: bigint)` | void |
+| `apply(change: Change)` | void |
+| `list(location: Location)` | ListEditor |
+| `text(location: Location)` | TextEditor |
+| `richText(location: Location)` | RichTextEditor |
+
+Callbacks must be synchronous: no thenables, nested edits, remote receive or close.
+Escaped transactions/editors are invalid after callback exit. All failures roll back the
+transaction. Move List indexes are interpreted after source removal; Map keys must be
+vacant. Set preserves an existing target ID, importing fresh descendants. See
+[Transactions](/docs/editing/transactions) and [Move/Copy/Set](/docs/core/move-copy-set).
+
+## Scoped sequence editors
+
+All methods return void and validate the target kind and ranges.
+
+| Editor | Signatures |
+| --- | --- |
+| ListEditor | `insert(index, values: readonly Input[])`, `delete(index, count)`, `replace(index, count, values: readonly Input[])` |
+| TextEditor | `insert(index, text: string)`, `delete(index, count)`, `replace(index, count, text: string)` |
+| RichTextEditor | `insertText(index, text: string, attrs?: Attrs)`, `insertEmbed(index, value: Input, attrs?: Attrs)`, `delete(index, count)`, `replace(index, count, spans: readonly RichTextSpan[])`, `format(index, count, patch: AttrPatch)` |
+
+Indexes and counts are numbers. High-level Text/RichText methods use UTF-16 units in
+the working content at each step. Splitting a surrogate pair fails; RichText embeds
+occupy one position. List counts are element counts. See [Coordinates](/docs/core/coordinates).
+
+## Results and observation
+
+EditStep is Operation; EditEvent is EditResult. All returned data is immutable.
 
 ```ts
-import { Document, text } from 'colla-ot'
-
-const document = Document.fromJS({ title: 'Draft', content: text('Hello') })
-const unsubscribe = document.subscribe({
-  onChange: event => {
-    if (event.origin === 'remote') editor.applyEditSteps(event.editSteps)
-  },
-  onError: ({ error }) => {
-    console.error('Document listener failed:', error)
-  },
-})
-
-const update = document.transact(tx => {
-  tx.text(['content'], t => t.retain(5).insert(' world'))
-})
-
-await transport.send(update.bytes)
-document.ack(update.updateId) // cumulative ACK after server acceptance
-
-unsubscribe()
-document.dispose()
-```
-
-`transact()` changes visible content immediately and emits a `'local'` change event. `Update.revision` is the
-base revision captured before that local change; `Document.revision` advances
-for each visible local or remote change. Acknowledgements do not emit a change
-event because they do not change visible content.
-
-### `Document` events and subscriptions
-
-`document.subscribe(subscriber)` accepts either a direct listener function or an object with `onChange` and optional `onError`:
-
-```ts
-type DocumentChangeSubscriber = (event: DocumentChangeEvent) => void
-type DocumentErrorSubscriber = (event: DocumentErrorEvent) => void
-type DocumentSubscriber =
-  | DocumentChangeSubscriber
-  | {
-      readonly onChange: DocumentChangeSubscriber
-      readonly onError?: DocumentErrorSubscriber
-    }
-
-type DocumentChangeEvent = {
-  readonly origin: 'local' | 'remote'
+interface EditResult {
+  readonly before: Value
+  readonly after: Value
+  readonly change: Change
+  readonly inverse: Change
   readonly editSteps: readonly EditStep[]
-  readonly revision: bigint
+  readonly version: bigint
+  readonly origin: 'local' | 'remote' | 'undo' | 'redo'
 }
-
-type DocumentErrorEvent = { readonly error: unknown }
-```
-
-Edit steps use Snapshot-relative paths and UTF-16 positions where a text editor
-expects them. The event does not expose an owned Core `Change`. If a change
-listener throws, the state transition remains committed, other listeners still
-run, and the thrown value is sent to `onError` (or logged to `console.error` if omitted).
-
-### `Snapshot`
-
-`Snapshot` is an immutable, pure JavaScript checkpoint object representing visible content at a specific revision:
-
-```ts
-interface Snapshot {
-  readonly revision: bigint
-  readonly bytes: Uint8Array
-  readonly value: Value
+interface SubscribeOptions {
+  readonly onError?: (error: unknown) => void
 }
 ```
 
-| Member | Contract |
+Events run synchronously after commit. Listener exceptions are isolated; onError handles
+listener diagnostics. Reads during dispatch are allowed, mutation is rejected. Noop edits
+produce no event. Returned events and snapshots survive runtime close.
+
+## History
+
+| Member | Result / behavior |
 | --- | --- |
-| `Snapshot.decode(bytes)` | Strictly decode a `COLLAS` envelope from `Uint8Array` into a pure `Snapshot`. |
-| `Snapshot.fromValue(value, revision?)` | Create a `Snapshot` from a Core `ValueHandle`; defaults revision to `0n`. |
-| `Snapshot.fromJS(input, revision?, options?)` | Construct a `Snapshot` from structured JavaScript Value input. |
-| `revision` | Stored revision as `bigint`. |
-| `bytes` | Canonical binary `COLLAS` envelope as `Uint8Array`. |
-| `value` | JavaScript structured Value tree. |
+| `History.attach(doc: Document, options?: { capacity?: number })` | History; existing instance if attached; default capacity 100 |
+| `History.restore(doc: Document, checkpoint: HistoryCheckpoint)` | History; requires exact content basis |
+| `canUndo`, `canRedo` | boolean getters |
+| `undo()`, `redo()` | EditResult or null |
+| `clear()` | void; empties stacks |
+| `checkpoint()` | HistoryCheckpoint |
+| `close()` | void; idempotent detach |
 
-`Snapshot` holds no WebAssembly resources and does not require manual `dispose()`.
-Restoring a Snapshot deliberately discards pending Updates, acknowledgements,
-rebase state, transport state, and listeners.
+Equal consecutive explicit edit groups merge. Remote commits and undo/redo end groups.
+Remote changes rebase history with remote priority; new local editing clears redo.
+Undo/redo are synchronized as new local edits. See [History](/docs/history/).
 
-### `Update`
+## SyncSession
 
-`Update` is an immutable, pure JavaScript object carrying one versioned change and the metadata needed by the local Document queue:
-
-```ts
-interface Update {
-  readonly revision: bigint
-  readonly updateId: bigint
-  readonly bytes: Uint8Array
-}
-```
-
-| Member | Contract |
+| Member | Result / behavior |
 | --- | --- |
-| `Update.decode(bytes)` | Strictly decode a `COLLAU` envelope from `Uint8Array` into a pure `Update`. |
-| `revision` | Base revision at which the Change was created. |
-| `updateId` | Per-Document `bigint` used for cumulative acknowledgement correlation. |
-| `bytes` | Canonical binary `COLLAU` envelope as `Uint8Array`. |
+| `SyncSession.create({ clientId: string, snapshot: SyncSnapshot })` | SyncSession |
+| `SyncSession.restore(checkpoint: SessionCheckpoint)` | SyncSession with original writer identity |
+| `document` | Document for local editing |
+| `state` | SyncState |
+| `revision` | bigint confirmed revision |
+| `outbound()` | Submission or null; retries retain original bytes |
+| `receive(message: ServerMessage)` | EditResult or null; can throw or enter recovery |
+| `checkpoint()` | SessionCheckpoint, including enabled History |
+| `subscribe(listener: (state: SyncState) => void, options?: SubscribeOptions)` | Unsubscribe function |
+| `close()` | void; closes its Document and listeners |
 
-`Update` holds no WebAssembly resources and does not require manual `dispose()`.
-`updateId` starts at `1n` for each Document instance. It is not persisted in a
-Snapshot and is not a globally unique operation identity.
-## Values
+SyncState contains status (`active`, `recovery-required`, `closed`), revision: bigint,
+hasOutbound: boolean, and optional recoveryReason: CollaError. Observe state for formal
+confirmation without a content event. Missing revision errors report the required interval;
+recovery-required retains work and halts sending. See [Sync](/docs/sync/).
 
-`Value` is a closed recursive model. The JavaScript representation is:
+## Authority and controlled objects
 
-| Kind | JavaScript representation | Notes |
-| --- | --- | --- |
-| Null / Bool | `null` / `boolean` | Atomic values. |
-| Int | `bigint` | Signed 64-bit range; use `int()` to validate a number or bigint. |
-| Float | finite `number` | NaN and infinities are rejected; negative zero normalizes to zero. |
-| String | `string` | Atomic; replaced as a whole. |
-| Text | `text('…')` | Character-level OT using Unicode scalar positions. |
-| RichText | `richText(spans)` | Text plus atomic embeds and attribute patches. |
-| List / Map | readonly array / readonly record | Maps have unique string keys. |
+| Member | Result |
+| --- | --- |
+| `Authority.create({ documentId: string, value: Input })` | Authority |
+| `Authority.restore(checkpoint: AuthorityCheckpoint)` | Authority |
+| `revision` | bigint |
+| `snapshot()` | SyncSnapshot |
+| `accept(submission: Submission)` | `{ readonly authority: Authority; readonly message: ServerMessage }` |
+| `commitsSince(revision: bigint)` | readonly ServerMessage[] |
+| `compact(throughRevision: bigint)` | New Authority |
+| `checkpoint()` | AuthorityCheckpoint |
 
-`ValueHandle` owns an immutable Wasm value and provides `fromJS`, `decode`,
-`kind`, `has`, `get`, `toJS`, `encode`, `clone`, and `dispose`. `get()` and
-`toJS()` return independently owned or recursively frozen JavaScript data; a
-handle can be safely cloned before passing ownership to another subsystem.
+Authority is immutable. Persist returned state before adoption and broadcast. Protocol
+and checkpoint classes are constructed by runtimes or static decode, not plain field
+objects. All expose encode(): Uint8Array and static decode(bytes).
+See [Protocol and encoding](/reference/protocol) for fields, tags and validation.
 
-```ts
-import { ValueHandle, richText, text } from 'colla-ot'
+## Errors and lifecycle
 
-const value = ValueHandle.fromJS({
-  title: text('Draft'),
-  body: richText([
-    { type: 'text', text: 'Hello', attrs: { bold: true } },
-    { type: 'embed', value: { id: 'mention-1' } },
-  ]),
-})
+CollaError extends Error and exposes code: ErrorCode, operation: string, immutable
+details and optional elementId. Match the [stable codes](/reference/glossary#error-codes),
+not reason text. Decoding rejects malformed, wrong-version or oversized bytes.
 
-console.log(value.kind(['title'])) // 'text'
-console.log(value.get(['title']))  // { type: 'text', value: 'Draft' }
-```
-
-### Changes
-
-`Change` is an immutable, recursive operation relative to a base Value. It does
-not carry the old value, revision, author, or operation identity. Construct it
-with `Change.fromJS(input)` or the synchronous `Change.build(callback)` builder;
-apply it to a concrete base to validate keys, types, and sequence ranges.
-
-| Change kind | Builder | Operations |
-| --- | --- | --- |
-| `noop` | `noop()` | Identity. |
-| `replace` | `replace(value)` | Replace the complete target, including its type. |
-| `map` | `map(callback)` | `insert`, `delete`, or recursive `modify` by key. |
-| `list` | `list(callback)` | `retain`, `insert`, `delete`, or element `modify`. |
-| `text` | `text(callback)` | `retain`, `insert`, or `delete` Unicode scalars. |
-| `richtext` | `richText(callback)` | Retain/format, insert text or embed, or delete. |
-| `int` | `intAdd(delta)` | Checked addition (accepts safe `number` or `bigint`). |
-
-A `Change` instance provides `kind(): ChangeKind` and `isNoop(): boolean` for
-immediate inspection without needing a base Value.
-
-```ts
-const change = Change.build(builder => {
-  builder.map(map => {
-    map.modify('title', title => {
-      title.text(textChange => textChange.retain(5).insert(' v2'))
-    })
-  })
-})
-```
-
-The builder is a pure TypeScript input layer. It does not apply or compose
-intermediate changes, own Wasm handles, or inspect a Snapshot. Constructors
-normalize empty operations, merge compatible adjacent sequence operations, and
-remove trailing plain retains. `Change.encode()` emits the canonical Core body.
-
-### OT operations
-
-```ts
-import {
-  apply,
-  compose,
-  invert,
-  transformPair,
-} from 'colla-ot'
-
-const after = apply(base, change)
-const combined = compose(first, second)
-const inverse = invert(combined, base)
-const [leftPrime, rightPrime] = transformPair(left, right, {
-  order: 'left-first',
-})
-```
-
-| Function | Meaning | Important precondition |
-| --- | --- | --- |
-| `apply(base, change)` | Return a new Value after the operation. | Change must match the concrete base. |
-| `compose(first, second)` | Combine sequential operations into one. | `second` applies after `first`. |
-| `invert(change, base)` | Produce an operation that restores `base`. | The original base is required because old values are not stored in Change. |
-| `transformPair(left, right, options)` | Transform concurrent operations from one base. | Choose a deterministic `left-first` or `right-first` tie-break. |
-
-These functions never consume their inputs. Use `inspectChange(change, base)` for
-a read-only structural view and `convertChangeToEditSteps(change, base)` for an
-editor projection. Neither projection is valid Change input or a persistence
-format.
-
-### Coordinates
-
-Core Text and RichText operations count Unicode scalar values. JavaScript editor
-positions count UTF-16 code units, so use explicit conversion at the boundary:
-
-```ts
-const value = ValueHandle.fromJS(text('A😀B'))
-resolveCodePointPosition(value, [], 3) // 2
-resolveUtf16Position(value, [], 2)     // 3
-```
-
-Positions inside a surrogate pair are rejected with
-`invalid_utf16_boundary`. RichText embeds count as one sequence unit in both
-coordinate systems.
-
-## Limits, errors, and ownership
-
-### Structured input limits
-
-Pass `InputOptions` to `ValueHandle.fromJS`, `Change.fromJS`, or `Change.build`
-when parsing untrusted JavaScript objects. Limits are counted before semantic
-normalization, so empty operations cannot bypass policy.
-
-| Field | Default | Protects |
-| --- | ---: | --- |
-| `maxDepth` | `128` | Recursive Value/Change depth. |
-| `maxValueNodes` | `1,000,000` | Value node count. |
-| `maxChangeNodes` | `1,000,000` | Change node count. |
-| `maxContainerLength` | `1,000,000` | Map/List/attribute entries. |
-| `maxStringBytes` | `16 MiB` | One UTF-8 string. |
-| `maxSequenceOps` | `1,000,000` | Raw sequence operation count. |
-| `maxSequenceLength` | `1,000,000` | Logical sequence length. |
-
-These limits apply to structured input only. Canonical byte decoding uses the
-codec's own recursion and allocation defenses; OT algebra and projections do
-not read `InputLimits`.
-
-### `CollaError`
-
-Public failures throw `CollaError` with stable `code`, `operation`, optional
-Snapshot-relative `path`, and frozen `details`. Match `code` rather than human
-message text. The shared codes are documented in [Glossary and errors](/reference/glossary).
-
-```ts
-import { CollaError, ValueHandle } from 'colla-ot'
-
-try {
-  ValueHandle.decode(bytes)
-} catch (error) {
-  if (error instanceof CollaError && error.is('invalid_encoding')) {
-    console.error(error.operation, error.details)
-  }
-}
-```
-
-### Resource lifecycle
-
-`Document`, `ValueHandle`, and `Change` own Wasm-backed resources and provide `dispose()`
-(and `Symbol.dispose`) for deterministic release. Cloned `ValueHandle` instances have
-independent ownership. Disposal is idempotent; invoking methods on a disposed handle throws `invalid_state`.
-
-In contrast, `Snapshot` and `Update` are pure, immutable JavaScript values. They hold no
-WebAssembly handles and require zero manual memory management, relying entirely on standard
-JavaScript garbage collection.
-
-## Related pages
-
-- [Document state](/docs/document/) — complete application state flows.
-- [Document synchronization](/docs/examples/javascript-document) — persistence, events, and sync.
-- [Data model](/docs/core/values) — Value, Change, Text, and RichText semantics.
-- [OT guide](/docs/ot/) — algebra, rebasing, and TP1/TP2 boundaries.
-- [Rust API](/reference/rust) — the reference crate surface.
-- [Protocol reference](/reference/protocol) — canonical bodies and envelopes.
-- [Published npm package](https://www.npmjs.com/package/colla-ot)
-- [TypeScript source](https://github.com/link-duan/colla/tree/master/packages/core)
+Close runtimes when finished. Value, Change, wrappers, events and protocol objects do
+not expose free/dispose. Transactions expire at the end of their callback, independently
+of Document lifetime. See [Lifecycle](/docs/editing/lifecycle).

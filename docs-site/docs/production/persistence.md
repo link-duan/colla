@@ -1,73 +1,61 @@
----
-title: Persistence and recovery
-description: Persist Snapshots and pending Updates as an application-owned recovery record.
----
+# Persistence and restart
 
-# Persistence, checkpoints, and recovery
+Choose the durable object according to what must survive restart. Equal-looking content
+alone is not enough to restore identities, undo intent or an unconfirmed request.
 
-`Document.snapshot()` captures the visible Core Value and its visible revision.
-It intentionally omits pending Updates, listeners, transport connections, and
-retry state. A Snapshot is therefore a content checkpoint, not a resumable
-collaboration session.
+## Durable objects
 
-## A recoverable record
-
-If local delivery must survive a process crash, persist the Snapshot and the
-outbound queue under one application-owned transaction or integrity boundary:
-
-```text
-checkpoint = {
-  snapshotBytes,
-  pendingUpdateBytes: [updateBytes...],
-  protocolState,
-}
-```
-
-| Field | Why it is needed | Owner |
+| Object | Preserved state | Restore entry |
 | --- | --- | --- |
-| `snapshotBytes` | Rebuild visible content and revision. | Colla envelope + storage |
-| `pendingUpdateBytes` | Retry local edits that were not acknowledged. | Application queue |
-| `protocolState` | Request IDs, cursor, auth/session metadata, or schema version. | Application protocol |
+| Value | Content and element IDs | Document.create(Value.decode(bytes)) |
+| SyncSnapshot | Document ID, confirmed revision and Value | SyncSession.create |
+| SessionCheckpoint | Confirmed basis, original request, rebased pending, buffer, local version, enabled History | SyncSession.restore |
+| HistoryCheckpoint | Stacks, grouping, capacity and exact content basis | History.restore |
+| AuthorityCheckpoint | History floor, retained commits and deduplication receipts | Authority.restore |
 
-Do not serialize a JavaScript `Document` object or Wasm handle. Persist bytes
-and plain application metadata, then construct a fresh `Document` during
-recovery.
+All objects use strict Rust-owned codecs. Store bytes without converting bigint fields
+to JSON numbers. Value.toJS is a projection, not an identity-preserving durable format.
 
-## Write ordering
+## Server durability
 
-1. Encode a new Snapshot from the current visible state.
-2. Write the Snapshot and the queue state atomically, or use a journal that can
-   prove which record is complete.
-3. Remove an acknowledged queue entry only after the server acceptance is
-   durable and the checkpoint reflects the corresponding revision.
-4. Keep unacknowledged entries in FIFO order and retain their application
-   request IDs.
+Serialize this sequence per document:
 
-An Update's `updateId` starts at `1n` for each new Document instance. It is a
-local acknowledgement token, not a durable or globally unique deduplication
-key. The application request ID must survive restoration if retries can repeat.
+1. Read the current Authority and authorize the caller.
+2. Call `accept(submission)` and inspect the returned message.
+3. Durably store the returned Authority checkpoint.
+4. Adopt that Authority as the current state.
+5. Broadcast a Commit to all document clients, including its sender; return a Rejection only to its submitting client.
 
-## Recovery sequence
+If storage fails, keep the previous Authority and do not announce the unpersisted result.
+The client can retry after storage recovers. Await storage outside Document transactions.
+Use a single document owner or storage concurrency control when multiple servers can
+accept requests for the same document.
 
-```text
-read record -> validate Snapshot -> create Document
-            -> validate queue envelopes -> restore request metadata
-            -> replay or resend in application-defined order
-            -> apply only server-ordered remote revisions
-```
+On restart, restore the checkpoint so request receipts survive. Persist compaction
+before discarding older durable history.
 
-Validate every envelope before exposing content to the editor. If a Snapshot
-or queue entry is missing, truncated, or from an unsupported protocol version,
-stop and request an application-level repair or fresh Snapshot. Never guess a
-revision or apply an unrelated Update to bridge a gap.
+## Client durability
 
-## Format evolution and testing
+Capture a SessionCheckpoint after relevant local and remote transitions when offline
+work must survive a crash. The application chooses its write cadence and therefore its
+crash-loss window. The following example resumes one writer from saved bytes:
 
-Keep `COLLAS` and `COLLAU` envelope versions explicit. Reject trailing bytes
-and unknown versions instead of silently accepting a future schema. Maintain
-golden fixtures for Rust and JavaScript content, revisions, operation IDs, and
-stable error codes. Test interrupted writes, partial records, duplicate queue
-delivery, and recovery after a revision gap.
+<<< ../../examples/session-restart.ts
 
-Next: [Synchronization protocol](./sync-protocol), then
-[Production testing](./testing).
+Store the bytes durably before stopping the old writer. Disconnect its transport handlers
+as part of [runtime cleanup](/docs/editing/lifecycle#session-restart). For standalone
+History, store its matching Value and HistoryCheckpoint together; see
+[History restoration](/docs/history/checkpoints).
+
+## Retention and recovery
+
+Checkpoints can be larger than visible content: pending requests retain their original
+basis, and History and Authority retain earlier changes. Colla does not impose a fixed
+total byte-size limit on their envelopes. Choose storage, transport and retention limits
+according to your application's capacity, and persist the complete checkpoint before
+closing the old writer or announcing server acceptance.
+
+Compaction can make old clients unable to rebase. Define a retention policy and implement
+[explicit recovery](/docs/sync/recovery) before enabling aggressive log pruning.
+The [sync example](/docs/examples/sync) shows where durable adoption belongs in a
+message exchange. Add your database write at that boundary before broadcasting.

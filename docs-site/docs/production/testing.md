@@ -1,35 +1,23 @@
-# Production testing
+# Integration testing
 
-Test the Core algebra and the application controller as separate layers.
-Use Rust unit tests and JavaScript tests to cover shared Value and Change semantics.
-Run golden fixtures for canonical bodies, projections, and stable error categories.
-Round-trip every supported Value, Change, Snapshot, and Update fixture.
-Assert that decoders reject wrong magic and unsupported versions.
-Assert that truncated and trailing-byte payloads fail deterministically.
-Exercise maximum unsigned revisions and checked integer overflow.
-Verify that malformed remote input leaves Document state unchanged.
+Test the library contract and your integration separately. Colla's algebra and codec
+tests cannot establish that your application broadcasts only durably stored commits or
+restores the correct client's checkpoint.
 
-## Document scenarios
+## What library tests establish
 
-Test local edits with no pending queue.
-Test one local edit followed by a server acknowledgement.
-Test multiple local edits and out-of-order acknowledgements.
-Test an ordered remote edit while local work is pending.
-Test a skipped remote revision and request resynchronization.
-Test listener failure isolation and error event delivery.
-Test Snapshot restore with visible content and revision only.
-Test idempotent disposal and operations after disposal.
+Algebra properties and cross-language codec fixtures check library behavior. They do
+not establish your application's delivery, durability or editor behavior. See
+[Changes and OT algebra](/docs/core/changes#guarantees-and-boundaries) for the supported
+convergence contract.
 
-## Browser and packaging
+## Integration scenarios
 
-Test the single `colla-ot` package entry point.
-Test Node, Vite, and Rollup entry points used by consumers.
-Verify synchronous Wasm initialization in each runtime.
-Run a browser smoke test with the actual CDN or packaged artifact.
-Check that the delivered Wasm bytes match the package build provenance.
-Keep repository-wide pre-existing diagnostics separate from changed-file failures.
+Exercise simultaneous clients, buffered edits, duplicate requests, lost replies, delayed
+Commits, missing revisions, client and server restarts, and history compaction. Assert
+both visible content and IDs converge. Verify that retry bytes survive a restart and
+that a persistence failure never causes an uncommitted server state to be broadcast.
 
-## Next
-
-Use [errors and limits](./errors-limits) to turn failure cases into assertions.
-Then review [persistence](./persistence) and [sync protocol](./sync-protocol).
+For editors, test emoji boundaries, rich-text embeds, selection after Move, IME composition,
+listener failures and feedback suppression. For recovery, verify local work is retained,
+sending stops, and the application offers an explicit reconciliation path.

@@ -1,257 +1,225 @@
----
-title: Rust API reference
-description: Public modules, types, OT operations, and codecs in the colla crate.
----
-
 # Rust API
 
-<p class="eyebrow">Reference</p>
-<p class="lead">The <code>colla</code> crate is the reference implementation of Colla's immutable data model, OT algebra, and canonical Core codec. It gives Rust applications the primitives; it does not prescribe a server or session runtime.</p>
+Use `colla` for immutable content, transactional editing, History and synchronization.
+Requires Rust 1.81 or newer. See [Getting started](/docs/getting-started/) for installation
+and [Rust examples](/docs/examples/rust) for runnable programs.
 
-For a guided first edit, read the [Rust examples](/docs/examples/rust). For every
-public symbol, trait implementation, and exact signature, use the generated
-[API documentation on docs.rs](https://docs.rs/colla).
+Signatures below omit the receiver: reads use `&self`, Transaction mutations use
+`&mut self`, and functions prefixed with a type name are associated functions.
+`Result<T>` means `std::result::Result<T, CollaError>`. These tables are API lookup,
+not standalone programs.
 
-## Install
+## Content types
 
-Add the crate to `Cargo.toml`:
-
-```toml
-[dependencies]
-colla = "0.3"
-```
-
-The crate uses Rust 2021 edition and supports Rust 1.81 or newer. The published
-crate and the JavaScript `colla-ot` package are built from the same model and
-golden codec fixtures.
-
-## Public module map
-
-| Module | What it contains |
+| Type | Variants or fields |
 | --- | --- |
-| `value` | Immutable `Value`, `Text`, `List`, `Map`, and finite floats. |
-| `change` | Recursive `Change` plus typed Map/List/Text/RichText operations. |
-| `op` | `apply`, `compose`, `invert`, and `transform_pair`. |
-| `richtext` | Spans, atomic embeds, attributes, and coordinate conversion. |
-| `attrs` | Canonical attribute sets and formatting patches. |
-| `document` | `Snapshot` and `Update` local envelopes. |
-| `codec` | Canonical Value and Change body encoding/decoding. |
-| `error` | Structured errors and the shared `ErrorCode` taxonomy. |
-| `input_limits` | Receiver-defined limits for structured untrusted input. |
-| `path` | Snapshot-relative map keys and list indexes. |
+| Body | `Null`, `Bool(bool)`, `Int(i64)`, `Float(f64)`, `String(String)`, `Text(String)`, `RichText(Vec<RichSpan>)`, `Ref(Ref)`, `List(Vec<Value>)`, `Map(BTreeMap<String, Value>)` |
+| Ref | `target: ElementId` |
+| RichSpan | `Text { text: String, attrs: Attrs }`, `Embed { value: Value, attrs: Attrs }` |
+| Attr | `Bool(bool)`, `Int(i64)`, `Float(f64)`, `String(String)` |
+| Attrs | `BTreeMap<String, Attr>` |
+| AttrPatch | `BTreeMap<String, Option<Attr>>`; None removes an attribute |
+| Path | `Vec<Segment>`; empty for the root |
+| Segment | `Key(String)`, `Index(usize)` |
+| Location | `Path(Path)`, `Id(ElementId)`; converts from Path or ElementId |
 
-The crate root re-exports the types most applications need:
+Value clones share immutable storage. Each owning node carries an ElementId.
+Float values must be finite. See [Values and types](/docs/core/values) for the content model.
 
-```rust
-use colla::{
-    apply, compose, invert, transform_pair, AttrChange, AttrPatch, AttrValue,
-    Attrs, Change, ChangeKind, ErrorCode, InputLimits, List, ListChange,
-    ListOp, Map, MapChange, MapEntryChange, RichContent, RichSpan, RichText,
-    RichTextChange, RichTextOp, Snapshot, Text, TextChange, TextOp, TieBreak,
-    Update, Value, ValueKind, ValueType,
-};
-```
+## Value methods
 
-## Values
-
-`Value` is a closed, immutable tree with structural sharing. Its variants are
-`Null`, `Bool`, signed `Int(i64)`, finite `Float`, atomic `String`, collaborative
-`Text`, `RichText`, ordered `List`, and string-keyed `Map`.
-
-```rust
-use colla::{path, Value};
-
-let value = Value::map([
-    ("title", Value::text("Draft")),
-    ("tags", Value::list([Value::string("ot"), Value::string("rust")])),
-])?;
-
-assert_eq!(
-    value.get(&path!["title"]).and_then(Value::as_text).unwrap().as_str(),
-    "Draft",
-);
-# Ok::<(), colla::ValueError>(())
-```
-
-| Type | Construction | Key behavior |
-| --- | --- | --- |
-| `Value::string` | `Value::string("label")` | Atomic replacement; no character-level OT. |
-| `Value::text` | `Value::text("editable")` | Unicode scalar positions and text OT. |
-| `Value::rich_text` | `Value::rich_text(rich_text)` | Text spans and one-unit atomic embeds. |
-| `Value::list` | `Value::list(iter)` | Ordered nested Values. |
-| `Value::map` | `Value::map(entries)` | Duplicate keys return `ValueError::DuplicateKey`. |
-| `Value::float` | `Value::float(number)` | Rejects NaN/infinity; normalizes negative zero. |
-
-`Value` implements standard `From<T>` conversions and provides typed accessors
-`as_bool()`, `as_int()`, `as_float()`, `as_finite_float()`, `as_string()`, `as_text()`,
-`as_rich_text()`, `as_list()`, `as_map()`, and `is_null()`. `Path` is a temporary lookup
-address built fluently with `with_key` and `with_index`; it is not stored in a Change
-or codec body.
-
-## Changes and typed constructors
-
-`Change` is a canonical recursive operation relative to a base Value. Creation
-does not inspect a Snapshot; compatibility is checked by `apply`.
-
-```rust
-use colla::{Change, MapChange, MapEntryChange, TextChange, TextOp};
-
-let title: Change = TextChange::from_ops([
-    TextOp::Retain(5),
-    TextOp::Insert(" v2".into()),
-])?.into();
-
-let change: Change = MapChange::from_entries([
-    ("title", MapEntryChange::Modify(title)),
-])?.into();
-
-assert!(!change.is_noop());
-# Ok::<(), colla::ValueError>(())
-```
-
-| Constructor | Operation stream |
+| Constructor or method | Return |
 | --- | --- |
-| `MapChange::from_entries` | Unique key entries: `Insert`, `Delete`, or recursive `Modify`. |
-| `ListChange::from_ops` | `Retain`, `Insert`, `Delete`, and one-element `Modify`. |
-| `TextChange::from_ops` | `Retain`, `Insert`, and `Delete` Unicode scalars. |
-| `RichTextChange::from_ops` | Content operations plus attribute patches. |
-| `IntChange::Add(delta)` | Checked signed 64-bit integer addition. |
-| `Change::replace(value)` | Atomic replacement, including a type change. |
+| `Value::new(body: Body)` | Result&lt;Value&gt; |
+| `Value::with_allocator(body: Body, allocator: &mut IdAllocator)` | Result&lt;Value&gt; |
+| `Value::null()`, `bool(bool)`, `int(i64)`, `reference(ElementId)` | Value |
+| `Value::string(impl Into<String>)`, `text(impl Into<String>)`, `float(f64)`, `list(Vec<Value>)`, `map(impl IntoIterator<Item = (String, Value)>)`, `rich_text(Vec<RichSpan>)` | Result&lt;Value&gt; |
+| `id()`, `body()`, `kind()` | ElementId, &Body, &'static str |
+| `get(impl Into<Location>)`, `id_at(Path)` | Result&lt;Value&gt;, Result&lt;ElementId&gt; |
+| `has(impl Into<Location>)` | bool |
+| `find(ElementId)`, `path_of(ElementId)`, `resolve(Ref)` | Option&lt;&Value&gt;, Option&lt;Path&gt;, Option&lt;Value&gt; |
+| `references_to(ElementId)` | Vec&lt;ElementId&gt; |
+| `content_equals(&Value)` | bool |
+| `copied()` | Result&lt;Value&gt; with fresh IDs |
+| `validate()` | Result&lt;()&gt; |
+| `encode()`, `Value::decode(&[u8])` | Vec&lt;u8&gt;, Result&lt;Value&gt; |
 
-Typed constructors normalize zero-length operations, empty inserts, adjacent
-compatible operations, insert/delete ordering, and trailing plain retains.
-Empty typed changes and `IntChange::Add(0)` convert to `Change::noop()`. `Change`
-provides `From<Value>` (equivalent to `Change::replace`) and typed extractors
-`as_replace()`, `as_map()`, `as_list()`, `as_text()`, `as_rich_text()`, and `as_int()`.
-The canonical `Change` exposes `kind()` and `is_noop()`; it does not contain old
-values, versions, authorship, or operation IDs.
+Unlike JavaScript get, Rust get reports missing values as an error. `find` looks up an
+ID and returns None if absent. Ref resolution is explicit and advances one hop.
 
-## OT operations
+## Change methods and types
 
-```rust
-use colla::{apply, compose, invert, transform_pair, Change, TextChange, TextOp, TieBreak, Value};
-
-let base = Value::text("ab");
-let first: Change = TextChange::from_ops([
-    TextOp::Retain(1), TextOp::Insert("x".into()),
-])?.into();
-let second: Change = TextChange::from_ops([
-    TextOp::Retain(2), TextOp::Insert("y".into()),
-])?.into();
-
-let combined = compose(&first, &second)?;
-let after = apply(&base, &combined)?;
-let inverse = invert(&combined, &base)?;
-assert_eq!(apply(&after, &inverse)?, base);
-
-let (first_prime, second_prime) =
-    transform_pair(&first, &second, TieBreak::LeftFirst)?;
-assert_eq!(
-    apply(&apply(&base, &first)?, &second_prime)?,
-    apply(&apply(&base, &second)?, &first_prime)?,
-);
-# Ok::<(), Box<dyn std::error::Error>>(())
-```
-
-| Function | Contract |
+| Member | Return |
 | --- | --- |
-| `apply(base, change)` | Return a new Value; reject type, key, range, and integer incompatibilities without mutating `base`. |
-| `compose(first, second)` | Produce one operation equivalent to applying `first` then `second`. |
-| `invert(change, base)` | Build an inverse; the original base is required because Change carries no old values. |
-| `transform_pair(left, right, tie_break)` | Transform concurrent Changes from one base using `TieBreak::LeftFirst` or `RightFirst`. |
+| `Change::new(impl IntoIterator<Item = Operation>)` | Result&lt;Change&gt; |
+| `Change::noop()` | Change |
+| `operations()`, `is_noop()` | &[Operation], bool |
+| `encode()`, `Change::decode(&[u8])` | Vec&lt;u8&gt;, Result&lt;Change&gt; |
+| `apply(&Value, &Change)` | Result&lt;Value&gt; |
+| `compose(&Value, &Change, &Change)`, `invert(&Value, &Change)` | Result&lt;Change&gt; |
+| `transform(&Value, &Change, &Change, Priority)` | Result&lt;(Change, Change)&gt; |
 
-Colla guarantees the pairwise TP1 convergence equation for applicable
-transforms. It does not guarantee TP2 path independence; a distributed control
-algorithm must provide the required context and ordering.
-
-## RichText and coordinates
-
-`RichText` is a canonical sequence of text spans and atomic embed spans. Text
-lengths use Unicode scalar values; each embed counts as one. `Attrs` contains
-atomic Bool, Int, Float, or String values in canonical key order. Formatting uses
-`AttrPatch` with explicit `Set` and `Remove` actions; `Null` is not a deletion
-sentinel.
-
-```rust
-use colla::{Attrs, RichSpan, RichText, Value};
-
-let rich = RichText::from_spans(vec![
-    RichSpan::text("Hello", Attrs::new()),
-    RichSpan::embed(Value::int(1), Attrs::new()),
-])?;
-assert_eq!(rich.len(), 6); // five scalars plus one embed
-# Ok::<(), colla::ValueError>(())
-```
-
-`RichText::from_spans` removes empty text spans and merges adjacent text spans
-with equal attributes. `Text` and `RichText` provide `code_point_to_utf16` and
-`utf16_to_code_point` to convert positions for JavaScript/editor boundaries; positions
-inside a surrogate pair return `Utf16PositionError::InvalidUtf16Boundary`.
-`Utf16PositionError` implements `.code() -> ErrorCode`.
-
-## Snapshots, Updates, and codecs
-
-The crate's `Snapshot` and `Update` types are envelopes, not a Document state
-machine:
-
-```rust
-use colla::{Change, Snapshot, Update, Value};
-
-let snapshot = Snapshot::new(7, Value::text("Draft"));
-let snapshot_bytes = snapshot.encode();
-let restored = Snapshot::decode(&snapshot_bytes)?;
-assert_eq!(restored.revision(), 7);
-
-let update = Update::new(7, 3, Change::noop());
-let restored_update = Update::decode(&update.encode())?;
-assert_eq!(restored_update.update_id(), 3);
-# Ok::<(), colla::CodecError>(())
-```
-
-`Value::encode`/`decode`, `Change::encode`/`decode`, and the equivalent
-`codec::encode_*` functions operate on canonical, versionless Core bodies.
-`Snapshot` uses `COLLAS`; `Update` uses `COLLAU`; both currently use protocol
-version `1`. See [Protocol reference](/reference/protocol) for byte layouts and
-strict decoding behavior.
-
-## Errors and input policy
-
-Errors are typed and `#[non_exhaustive]`; match variants or their stable
-`ErrorCode` classification rather than display strings.
-
-| Error family | Typical causes |
+| Operation variant | Fields |
 | --- | --- |
-| `ValueError` | Non-finite float, duplicate key, platform length overflow. |
-| `ApplyError` | Type/key/index mismatch, sequence bounds, integer overflow. |
-| `ComposeError` | Incompatible sequential kinds or composed length overflow. |
-| `InvertError` | Change is not applicable to the supplied base. |
-| `TransformError` | Changes cannot share one valid base or exceed limits. |
-| `CodecError` | Invalid bytes, envelope magic/version, unknown tag, or trailing data. |
-| `Utf16PositionError` | Out-of-range or surrogate-splitting coordinate. |
+| Insert | `destination: Destination`, `value: Value` |
+| Delete | `target: ElementId` |
+| Set | `target: ElementId`, `value: Value` |
+| Move | `target: ElementId`, `destination: Destination` |
+| Text | `target: ElementId`, `change: TextChange` |
+| Add | `target: ElementId`, `delta: i64` |
+| RichText | `target: ElementId`, `operations: Vec<RichOp>` |
 
-`ErrorCode::as_str()` exposes the stable strings such as `invalid_encoding`,
-`type_mismatch`, `incompatible_change`, and `limit_exceeded`. `InputLimits`
-describes receiver policy for structured input (`max_depth`, node counts,
-container and string sizes, sequence operation count, and sequence length). The
-canonical byte decoder uses cocodec's built-in depth/allocation defenses and
-does not accept configurable limits; algebra results are not restricted by
-`InputLimits`.
+Destination contains `parent: ElementId` and `slot: Segment`. Priority is Left or Right.
+Transform returns `(left_after_right, right_after_left)`; its inputs share a common base.
+Compose's second change applies after its first. See [Changes and OT algebra](/docs/core/changes).
 
-## What this crate does not provide
+TextOp variants are `Retain(usize)`, `Insert(String)` and `Delete(usize)`;
+`TextChange::from_ops(impl IntoIterator<Item = TextOp>) -> Result<TextChange>`
+constructs a text sequence. `ops() -> &[TextOp]` reads its canonical operations and
+`is_empty() -> bool` checks for an empty stream.
+RichOp variants are `Retain { len: usize, attrs: AttrPatch }`, `Insert(RichSpan)` and
+`Delete(usize)`. All Rust text positions count Unicode scalars; embeds count one.
 
-The Rust crate provides values, changes, algebra, and codecs. It does not
-provide `Document`/`Session` state, transport, server
-ordering, history, presence, cursors, persistence storage, authentication, or
-editor adapters. Add those policies around the primitives. The JavaScript
-package's [Document state](/reference/javascript) supplies local visible state
-and Snapshot/Update queue behavior when that is the appropriate boundary.
+## Document
 
-## More documentation
+| Signature | Result |
+| --- | --- |
+| `Document::create(value: Value)` | `Result<Document>` |
+| `snapshot()` | `Result<Value>` |
+| `version()` | `Result<u64>` local content version |
+| `get(location: impl Into<Location>)` | `Result<Value>` |
+| `kind(location: impl Into<Location>)` | `Result<&'static str>` |
+| `has(location: impl Into<Location>)` | `Result<bool>` |
+| `id_at(path: Path)` | `Result<ElementId>` |
+| `path_of(id: ElementId)` | `Result<Option<Path>>` |
+| `resolve(reference: Ref)` | `Result<Option<Value>>` |
+| `references_to(id: ElementId)` | `Result<Vec<ElementId>>` |
+| `edit(callback: impl FnOnce(&mut Transaction) -> Result<()>)` | `Result<Option<EditResult>>` |
+| `edit_group(group: Option<String>, callback: impl FnOnce(&mut Transaction) -> Result<()>)` | `Result<Option<EditResult>>` |
+| `apply(change: &Change)` | `Result<Option<EditResult>>` |
+| `close()` | `Result<()>` |
 
-- [Full API on docs.rs](https://docs.rs/colla)
-- [Rust examples](/docs/examples/rust)
-- [Data model](/docs/core/values)
-- [OT guide](/docs/ot/)
-- [Protocol reference](/reference/protocol)
-- [JavaScript API](/reference/javascript)
-- [Rust crate source](https://github.com/link-duan/colla/tree/master/crates/colla)
+Noop edits return None. Missing `get`, `kind` or `id_at` targets are errors. Runtime
+reads fail after close; previously returned Values remain readable. Transaction errors
+or unwinding abandon the edit. See [Transactions](/docs/editing/transactions).
+
+## Transaction
+
+| Signature | Result |
+| --- | --- |
+| `snapshot()` | `Result<Value>` |
+| `get(location: impl Into<Location>)` | `Result<Value>` |
+| `set(location: impl Into<Location>, value: Value)` | `Result<()>` |
+| `delete(location: impl Into<Location>)` | `Result<()>` |
+| `move_to(source: impl Into<Location>, parent: impl Into<Location>, slot: Segment)` | `Result<()>` |
+| `copy(source: impl Into<Location>, parent: impl Into<Location>, slot: Segment)` | `Result<ElementId>` new root ID |
+| `increment(target: impl Into<Location>, delta: i64)` | `Result<()>` |
+| `list_replace(target: impl Into<Location>, index: usize, count: usize, values: Vec<Value>)` | `Result<()>` |
+| `text_replace(target: impl Into<Location>, index: usize, count: usize, text: &str)` | `Result<()>` |
+| `rich_text_edit(target: impl Into<Location>, operations: Vec<RichOp>)` | `Result<()>` |
+| `utf16_to_scalar(target: impl Into<Location>, position: usize)` | `Result<usize>` |
+| `apply(change: &Change)` | `Result<()>` |
+
+Rust exposes sequence replacement methods directly on Transaction. A zero removal count
+inserts; empty replacement content deletes. Text and RichText positions count Unicode
+scalars; List positions count elements. `utf16_to_scalar` converts against working content
+and rejects surrogate splits. Invalid ranges, missing parents, occupied Move/Copy Map
+slots and kind mismatches are errors. See [Move, Copy and Set](/docs/core/move-copy-set).
+
+## EditResult and observation
+
+| Field | Type |
+| --- | --- |
+| `before`, `after` | `Value` |
+| `change`, `inverse` | `Change` |
+| `edit_steps` | `Vec<Operation>` |
+| `version` | `u64` local content version |
+| `origin` | `Origin::{Local, Remote, Undo, Redo}` |
+
+Rust returns edit results; subscription callbacks are a JavaScript facade feature.
+See [Edit results and steps](/docs/editing/results) for replay semantics.
+
+## History
+
+| Signature | Result |
+| --- | --- |
+| `History::attach(document: &Document)` | `Result<History>`; default capacity 100 |
+| `History::attach_with_capacity(document: &Document, capacity: usize)` | `Result<History>` |
+| `History::restore(document: &Document, checkpoint: HistoryCheckpoint)` | `Result<History>` |
+| `can_undo()`, `can_redo()` | `Result<bool>` |
+| `undo()`, `redo()` | `Result<Option<EditResult>>` |
+| `clear()`, `close()` | `Result<()>` |
+| `checkpoint()` | `Result<HistoryCheckpoint>` |
+
+Attach reuses existing History. Restore requires its exact content basis; a mismatch
+fails. See [History](/docs/history/) for grouping and collaborative undo.
+
+## SyncSession
+
+| Signature | Result |
+| --- | --- |
+| `SyncSession::create(client_id: impl Into<String>, snapshot: SyncSnapshot)` | `Result<SyncSession>` |
+| `SyncSession::restore(checkpoint: SessionCheckpoint)` | `Result<SyncSession>` |
+| `document()` | `Document` |
+| `revision()` | `Result<u64>` confirmed server revision |
+| `recovery_reason()` | `Result<Option<CollaError>>` |
+| `outbound()` | `Result<Option<Submission>>` |
+| `receive(message: &ServerMessage)` | `Result<Option<EditResult>>` |
+| `checkpoint()` | `Result<SessionCheckpoint>` |
+| `close()` | `Result<()>` |
+| `is_closed()` | `bool` |
+
+Inspect `recovery_reason` when synchronization cannot continue. A matching Rejection
+is received as a message and can set this reason without returning an error. A missing
+Commit interval returns `missing_revision`. See [Retries](/docs/sync/retries) and
+[Recovery](/docs/sync/recovery) for the respective workflows.
+
+## Authority
+
+| Signature | Result |
+| --- | --- |
+| `Authority::create(document_id: impl Into<String>, value: Value)` | `Result<Authority>` |
+| `Authority::restore(checkpoint: AuthorityCheckpoint)` | `Result<Authority>` |
+| `revision()` | `u64` |
+| `snapshot()` | `SyncSnapshot` |
+| `accept(submission: &Submission)` | `Result<(Authority, ServerMessage)>` |
+| `commits_since(revision: u64)` | `Result<Vec<Commit>>` |
+| `compact(through_revision: u64)` | `Result<Authority>` |
+| `checkpoint()` | `AuthorityCheckpoint` |
+
+Authority is immutable. `commits_since` fails with `history_expired` below the retained
+floor. Unlike JavaScript's ServerMessage wrappers, Rust returns Commit values; wrap
+one in `ServerMessage::Commit(commit)` to pass it to `receive`. See
+[Persistence](/docs/production/persistence#server-durability) before adopting returned state.
+
+## Protocol objects and codecs
+
+Value, Change, SyncSnapshot, Submission, ServerMessage, SessionCheckpoint,
+HistoryCheckpoint and AuthorityCheckpoint provide `encode() -> Vec<u8>` and
+`Type::decode(bytes: &[u8]) -> Result<Type>`. Runtime constructors and decoders create
+controlled protocol objects; their fields are not public mutation APIs.
+
+| Type | Read methods |
+| --- | --- |
+| SyncSnapshot | `document_id() -> &str`, `revision() -> u64`, `value() -> &Value` |
+| Submission | `document_id() -> &str`, `client_id() -> &str`, `sequence() -> u64`, `base_revision() -> u64`, `change() -> &Change` |
+| Commit | `document_id() -> &str`, `client_id() -> &str`, `sequence() -> u64`, `revision() -> u64`, `change() -> &Change` |
+| Rejection | `document_id() -> &str`, `client_id() -> &str`, `sequence() -> u64`, `reason() -> &CollaError` |
+
+ServerMessage has `Commit(Commit)` and `Rejection(Rejection)` variants. Encode the
+ServerMessage wrapper for transmission. See [Protocol and encoding](/reference/protocol)
+for object fields, format and validation limits.
+
+## Identity and errors
+
+ElementId implements Display and FromStr; `namespace(self) -> [u8; 16]` and
+`sequence(self) -> u64` expose its parts. IdAllocator provides `random() -> Result<Self>`,
+`deterministic(namespace: [u8; 16]) -> Self`, `allocate(&mut self) -> Result<ElementId>`
+and `scope<T>(&mut self, callback: impl FnOnce() -> T) -> T`. Deterministic namespaces
+must be distinct between tests; normal construction uses secure random namespaces.
+
+CollaError exposes `code: ErrorCode`, `operation: String` and
+`details: BTreeMap<String, String>`. When present, `details["elementId"]` contains
+the diagnostic element identity. Match the [stable codes](/reference/glossary#error-codes),
+not message text. Rust `ErrorCode` variants use PascalCase; `code.as_str()` gives the
+snake_case code used in the glossary. Decode rejects malformed or oversized bytes.

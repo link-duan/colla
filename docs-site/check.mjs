@@ -1,152 +1,141 @@
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
-import { dirname, extname, join, normalize, relative, resolve, sep } from 'node:path'
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
+import { dirname, extname, join, relative, resolve } from 'node:path'
+import { fileURLToPath, pathToFileURL } from 'node:url'
+import { createMarkdownRenderer } from 'vitepress'
 
-const root = new URL('.', import.meta.url).pathname
-const configPath = join(root, '.vitepress', 'config.mts')
-const ignoredDirectories = new Set(['.vitepress', 'node_modules'])
-const markdown = []
-
-function visit(directory) {
-  for (const entry of readdirSync(directory)) {
-    if (ignoredDirectories.has(entry)) continue
-    const path = join(directory, entry)
-    if (statSync(path).isDirectory()) visit(path)
-    else if (entry.endsWith('.md')) markdown.push(path)
-  }
+const defaultRoot = fileURLToPath(new URL('.', import.meta.url))
+const ignored = new Set(['.vitepress', 'node_modules', '.examples-dist', '.examples-generated'])
+function markdownFiles(root, directory = root) {
+  return readdirSync(directory).flatMap(name => {
+    if (ignored.has(name)) return []
+    const path = join(directory, name)
+    return statSync(path).isDirectory() ? markdownFiles(root, path) : name.endsWith('.md') ? [path] : []
+  })
+}
+function linksInSidebar(sidebar) {
+  const links = []
+  const visit = items => items.forEach(item => {
+    if (item.link) links.push(item.link)
+    if (item.items) visit(item.items)
+  })
+  Object.values(sidebar).forEach(visit)
+  return links
 }
 
-visit(root)
-const relativePages = new Set(markdown.map(path => relative(root, path)))
-const errors = []
-
-function routeToPageCandidates(route) {
-  const clean = route.replace(/^\/colla(?:\/|$)/, '/').replace(/\/$/, '')
-  const page = clean.replace(/^\//, '')
-  return [join(root, `${page}.md`), join(root, page, 'index.md')]
+// Match the full-file VitePress include form used by this site. Reject other forms
+// rather than checking a different document from the one VitePress will publish.
+function expandIncludes(file, ancestors = []) {
+  if (ancestors.includes(file)) throw new Error(`cyclic Markdown include: ${file}`)
+  return readFileSync(file, 'utf8').replace(/<!--\s*@include:\s*(.*?)\s*-->/g, (_, name) => {
+    if (!name || /[#{}]/.test(name) || name.startsWith('@')) {
+      throw new Error(`unsupported Markdown include: ${name}; use a full relative file path`)
+    }
+    const target = resolve(dirname(file), name)
+    if (!existsSync(target)) throw new Error(`missing Markdown include: ${name}`)
+    return expandIncludes(target, [...ancestors, file]).replace(/^---\r?\n[^]*?\r?\n---(?:\r?\n|$)/, '')
+  })
 }
 
-function routeExists(route) {
-  return routeToPageCandidates(route).some(existsSync)
-}
-
-function configuredRoutes() {
-  const source = readFileSync(configPath, 'utf8')
-  const routes = new Set()
-  const pattern = /\blink\s*:\s*["'](\/(?:docs|reference)(?:\/[A-Za-z0-9_.-]+)+\/??)["']/g
-  for (const match of source.matchAll(pattern)) routes.add(match[1].replace(/\/$/, ''))
-  return [...routes]
-}
-
-const primaryRoutes = configuredRoutes()
-for (const route of primaryRoutes) {
-  if (!routeExists(route)) errors.push(`missing sidebar route: ${route}`)
-}
-
-const legacyPages = [
-  'guide/quick-start.md',
-  'guide/javascript.md',
-  'guide/rust.md',
-  'concepts/data-model.md',
-  'concepts/document-model.md',
-  'docs/building.md',
-  'docs/core-concepts.md',
-  'docs/document-workflow.md',
-  'docs/ot-model.md',
-]
-for (const page of legacyPages) {
-  if (!relativePages.has(page)) errors.push(`missing legacy route: ${page}`)
-}
-
-for (const route of primaryRoutes) {
-  const file = routeToPageCandidates(route).find(existsSync)
-  if (file === undefined) continue
-  const lines = readFileSync(file, 'utf8').trim().split(/\r?\n/).length
-  if (lines < 35) errors.push(`sidebar page is too short (${lines} lines): ${relative(root, file)}`)
-}
-
-const staleDirectories = ['start', 'build', 'understand', 'spec']
-for (const directory of staleDirectories) {
-  const path = join(root, directory)
-  if (!existsSync(path)) continue
-  const stale = []
-  const walk = current => {
-    for (const entry of readdirSync(current)) {
-      const child = join(current, entry)
-      if (statSync(child).isDirectory()) walk(child)
-      else if (extname(child) === '.md') stale.push(child)
+export async function checkDocs({ root = defaultRoot, sidebar, required } = {}) {
+  root = resolve(root)
+  if (!sidebar) ({ sidebar } = await import(pathToFileURL(join(root, '.vitepress/navigation.mjs')).href))
+  required ??= JSON.parse(readFileSync(join(root, 'topics.json'), 'utf8'))
+  const errors = []
+  const files = markdownFiles(root)
+  const fileSet = new Set(files)
+  const renderer = await createMarkdownRenderer(root, { languages: ['ts', 'rust', 'sh', 'toml'] }, '/colla/')
+  const pages = new Map()
+  for (const file of files) {
+    let source
+    try { source = expandIncludes(file) } catch (error) {
+      errors.push(`${relative(root, file)}: ${error.message}`)
+      source = readFileSync(file, 'utf8')
+    }
+    const env = { path: file, relativePath: relative(root, file) }
+    // Render with the site's own Markdown engine: heading IDs and snippet inclusion
+    // must follow VitePress, including duplicate and explicit heading anchors.
+    let html
+    try { html = renderer.render(source, env) } catch (error) {
+      errors.push(`${relative(root, file)}: ${error.message}`)
+      html = ''
+    }
+    const ids = new Set([...html.matchAll(/\bid="([^"]+)"/g)].map(match => match[1]))
+    const links = [...html.matchAll(/\b(?:href|src)="([^"]+)"/g)].map(match => match[1].replaceAll('&amp;', '&'))
+    for (const match of source.matchAll(/^\s+link:\s*["']?([^\s"']+)/gm)) links.push(match[1])
+    pages.set(file, { ids, links })
+    if (/This topic is maintained in the \[current guide\]|# Colla 0\.4 documentation|\bTODO\b|\bTBD\b/.test(source)) {
+      errors.push(`placeholder page: ${relative(root, file)}`)
+    }
+    // Snippet source paths are not emitted as links in HTML.
+    for (const match of source.matchAll(/^<<<\s+([^\s{]+)/gm)) {
+      if (!existsSync(resolve(dirname(file), match[1].split('#')[0]))) errors.push(`missing snippet: ${relative(root, file)} -> ${match[1]}`)
     }
   }
-  walk(path)
-  if (stale.length) errors.push(`stale split pages remain under ${directory}/`)
-}
-
-function routeFromPath(pathname) {
-  const relativePath = relative(root, pathname).split(sep).join('/')
-  if (relativePath.endsWith('.md')) {
-    const withoutExtension = relativePath.slice(0, -3)
-    if (withoutExtension.endsWith('/index')) {
-      const parent = withoutExtension.slice(0, -6)
-      return `/colla/${parent}`.replace(/\/+/g, '/')
+  function targetFile(sourceFile, href) {
+    if (/^(?:[a-z][a-z\d+.-]*:|\/\/)/i.test(href)) return null
+    const [pathname, fragment] = href.split('#')
+    let path
+    try {
+      const decoded = decodeURIComponent(pathname.split('?')[0])
+      path = decoded ? decoded.startsWith('/')
+        ? resolve(root, '.' + decoded.replace(/^\/colla(?=\/|$)/, ''))
+        : resolve(dirname(sourceFile), decoded)
+        : sourceFile
+    } catch { return { error: 'malformed URL' } }
+    if (path !== root && !path.startsWith(root + '/')) return { error: 'link escapes site' }
+    const stem = path.replace(/\.(?:html|md)$/, '')
+    const candidates = [path, stem + '.md', join(stem, 'index.md')]
+    const page = candidates.find(candidate => fileSet.has(candidate))
+    if (page) return { page, fragment }
+    // Non-document local assets may come from public/.
+    if (extname(path) && extname(path) !== '.html' && extname(path) !== '.md') {
+      const publicPath = join(root, 'public', relative(root, path))
+      if ([path, publicPath].some(candidate => existsSync(candidate) && statSync(candidate).isFile())) return null
     }
-    return `/colla/${withoutExtension}`.replace(/\/+/g, '/')
+    return { error: 'missing target' }
   }
-  if (existsSync(`${pathname}.md`)) {
-    return `/colla/${relativePath}`.replace(/\/+/g, '/')
+  const configPath = join(root, '.vitepress/config.mts')
+  if (existsSync(configPath)) {
+    for (const match of readFileSync(configPath, 'utf8').matchAll(/\blink:\s*["'](\/[^"']+)["']/g)) {
+      const target = targetFile(join(root, 'index.md'), match[1])
+      if (target?.error) errors.push(`missing configured navigation route: ${match[1]}`)
+    }
   }
-  if (existsSync(join(pathname, 'index.md'))) {
-    const parent = relativePath.replace(/\/$/, '')
-    return `/colla/${parent}`.replace(/\/+/g, '/')
+  const sidebarPages = new Set()
+  for (const route of linksInSidebar(sidebar)) {
+    const target = targetFile(join(root, 'index.md'), route)
+    if (!target?.page) errors.push(`missing sidebar route: ${route}`)
+    else sidebarPages.add(target.page)
   }
-  return null
+  for (const name of required) {
+    const file = join(root, name)
+    if (!fileSet.has(file)) errors.push(`missing required topic: ${name}`)
+    if (!sidebarPages.has(file)) errors.push(`required topic missing from navigation: ${name}`)
+  }
+  for (const [file, page] of pages) {
+    const name = relative(root, file)
+    if (name !== 'index.md') {
+      if (!required.includes(name)) errors.push(`unregistered topic: ${name}`)
+      if (!sidebarPages.has(file)) errors.push(`orphan page: ${name}`)
+
+    }
+    for (const href of page.links) {
+      const target = targetFile(file, href)
+      if (target?.error) errors.push(`${name} -> ${href}: ${target.error}`)
+      else if (target?.page && target.fragment) {
+        let anchor
+        try { anchor = decodeURIComponent(target.fragment) } catch { anchor = target.fragment }
+        if (!pages.get(target.page)?.ids.has(anchor)) errors.push(`${name} -> ${href}: missing anchor`)
+      }
+    }
+  }
+  return { errors, pageCount: files.length, sidebarCount: sidebarPages.size }
 }
 
-function resolveMarkdownTarget(sourceFile, target) {
-  if (!target || target.startsWith('#')) return null
-
-  // VitePress adds the configured base to Markdown links, but raw HTML
-  // attributes are emitted as written. Treat site-root docs/reference links
-  // as base-relative so the checker catches links that would 404 on GitHub
-  // Pages when `base` is `/colla/`.
-  if (target.startsWith('/docs/') || target.startsWith('/reference/')) {
-    return `/colla${target.split('#')[0]}`
-  }
-
-  if (/^(?:[A-Za-z][A-Za-z0-9+.-]*:|\/\/)/.test(target)) {
-    if (target.startsWith('/colla/')) return target.split('#')[0]
-    return null
-  }
-
-  const [pathname] = target.split('#')
-  if (!pathname || pathname.startsWith('mailto:')) return null
-  if (!pathname.endsWith('.md') && !pathname.endsWith('/')) {
-    // VitePress clean URLs are commonly written without an extension. Only
-    // inspect path-like targets; ordinary fragment or asset links are ignored.
-    if (!pathname.includes('/')) return null
-  }
-  const resolved = normalize(resolve(dirname(sourceFile), pathname))
-  if (!resolved.startsWith(root)) return null
-  return routeFromPath(resolved)
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const result = await checkDocs()
+  if (result.errors.length) {
+    console.error('Documentation checks failed:\n' + result.errors.map(error => `- ${error}`).join('\n'))
+    process.exitCode = 1
+  } else console.log(`Checked ${result.pageCount} pages, ${result.sidebarCount} sidebar topics, links, anchors and snippets.`)
 }
-
-function checkLink(sourceFile, target) {
-  const route = resolveMarkdownTarget(sourceFile, target)
-  if (route !== null && !routeExists(route)) errors.push(`${relative(root, sourceFile)} -> ${target}`)
-}
-
-for (const file of markdown) {
-  const source = readFileSync(file, 'utf8')
-  for (const match of source.matchAll(/!?\[[^\]]*\]\(([^)\s]+)(?:\s+["'][^)]*["'])?\)/g)) {
-    checkLink(file, match[1])
-  }
-  for (const match of source.matchAll(/\bhref=["']([^"']+)["']/g)) {
-    checkLink(file, match[1])
-  }
-}
-
-if (errors.length) {
-  console.error('Documentation structure/link checks failed:')
-  for (const error of errors) console.error(`- ${error}`)
-  process.exit(1)
-}
-
-console.log(`Checked ${markdown.length} pages, ${primaryRoutes.length} sidebar routes, and the Wiki Tree structure.`)

@@ -25,6 +25,16 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-pack
+      - run: pnpm --filter colla-docs test:examples
+      - run: pnpm --filter colla-docs test:rust-examples
+      - run: cargo test -p colla --doc
       - run: pnpm docs:check
       - if: github.event_name == 'push'
         uses: actions/upload-pages-artifact@v4

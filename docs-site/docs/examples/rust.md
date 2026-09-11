@@ -1,62 +1,28 @@
-# Rust examples
+# Rust
 
-The repository includes runnable examples for Core values, codecs, and OT.
-They are executable references rather than a complete collaboration server.
+The Rust crate owns content, operations, editing, synchronization and canonical codecs.
+These standalone programs use Rust Results and scalar text positions. After adding
+`colla` to your Cargo dependencies, copy a program into `src/main.rs` and run `cargo run`.
 
-## Basic nested edit
+## Edit, move and undo
 
-`basic_edit.rs` creates a Map containing collaborative Text.
-It builds a Text Change from retain and insert operations.
-It wraps that operation in a Map modify entry.
-It applies the recursive Change to a concrete base Value.
+<<< ../../../crates/colla/examples/basic_edit.rs
 
-```sh
-cargo run -p colla --example basic_edit
-```
+The title retains its ID while moving between Lists. Its Ref resolves the updated Text;
+undo restores its previous location and content.
 
-## Binary round trip
+## Encode and restore
 
-`binary_roundtrip.rs` constructs a Value, calls `encode()`, then `decode()`.
-It asserts structural equality between original and decoded values.
+<<< ../../../crates/colla/examples/binary_roundtrip.rs
 
-```sh
-cargo run -p colla --example binary_roundtrip
-```
+Value equality includes IDs. AuthorityCheckpoint restores server state, including the
+history and request receipts that a content-only Value cannot preserve.
 
-## Concurrent edits
+## Two clients
 
-`collab_demo.rs` creates two Text Changes from one base.
-It calls `transform_pair` with `TieBreak::LeftFirst`.
-It applies each transformed path and asserts equal final Values.
+<<< ../../../crates/colla/examples/collab_demo.rs
 
-```sh
-cargo run -p colla --example collab_demo
-```
-
-Rust and JavaScript share the same Value model.
-Rust constructors validate typed operation streams.
-Rust errors are returned as `Result` values.
-The examples use immutable Values.
-They do not create Document sessions.
-They do not define request identity.
-They do not define authentication.
-They do not define retry behavior.
-They do not persist server history.
-The collaboration example demonstrates pairwise TP1 only.
-It does not prove TP2 or arbitrary peer-to-peer convergence.
-
-## Adapting an example
-
-Keep the base Value when implementing undo.
-Use the application protocol for revision and ordering.
-Use an envelope across a process boundary.
-Add golden fixtures for cross-language bytes.
-Add service tests for duplicate delivery.
-Add service tests for reordered delivery.
-Add input limits at untrusted boundaries.
-
-## Next
-
-Read [Immutable Value and Change](./javascript-core).
-Read [OT concurrency](../ot/concurrency).
-Read [production testing](../production/testing).
+Both clients converge to 3 after independent +1 and +2 edits. The example restores a
+session through canonical checkpoint bytes. Its message loop is in memory; production
+code must persist Authority state before broadcasting. Consult the [Rust reference](/reference/rust)
+for the public method surface and the [Sync guide](/docs/sync/) for transport boundaries.

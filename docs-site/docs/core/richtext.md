@@ -1,75 +1,41 @@
----
-title: RichText
-description: Attributed text and embeds in Colla Core.
----
-
 # RichText
 
-<p class="lead">RichText is a normalized sequence of attributed text spans and atomic embedded Values.</p>
+RichText is a sequence of attributed text spans and atomic embeds. It is not HTML and
+does not prescribe an editor's schema. Adjacent compatible spans can be normalized,
+so application behavior should depend on content and attributes, not span boundaries.
 
-## Shape
-
-Construct RichText with `richText(spans)`. A text span has `type: 'text'`, a
-string, and optional attributes. An embed has `type: 'embed'`, a Value, and
-optional attributes:
+## Insert and format
 
 ```ts
-import { richText } from 'colla-ot'
-
-const body = richText([
-  { type: 'text', text: 'Hello ', attrs: { bold: true } },
-  { type: 'embed', value: { id: 'mention-1' }, attrs: { kind: 'mention' } },
-  { type: 'text', text: '!', attrs: { bold: true } },
-])
-```
-
-Each embed occupies one logical sequence unit regardless of the size of its
-embedded Value. The embed itself is atomic to RichText operations: it can be
-inserted, deleted, retained, or formatted, but cannot be recursively modified
-inside the sequence. If embedded state needs an independent collaborative
-lifecycle, keep it at a stable Value path and reference it from the embed.
-
-## Normalization
-
-Construction freezes the result and applies canonical normalization:
-
-- empty text spans are removed;
-- adjacent text spans with identical attributes are merged;
-- attribute keys are unique and ordered canonically;
-- attribute values are booleans, signed 64-bit integers, finite numbers, or strings;
-- unpaired UTF-16 surrogates and unsupported values are rejected.
-
-Normalization affects representation, not meaning. Cached span indexes and text
-lengths are implementation details and do not participate in equality or the
-binary representation.
-
-## RichText changes
-
-The builder supports retaining a range, inserting text or one embed, and
-deleting a range. A retain may carry an attribute patch:
-
-```ts
-import { Change } from 'colla-ot'
-
-const format = Change.build(change => {
-  change.richText(richText => {
-    richText.retain(5, attrs => {
-      attrs.set('bold', true)
-      attrs.remove('color')
-    })
-    richText.insertText('!', { italic: true })
-  })
+import { Document, richText } from 'colla-ot'
+const doc = Document.create({ body: richText([]) })
+doc.edit(tx => {
+  const body = tx.richText(['body'])
+  body.insertText(0, 'Hello', { bold: true })
+  body.insertEmbed(5, { image: 'asset-123' }, { alt: 'Diagram' })
+  body.format(0, 5, { bold: null, italic: true })
 })
+console.log('Formatted content:', doc.get(['body'])?.toJS())
+doc.close()
 ```
 
-Patches use explicit `set` and `remove` actions. `null` is not a deletion
-sentinel, and attribute values cannot be arrays, objects, or RichText values.
-As with Text, lengths count Unicode scalars plus one unit per embed. Adjacent
-compatible operations are merged and zero-length operations disappear.
+A text span has `{ type: 'text', text, attrs? }`; an embed has
+`{ type: 'embed', value, attrs? }`. Attributes hold boolean, bigint, finite number or
+string values. A format patch uses null to remove an attribute; null is not a stored
+attribute value. Concurrent text and formatting participate in OT together.
 
-Apply RichText changes with the regular Core algebra (`apply`, `compose`,
-`invert`, and `transformPair`). For editor-facing paths and ranges, read
-[Coordinates](/docs/core/coordinates); for the complete API, see the
-[JavaScript reference](/reference/javascript).
+## Positions and atomic embeds
 
-Next: [Coordinates](/docs/core/coordinates).
+High-level JavaScript positions count UTF-16 code units, with each embed occupying one
+position. Low-level RichText changes count Unicode scalars, also counting each embed as
+one. Embeds carry a Core Value but are atomic in the surrounding rich-text sequence;
+they are not independently editable nested documents through sequence paths.
+
+## Integration boundaries
+
+`replace(index, count, spans)` combines replacement with span insertion; `delete`
+removes a range. Invalid ranges or unsupported attributes abort the transaction.
+Sanitize URLs and rendered content in the application. Colla validates model input,
+but it does not make HTML safe or choose how an editor displays an embed.
+
+See [Editor integration](/docs/editing/editor-integration) for event handling.
