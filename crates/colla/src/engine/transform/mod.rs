@@ -438,3 +438,134 @@ fn rebase_destination(
 fn algebra_error(error: impl std::fmt::Display) -> Error {
     Error::new(ErrorCode::IncompatibleChange, error.to_string())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::engine::apply;
+
+    fn key(name: &str) -> Segment {
+        Segment::Key(name.into())
+    }
+    fn map(entries: Vec<(&str, Value)>) -> Value {
+        Value::map(entries.into_iter().map(|(k, v)| (k.to_string(), v))).unwrap()
+    }
+    fn change(operations: Vec<Operation>) -> Change {
+        Change::new(operations).unwrap()
+    }
+    fn converges(base: &Value, left: &Change, right: &Change, priority: Priority) -> Value {
+        let (left_after, right_after) = transform(base, left, right, priority).unwrap();
+        let merged = apply(&apply(base, right).unwrap(), &left_after).unwrap();
+        assert_eq!(
+            merged,
+            apply(&apply(base, left).unwrap(), &right_after).unwrap()
+        );
+        merged
+    }
+
+    #[test]
+    fn identical_changes_take_the_fast_path() {
+        let counter = Value::int(1);
+        let base = map(vec![("n", counter.clone())]);
+        let set = change(vec![Operation::Set {
+            target: counter.id(),
+            value: Value::with_id(counter.id(), Body::Int(5)).unwrap(),
+        }]);
+        let (left, right) = transform(&base, &set, &set, Priority::Left).unwrap();
+        assert!(left.is_noop() && right.is_noop());
+    }
+
+    #[test]
+    fn move_into_concurrently_deleted_parent_conflicts() {
+        let item = Value::int(1);
+        let target = map(vec![]);
+        let base = map(vec![
+            ("items", Value::list(vec![item.clone()]).unwrap()),
+            ("target", target.clone()),
+        ]);
+        let moved = change(vec![Operation::Move {
+            target: item.id(),
+            destination: Destination {
+                parent: target.id(),
+                slot: key("k"),
+            },
+        }]);
+        let deleted = change(vec![Operation::Delete {
+            target: target.id(),
+        }]);
+        for priority in [Priority::Left, Priority::Right] {
+            let error = transform(&base, &moved, &deleted, priority).unwrap_err();
+            assert_eq!(error.code, ErrorCode::StructuralConflict);
+        }
+    }
+
+    #[test]
+    fn set_competing_with_incoming_map_key_conflicts() {
+        let inner = map(vec![]);
+        let base = map(vec![("m", inner.clone())]);
+        let set = change(vec![Operation::Set {
+            target: inner.id(),
+            value: Value::with_id(
+                inner.id(),
+                Body::Map([("k".to_string(), Value::int(1))].into()),
+            )
+            .unwrap(),
+        }]);
+        let insert = change(vec![Operation::Insert {
+            destination: Destination {
+                parent: inner.id(),
+                slot: key("k"),
+            },
+            value: Value::int(2),
+        }]);
+        let error = transform(&base, &set, &insert, Priority::Left).unwrap_err();
+        assert_eq!(error.code, ErrorCode::StructuralConflict);
+    }
+
+    #[test]
+    fn set_preserves_concurrently_inserted_list_items() {
+        let list = Value::list(vec![Value::int(1)]).unwrap();
+        let base = map(vec![("l", list.clone())]);
+        let set = change(vec![Operation::Set {
+            target: list.id(),
+            value: Value::with_id(list.id(), Body::List(vec![Value::int(9)])).unwrap(),
+        }]);
+        let incoming = Value::int(2);
+        let insert = change(vec![Operation::Insert {
+            destination: Destination {
+                parent: list.id(),
+                slot: Segment::Index(1),
+            },
+            value: incoming.clone(),
+        }]);
+        let merged = converges(&base, &set, &insert, Priority::Left);
+        assert!(merged.find(incoming.id()).is_some());
+        assert!(merged.find(list.id()).is_some());
+    }
+
+    #[test]
+    fn competing_moves_follow_priority_and_keep_identity() {
+        let item = Value::int(1);
+        let a = Value::list(vec![]).unwrap();
+        let b = Value::list(vec![]).unwrap();
+        let base = map(vec![
+            ("items", Value::list(vec![item.clone()]).unwrap()),
+            ("a", a.clone()),
+            ("b", b.clone()),
+        ]);
+        let move_to = |parent: ElementId| {
+            change(vec![Operation::Move {
+                target: item.id(),
+                destination: Destination {
+                    parent,
+                    slot: Segment::Index(0),
+                },
+            }])
+        };
+        let (left, right) = (move_to(a.id()), move_to(b.id()));
+        for (priority, winner) in [(Priority::Left, a.id()), (Priority::Right, b.id())] {
+            let merged = converges(&base, &left, &right, priority);
+            assert_eq!(destination_of(&merged, item.id()).unwrap().parent, winner);
+        }
+    }
+}

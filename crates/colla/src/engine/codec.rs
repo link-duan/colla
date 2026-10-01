@@ -62,3 +62,28 @@ pub(crate) fn decode<T: Decode>(kind: Kind, bytes: &[u8]) -> Result<T> {
     cocodec::decode_from_slice(&bytes[8..])
         .map_err(|e| Error::new(ErrorCode::InvalidEncoding, e.to_string()))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn envelope_rejects_wrong_kind_version_and_magic() {
+        let bytes = encode(Kind::Submission, &7u64);
+        assert_eq!(decode::<u64>(Kind::Submission, &bytes).unwrap(), 7);
+        assert_eq!(&bytes[..8], b"COLLA\x02\x00\x04");
+        let mut wrong_version = bytes.clone();
+        wrong_version[5] = 1;
+        let mut wrong_magic = bytes.clone();
+        wrong_magic[0] = b'X';
+        for (kind, bytes) in [
+            (Kind::ServerMessage, &bytes),
+            (Kind::Submission, &wrong_version),
+            (Kind::Submission, &wrong_magic),
+            (Kind::Submission, &bytes[..7].to_vec()),
+        ] {
+            let error = decode::<u64>(kind, bytes).unwrap_err();
+            assert_eq!(error.code, ErrorCode::InvalidEncoding);
+        }
+    }
+}

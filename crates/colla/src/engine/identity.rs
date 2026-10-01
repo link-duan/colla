@@ -189,3 +189,31 @@ thread_local! {
     // Created lazily so entropy failure surfaces as an error from fallible constructors.
     static ALLOCATOR: RefCell<Option<IdAllocator>> = const { RefCell::new(None) };
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn nested_scopes_restore_allocators_and_keep_consumed_sequences() {
+        let mut outer = IdAllocator::deterministic([1; 16]);
+        let mut inner = IdAllocator::deterministic([2; 16]);
+        let (first, nested, last) = outer.scope(|| {
+            let first = ElementId::try_fresh().unwrap();
+            let nested = inner.scope(|| ElementId::try_fresh().unwrap());
+            (first, nested, ElementId::try_fresh().unwrap())
+        });
+        assert_eq!((first.namespace(), first.sequence()), ([1; 16], 1));
+        assert_eq!((nested.namespace(), nested.sequence()), ([2; 16], 1));
+        assert_eq!((last.namespace(), last.sequence()), ([1; 16], 2));
+        assert_eq!(outer.allocate().unwrap().sequence(), 3);
+        assert_eq!(inner.allocate().unwrap().sequence(), 2);
+    }
+
+    #[test]
+    fn exhausted_scope_reports_an_error() {
+        let mut allocator = IdAllocator::exhausted();
+        let error = allocator.scope(ElementId::try_fresh).unwrap_err();
+        assert_eq!(error.code, ErrorCode::LimitExceeded);
+    }
+}

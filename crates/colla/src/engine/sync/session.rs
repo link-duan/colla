@@ -410,3 +410,95 @@ impl SyncSession {
         self.document.shared.phase.get() == Phase::Closed
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::super::{Authority, Rejection};
+    use super::*;
+    use crate::engine::{Segment, Transaction};
+
+    fn setup() -> (Authority, SyncSession, SyncSession) {
+        let value = Value::map([("n".to_string(), Value::int(0))]).unwrap();
+        let authority = Authority::create("doc", value).unwrap();
+        let a = SyncSession::create("a", authority.snapshot()).unwrap();
+        let b = SyncSession::create("b", authority.snapshot()).unwrap();
+        (authority, a, b)
+    }
+    fn bump(tx: &mut Transaction) -> Result<()> {
+        tx.increment(vec![Segment::Key("n".into())], 1)
+    }
+    fn commit(authority: &mut Authority, session: &SyncSession) -> ServerMessage {
+        let request = session.outbound().unwrap().unwrap();
+        let (next, message) = authority.accept(&request).unwrap();
+        *authority = next;
+        message
+    }
+
+    #[test]
+    fn commit_gap_is_reported_without_entering_recovery() {
+        let (mut authority, a, b) = setup();
+        a.document().edit(bump).unwrap();
+        let first = commit(&mut authority, &a);
+        a.receive(&first).unwrap();
+        a.document().edit(bump).unwrap();
+        let second = commit(&mut authority, &a);
+        let before = b.document().snapshot().unwrap();
+        let error = b.receive(&second).unwrap_err();
+        assert_eq!(error.code, ErrorCode::MissingRevision);
+        assert_eq!(b.document().snapshot().unwrap(), before);
+        assert!(b.recovery_reason().unwrap().is_none());
+        b.receive(&first).unwrap();
+        b.receive(&second).unwrap();
+        assert_eq!(b.revision().unwrap(), 2);
+        assert_eq!(b.receive(&first).unwrap(), None, "duplicates are ignored");
+    }
+
+    #[test]
+    fn rejection_of_the_in_flight_request_requires_recovery() {
+        let (authority, a, _) = setup();
+        a.document().edit(bump).unwrap();
+        let request = a.outbound().unwrap().unwrap();
+        let rejection = |sequence| {
+            ServerMessage::Rejection(Rejection {
+                document_id: "doc".into(),
+                client_id: "a".into(),
+                sequence,
+                reason: Error::new(ErrorCode::StructuralConflict, "test"),
+            })
+        };
+        a.receive(&rejection(request.sequence + 1)).unwrap();
+        assert!(a.recovery_reason().unwrap().is_none(), "unrelated sequence");
+        a.receive(&rejection(request.sequence)).unwrap();
+        assert_eq!(
+            a.recovery_reason().unwrap().unwrap().code,
+            ErrorCode::StructuralConflict
+        );
+        assert_eq!(a.outbound().unwrap(), None);
+        let (_, message) = authority.accept(&request).unwrap();
+        assert_eq!(
+            a.receive(&message).unwrap_err().code,
+            ErrorCode::InvalidState
+        );
+    }
+
+    #[test]
+    fn foreign_commit_with_mismatched_own_identity_enters_recovery() {
+        let (mut authority, a, b) = setup();
+        b.document().edit(bump).unwrap();
+        let ServerMessage::Commit(mut forged) = commit(&mut authority, &b) else {
+            panic!("expected Commit");
+        };
+        forged.client_id = "a".into();
+        let error = a.receive(&ServerMessage::Commit(forged)).unwrap_err();
+        assert_eq!(error.code, ErrorCode::InvalidState);
+        assert!(a.recovery_reason().unwrap().is_some());
+    }
+
+    #[test]
+    fn detached_state_reports_invalid_state_instead_of_panicking() {
+        let document = Document::create(Value::int(0)).unwrap();
+        let state = document.shared.state.borrow();
+        assert_eq!(state.session().unwrap_err().code, ErrorCode::InvalidState);
+        assert_eq!(state.history().unwrap_err().code, ErrorCode::InvalidState);
+    }
+}
