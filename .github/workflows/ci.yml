@@ -90,6 +90,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: fuzz
+      # The prebuilt cargo-fuzz is a musl binary that defaults to its own host
+      # triple, so every invocation names the glibc target explicitly.
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-fuzz@0.13.2
@@ -110,9 +112,9 @@ jobs:
           key: fuzz-corpus-ot_algebra-${{ github.run_id }}
           restore-keys: fuzz-corpus-ot_algebra-
       - run: python3 fuzz/seed.py
-      - run: cargo fuzz run decode_value -- -max_total_time=60
-      - run: cargo fuzz run decode_change -- -max_total_time=60
-      - run: cargo fuzz run ot_algebra -- -max_total_time=60
+      - run: cargo fuzz run --target x86_64-unknown-linux-gnu decode_value -- -max_total_time=60
+      - run: cargo fuzz run --target x86_64-unknown-linux-gnu decode_change -- -max_total_time=60
+      - run: cargo fuzz run --target x86_64-unknown-linux-gnu ot_algebra -- -max_total_time=60
       - uses: actions/upload-artifact@v7
         if: failure()
         with:
