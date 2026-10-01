@@ -157,6 +157,7 @@ name = "colla-wasm"
 version = "0.4.0"
 dependencies = [
  "colla",
+ "getrandom 0.2.17",
  "js-sys",
  "wasm-bindgen",
 ]

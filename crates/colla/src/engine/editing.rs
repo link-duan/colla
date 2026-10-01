@@ -407,6 +407,26 @@ impl Transaction {
     }
 }
 impl State {
+    pub(crate) fn history(&self) -> Result<&super::history::HistoryData> {
+        self.history
+            .as_ref()
+            .ok_or_else(|| invalid_state("History is closed"))
+    }
+    pub(crate) fn history_mut(&mut self) -> Result<&mut super::history::HistoryData> {
+        self.history
+            .as_mut()
+            .ok_or_else(|| invalid_state("History is closed"))
+    }
+    pub(crate) fn session(&self) -> Result<&super::sync::SessionData> {
+        self.sync
+            .as_ref()
+            .ok_or_else(|| invalid_state("SyncSession is not attached"))
+    }
+    pub(crate) fn session_mut(&mut self) -> Result<&mut super::sync::SessionData> {
+        self.sync
+            .as_mut()
+            .ok_or_else(|| invalid_state("SyncSession is not attached"))
+    }
     pub(crate) fn prepare(
         &self,
         change: &Change,

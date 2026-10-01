@@ -13,6 +13,11 @@ The first official release has not been published yet. Once 0.4 is available, ad
 colla = "0.4"
 ```
 
+Element IDs draw their namespace from the operating system's secure entropy via
+[`getrandom`](https://docs.rs/getrandom/0.2). On `wasm32-unknown-unknown`, select a
+backend in your application, for example `getrandom = { version = "0.2", features = ["js"] }`
+in a browser or Node host. The `colla-ot` npm package already does this.
+
 ## First edit
 
 ```rust

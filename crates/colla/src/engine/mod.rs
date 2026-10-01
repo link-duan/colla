@@ -25,8 +25,9 @@ pub use sync::{
 pub use transform::{transform, Priority};
 pub use value::{Attr, AttrPatch, Attrs, Body, Location, Path, Ref, RichSpan, Segment, Value};
 
-/// Private facade support, enabled only by the binding crate.
-#[cfg(feature = "bindings")]
+/// Private facade support, enabled only by the binding crate through the
+/// unstable `__bindings` feature. Exempt from semver.
+#[cfg(feature = "__bindings")]
 #[doc(hidden)]
 pub mod binding {
     use super::*;

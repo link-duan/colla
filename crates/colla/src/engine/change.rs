@@ -139,11 +139,11 @@ impl Change {
     }
     /// Returns independent canonical bytes in a typed version-2 envelope.
     pub fn encode(&self) -> Vec<u8> {
-        codec::encode(2, self)
+        codec::encode(codec::Kind::Change, self)
     }
     /// Strictly decodes and validates a typed version-2 envelope, rejecting trailing data.
     pub fn decode(bytes: &[u8]) -> Result<Self> {
-        let value: Self = codec::decode(2, bytes)?;
+        let value: Self = codec::decode(codec::Kind::Change, bytes)?;
         let canonical = Self::new(value.operations().iter().cloned())?;
         if canonical != value {
             return Err(Error::new(

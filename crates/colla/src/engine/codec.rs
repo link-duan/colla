@@ -22,22 +22,37 @@ macro_rules! record_codec {
 }
 pub(crate) use record_codec;
 
+/// Envelope type byte. Tags are part of the version-2 wire format documented in
+/// `docs/binary-format.md`; never renumber or reuse one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u8)]
+pub(crate) enum Kind {
+    Value = 1,
+    Change = 2,
+    SyncSnapshot = 3,
+    Submission = 4,
+    ServerMessage = 5,
+    SessionCheckpoint = 6,
+    HistoryCheckpoint = 7,
+    AuthorityCheckpoint = 8,
+}
+
 // A typed version-2 binary envelope around the Rust-owned canonical payload.
 // No JavaScript code generates or parses protocol bytes.
-pub(crate) fn encode<T: Encode>(kind: u8, value: &T) -> Vec<u8> {
+pub(crate) fn encode<T: Encode>(kind: Kind, value: &T) -> Vec<u8> {
     let mut bytes = Vec::from(MAGIC);
     bytes.extend_from_slice(&2u16.to_le_bytes());
-    bytes.push(kind);
+    bytes.push(kind as u8);
     value
         .encode(&mut bytes)
         .expect("writing to a Vec cannot fail");
     bytes
 }
-pub(crate) fn decode<T: Decode>(kind: u8, bytes: &[u8]) -> Result<T> {
+pub(crate) fn decode<T: Decode>(kind: Kind, bytes: &[u8]) -> Result<T> {
     if bytes.len() < 8
         || &bytes[..5] != MAGIC
         || bytes[5..7] != 2u16.to_le_bytes()
-        || bytes[7] != kind
+        || bytes[7] != kind as u8
     {
         return Err(Error::new(
             ErrorCode::InvalidEncoding,

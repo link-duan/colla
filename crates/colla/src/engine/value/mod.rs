@@ -1,5 +1,9 @@
+mod decode;
+mod index;
+
 use super::{codec, ElementId, Error, ErrorCode, IdAllocator, Result};
 use cocodec::{Decode, Encode};
+use index::Index;
 use std::{
     collections::{BTreeMap, BTreeSet},
     sync::{Arc, OnceLock},
@@ -110,125 +114,10 @@ impl Encode for Node {
         self.body.encode(w)
     }
 }
-// Derived lazily per immutable subtree. Parent links avoid duplicating complete
-// paths for descendants when an ancestor moves. Neither index is serialized.
-#[derive(Debug, Default)]
-struct Index {
-    parents: BTreeMap<ElementId, (ElementId, Segment)>,
-    references: BTreeMap<ElementId, Vec<ElementId>>,
-}
-impl Index {
-    fn build(root: &Value) -> Self {
-        let mut index = Self::default();
-        root.visit(&mut |value| match value.body() {
-            Body::Map(map) => {
-                for (key, child) in map {
-                    index
-                        .parents
-                        .insert(child.id(), (value.id(), Segment::Key(key.clone())));
-                }
-            }
-            Body::List(list) => {
-                for (position, child) in list.iter().enumerate() {
-                    index
-                        .parents
-                        .insert(child.id(), (value.id(), Segment::Index(position)));
-                }
-            }
-            _ => {}
-        });
-        root.visit_all(&mut |value| {
-            if let Body::Ref(reference) = value.body() {
-                index
-                    .references
-                    .entry(reference.target)
-                    .or_default()
-                    .push(value.id());
-            }
-        });
-        index
-    }
-}
-
 /// Immutable, identity-preserving subtree. Clones share storage.
 #[derive(Debug, Clone, PartialEq, Eq, Encode)]
 #[cocodec(transparent)]
 pub struct Value(Arc<Node>);
-
-// Count ownership depth once per Value, rather than once per implementation
-// wrapper. Containers are bounded before allocation and map ordering is strict.
-impl Decode for Value {
-    fn decode<R: cocodec::Read>(
-        d: &mut cocodec::Decoder<R>,
-    ) -> std::result::Result<Self, cocodec::Error> {
-        d.nested(|d| {
-            let id = ElementId::decode(d)?;
-            let offset = d.offset();
-            let invalid = |reason| cocodec::Error::NonCanonical { offset, reason };
-            let body = match d.varint()? {
-                0 => Body::Null,
-                1 => Body::Bool(bool::decode(d)?),
-                2 => Body::Int(i64::decode(d)?),
-                3 => Body::Float(f64::decode(d)?),
-                4 => Body::String(String::decode(d)?),
-                5 => Body::Text(String::decode(d)?),
-                6 => {
-                    let length = d.varint()?;
-                    if length > 1_000_000 {
-                        return Err(invalid("rich span limit exceeded"));
-                    }
-                    let mut spans = Vec::new();
-                    for _ in 0..length {
-                        spans.push(match d.varint()? {
-                            0 => RichSpan::Text {
-                                text: String::decode(d)?,
-                                attrs: Attrs::decode(d)?,
-                            },
-                            1 => RichSpan::Embed {
-                                value: <Self as Decode>::decode(d)?,
-                                attrs: Attrs::decode(d)?,
-                            },
-                            _ => return Err(invalid("invalid rich span tag")),
-                        });
-                    }
-                    Body::RichText(spans)
-                }
-                7 => Body::Ref(Ref::decode(d)?),
-                8 => {
-                    let length = d.varint()?;
-                    if length > 1_000_000 {
-                        return Err(invalid("list limit exceeded"));
-                    }
-                    let mut values = Vec::new();
-                    for _ in 0..length {
-                        values.push(<Self as Decode>::decode(d)?);
-                    }
-                    Body::List(values)
-                }
-                9 => {
-                    let length = d.varint()?;
-                    if length > 1_000_000 {
-                        return Err(invalid("map limit exceeded"));
-                    }
-                    let mut values = BTreeMap::new();
-                    for _ in 0..length {
-                        let key = String::decode(d)?;
-                        if values
-                            .last_key_value()
-                            .is_some_and(|(previous, _)| previous >= &key)
-                        {
-                            return Err(invalid("map keys must be unique and sorted"));
-                        }
-                        values.insert(key, <Self as Decode>::decode(d)?);
-                    }
-                    Body::Map(values)
-                }
-                _ => return Err(invalid("invalid Value tag")),
-            };
-            Ok(Self::trusted(id, body))
-        })
-    }
-}
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Encode, Decode)]
 /// One Map-key or List-index step in a snapshot-relative Path.
@@ -267,7 +156,7 @@ impl From<Path> for Location {
 impl Value {
     /// Constructs and validates a canonical object.
     pub fn new(body: Body) -> Result<Self> {
-        Self::with_id(ElementId::fresh(), body)
+        Self::with_id(ElementId::try_fresh()?, body)
     }
     /// Constructs content using an explicit identity allocator for reproducible tests.
     pub fn with_allocator(body: Body, allocator: &mut IdAllocator) -> Result<Self> {
@@ -312,14 +201,29 @@ impl Value {
         }))
     }
     /// Creates a new Null element.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the platform has no secure entropy source for this thread's
+    /// first element ID. Use [`Value::with_allocator`] to handle that case.
     pub fn null() -> Self {
         Self::trusted(ElementId::fresh(), Body::Null)
     }
     /// Creates a new Bool element.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the platform has no secure entropy source for this thread's
+    /// first element ID. Use [`Value::with_allocator`] to handle that case.
     pub fn bool(value: bool) -> Self {
         Self::trusted(ElementId::fresh(), Body::Bool(value))
     }
     /// Creates a new signed 64-bit Int element.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the platform has no secure entropy source for this thread's
+    /// first element ID. Use [`Value::with_allocator`] to handle that case.
     pub fn int(value: i64) -> Self {
         Self::trusted(ElementId::fresh(), Body::Int(value))
     }
@@ -336,6 +240,11 @@ impl Value {
         Self::new(Body::Text(value.into()))
     }
     /// Creates a new weak atomic Ref without requiring its target to exist.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the platform has no secure entropy source for this thread's
+    /// first element ID. Use [`Value::with_allocator`] to handle that case.
     pub fn reference(target: ElementId) -> Self {
         Self::trusted(ElementId::fresh(), Body::Ref(Ref { target }))
     }
@@ -457,11 +366,11 @@ impl Value {
     }
     /// Returns independent canonical bytes in a typed version-2 envelope.
     pub fn encode(&self) -> Vec<u8> {
-        codec::encode(1, self)
+        codec::encode(codec::Kind::Value, self)
     }
     /// Strictly decodes and validates a typed version-2 envelope, rejecting trailing data.
     pub fn decode(bytes: &[u8]) -> Result<Self> {
-        let value: Self = codec::decode(1, bytes)?;
+        let value: Self = codec::decode(codec::Kind::Value, bytes)?;
         value.validate()?;
         Ok(value)
     }
@@ -504,10 +413,12 @@ impl Value {
         self.copy_into(None)
     }
     pub(crate) fn copy_into(&self, root: Option<ElementId>) -> Result<Self> {
+        let mut old = Vec::new();
+        self.visit_all(&mut |v| old.push(v.id()));
         let mut ids = BTreeMap::new();
-        self.visit_all(&mut |v| {
-            ids.insert(v.id(), ElementId::fresh());
-        });
+        for id in old {
+            ids.insert(id, ElementId::try_fresh()?);
+        }
         if let Some(id) = root {
             ids.insert(self.id(), id);
         }
