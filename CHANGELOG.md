@@ -26,6 +26,11 @@ package are recorded here. Both artifacts always use the same version.
 - Distinct Value, SyncSnapshot, SessionCheckpoint, HistoryCheckpoint and
   AuthorityCheckpoint persistence. Strict typed **version 2** Rust codecs
   preserve identities and reject old formats. There is no compatibility layer.
+- The Rust crate no longer enables `getrandom/js`. Applications compiling
+  `colla` directly for `wasm32-unknown-unknown` select a getrandom backend
+  themselves; `colla-ot` already does. Element ID entropy failure is returned
+  as `InvalidState` from fallible constructors instead of panicking.
+- The private binding feature is renamed to the semver-exempt `__bindings`.
 
 ### Documentation
 
