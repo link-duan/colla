@@ -27,10 +27,11 @@ async function registryState(candidate) {
       headers,
     }),
   ])
-  assert.ok([200, 404].includes(crateResponse.status),
-    `crates.io returned HTTP ${crateResponse.status}`)
-  assert.ok([200, 404].includes(npmResponse.status),
-    `npm returned HTTP ${npmResponse.status}`)
+  assert.ok(
+    [200, 404].includes(crateResponse.status),
+    `crates.io returned HTTP ${crateResponse.status}`,
+  )
+  assert.ok([200, 404].includes(npmResponse.status), `npm returned HTTP ${npmResponse.status}`)
 
   const crateMetadata = crateResponse.status === 200 ? await crateResponse.json() : undefined
   const npmMetadata = npmResponse.status === 200 ? await npmResponse.json() : undefined
@@ -81,8 +82,10 @@ for (let attempt = 1; attempt <= args.attempts; attempt += 1) {
     await new Promise(resolveDelay => setTimeout(resolveDelay, 5000))
   }
 }
-assert.ok(requirementMet(state, args.require),
-  `registry requirement '${args.require}' was not met after ${args.attempts} attempts`)
+assert.ok(
+  requirementMet(state, args.require),
+  `registry requirement '${args.require}' was not met after ${args.attempts} attempts`,
+)
 
 if (args.output !== undefined) {
   const outputPath = resolve(args.output)
@@ -90,7 +93,9 @@ if (args.output !== undefined) {
   await writeFile(outputPath, `${JSON.stringify(state, null, 2)}\n`)
 }
 if (process.env.GITHUB_OUTPUT !== undefined) {
-  await appendFile(process.env.GITHUB_OUTPUT,
-    `crate_published=${state.crate.published}\nnpm_published=${state.npm.published}\n`)
+  await appendFile(
+    process.env.GITHUB_OUTPUT,
+    `crate_published=${state.crate.published}\nnpm_published=${state.npm.published}\n`,
+  )
 }
 process.stdout.write(`${JSON.stringify(state, null, 2)}\n`)

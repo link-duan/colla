@@ -1,14 +1,7 @@
 import { tracer } from "../tests/public-trace.mjs"
 import assert from "node:assert/strict"
 import { execFileSync } from "node:child_process"
-import {
-  mkdtemp,
-  readFile,
-  readdir,
-  realpath,
-  rm,
-  writeFile,
-} from "node:fs/promises"
+import { mkdtemp, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 
@@ -18,7 +11,6 @@ const temporaryRoot = await realpath(tmpdir())
 const fixtureDir = await mkdtemp(join(temporaryRoot, "colla-browser-e2e-"))
 await writeFile(pointerFile, fixtureDir)
 const packageSpec = process.env.COLLA_PACKAGE_SPEC
-
 
 try {
   let installSpec = packageSpec
@@ -32,40 +24,59 @@ try {
     installSpec = join(fixtureDir, archives[0])
   }
 
-  await writeFile(join(fixtureDir, "package.json"), `${JSON.stringify({
-    private: true,
-    type: "module",
-  }, null, 2)}\n`)
-  execFileSync("npm", [
-    "install",
-    "--ignore-scripts",
-    "--save-exact",
-    installSpec,
-    `vite@${process.env.COLLA_VITE_VERSION ?? "5.4.19"}`,
-  ], { cwd: fixtureDir, stdio: "inherit" })
+  await writeFile(
+    join(fixtureDir, "package.json"),
+    `${JSON.stringify(
+      {
+        private: true,
+        type: "module",
+      },
+      null,
+      2,
+    )}\n`,
+  )
+  execFileSync(
+    "npm",
+    [
+      "install",
+      "--ignore-scripts",
+      "--save-exact",
+      installSpec,
+      `vite@${process.env.COLLA_VITE_VERSION ?? "5.4.19"}`,
+    ],
+    { cwd: fixtureDir, stdio: "inherit" },
+  )
 
   await writeFile(join(fixtureDir, "tracer.js"), tracer)
-  await writeFile(join(fixtureDir, "main.js"), `
+  await writeFile(
+    join(fixtureDir, "main.js"),
+    `
     import { trace } from "./tracer.js"
     globalThis.collaResult = trace()
-  `)
-  await writeFile(join(fixtureDir, "dedicated-worker.js"), `
+  `,
+  )
+  await writeFile(
+    join(fixtureDir, "dedicated-worker.js"),
+    `
     import { trace } from "./tracer.js"
     postMessage(trace())
-  `)
-  await writeFile(join(fixtureDir, "shared-worker.js"), `
+  `,
+  )
+  await writeFile(
+    join(fixtureDir, "shared-worker.js"),
+    `
     import { trace } from "./tracer.js"
     globalThis.onconnect = event => event.ports[0].postMessage(trace())
-  `)
+  `,
+  )
   await writeFile(
     join(fixtureDir, "index.html"),
     '<!doctype html><script type="module" src="/main.js"></script>',
   )
 
-  const installedPackage = JSON.parse(await readFile(
-    join(fixtureDir, "node_modules/colla-ot/package.json"),
-    "utf8",
-  ))
+  const installedPackage = JSON.parse(
+    await readFile(join(fixtureDir, "node_modules/colla-ot/package.json"), "utf8"),
+  )
   if (process.env.COLLA_EXPECTED_PACKAGE_VERSION !== undefined) {
     assert.equal(installedPackage.version, process.env.COLLA_EXPECTED_PACKAGE_VERSION)
   }

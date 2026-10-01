@@ -8,4 +8,3 @@ for (let i = 0; i < len; i++) {
   bytes[i] = binary.charCodeAt(i)
 }
 initSync({ module: bytes })
-

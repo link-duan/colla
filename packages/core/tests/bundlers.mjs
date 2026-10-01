@@ -11,107 +11,115 @@ import { test } from "node:test"
 const packageDir = resolve(fileURLToPath(new URL("..", import.meta.url)))
 
 test("bundler integration", async () => {
-const packageJson = JSON.parse(await readFile(join(packageDir, "package.json"), "utf8"))
-const fixtureDir = await mkdtemp(join(tmpdir(), "colla-bundlers-"))
-const packageSpec = process.env.COLLA_PACKAGE_SPEC
+  const packageJson = JSON.parse(await readFile(join(packageDir, "package.json"), "utf8"))
+  const fixtureDir = await mkdtemp(join(tmpdir(), "colla-bundlers-"))
+  const packageSpec = process.env.COLLA_PACKAGE_SPEC
 
-async function writeFixture(name, extra = "") {
-  await writeFile(join(fixtureDir, name), tracer + `
+  async function writeFixture(name, extra = "") {
+    await writeFile(
+      join(fixtureDir, name),
+      tracer +
+        `
     export const result = trace()
     if (result !== "after") throw Error("public facade tracer failed")
     ${extra}
-  `)
-}
+  `,
+    )
+  }
 
-try {
-  let installSpec = packageSpec
-  if (installSpec === undefined) {
-    execFileSync("pnpm", ["pack", "--pack-destination", fixtureDir], {
-      cwd: packageDir,
+  try {
+    let installSpec = packageSpec
+    if (installSpec === undefined) {
+      execFileSync("pnpm", ["pack", "--pack-destination", fixtureDir], {
+        cwd: packageDir,
+        stdio: "inherit",
+      })
+      installSpec = join(fixtureDir, `colla-ot-${packageJson.version}.tgz`)
+    }
+    await writeFile(join(fixtureDir, "package.json"), JSON.stringify({ type: "module" }))
+    execFileSync("npm", ["install", "--ignore-scripts", "--save-exact", installSpec], {
+      cwd: fixtureDir,
       stdio: "inherit",
     })
-    installSpec = join(fixtureDir, `colla-ot-${packageJson.version}.tgz`)
-  }
-  await writeFile(join(fixtureDir, "package.json"), JSON.stringify({ type: "module" }))
-  execFileSync("npm", ["install", "--ignore-scripts", "--save-exact", installSpec], {
-    cwd: fixtureDir,
-    stdio: "inherit",
-  })
-  execFileSync("npm", [
-    "install",
-    "--no-save",
-    `vite@${process.env.COLLA_VITE_VERSION ?? "5.4.19"}`,
-    `rollup@${process.env.COLLA_ROLLUP_VERSION ?? "4.46.2"}`,
-    `@rollup/plugin-node-resolve@${process.env.COLLA_NODE_RESOLVE_VERSION ?? "16.0.1"}`,
-  ], {
-    cwd: fixtureDir,
-    stdio: "inherit",
-  })
-  const fixtureRequire = createRequire(join(fixtureDir, "package.json"))
-  const vitePackageDir = dirname(fixtureRequire.resolve("vite/package.json"))
-  const vite = await import(pathToFileURL(join(vitePackageDir, "dist/node/index.js")))
-  const rollupModule = await import(pathToFileURL(fixtureRequire.resolve("rollup")))
-  const resolveModule = await import(pathToFileURL(
-    fixtureRequire.resolve("@rollup/plugin-node-resolve"),
-  ))
-  const viteApi = vite
-  const rollupApi = rollupModule.rollup === undefined ? rollupModule.default : rollupModule
-  const { build: viteBuild, createServer } = viteApi
-  const { rollup } = rollupApi
-  const nodeResolve = resolveModule.nodeResolve ?? resolveModule.default
+    execFileSync(
+      "npm",
+      [
+        "install",
+        "--no-save",
+        `vite@${process.env.COLLA_VITE_VERSION ?? "5.4.19"}`,
+        `rollup@${process.env.COLLA_ROLLUP_VERSION ?? "4.46.2"}`,
+        `@rollup/plugin-node-resolve@${process.env.COLLA_NODE_RESOLVE_VERSION ?? "16.0.1"}`,
+      ],
+      {
+        cwd: fixtureDir,
+        stdio: "inherit",
+      },
+    )
+    const fixtureRequire = createRequire(join(fixtureDir, "package.json"))
+    const vitePackageDir = dirname(fixtureRequire.resolve("vite/package.json"))
+    const vite = await import(pathToFileURL(join(vitePackageDir, "dist/node/index.js")))
+    const rollupModule = await import(pathToFileURL(fixtureRequire.resolve("rollup")))
+    const resolveModule = await import(
+      pathToFileURL(fixtureRequire.resolve("@rollup/plugin-node-resolve"))
+    )
+    const viteApi = vite
+    const rollupApi = rollupModule.rollup === undefined ? rollupModule.default : rollupModule
+    const { build: viteBuild, createServer } = viteApi
+    const { rollup } = rollupApi
+    const nodeResolve = resolveModule.nodeResolve ?? resolveModule.default
 
-  await writeFixture("main.js")
-  await writeFixture("ssr.js")
-  await writeFixture("dedicated-worker.js", "globalThis.workerResult = result")
-  await writeFixture("shared-worker.js", "globalThis.sharedWorkerResult = result")
-  await writeFile(
-    join(fixtureDir, "index.html"),
-    '<script type="module" src="/main.js"></script>',
-  )
+    await writeFixture("main.js")
+    await writeFixture("ssr.js")
+    await writeFixture("dedicated-worker.js", "globalThis.workerResult = result")
+    await writeFixture("shared-worker.js", "globalThis.sharedWorkerResult = result")
+    await writeFile(
+      join(fixtureDir, "index.html"),
+      '<script type="module" src="/main.js"></script>',
+    )
 
-  const server = await createServer({ root: fixtureDir, logLevel: "error" })
-  try {
-    await server.listen()
-    const response = await fetch(`${server.resolvedUrls.local[0]}main.js`)
-    assert.equal(response.ok, true)
-    assert.match(await response.text(), /colla-ot|\.vite\/deps/)
-    const ssr = await server.ssrLoadModule("/ssr.js")
-    assert.equal(ssr.result, "after")
-  } finally {
-    server.httpServer?.closeAllConnections?.()
-    await Promise.race([
-      server.close(),
-      new Promise(resolveClose => setTimeout(resolveClose, 100)),
-    ])
-  }
+    const server = await createServer({ root: fixtureDir, logLevel: "error" })
+    try {
+      await server.listen()
+      const response = await fetch(`${server.resolvedUrls.local[0]}main.js`)
+      assert.equal(response.ok, true)
+      assert.match(await response.text(), /colla-ot|\.vite\/deps/)
+      const ssr = await server.ssrLoadModule("/ssr.js")
+      assert.equal(ssr.result, "after")
+    } finally {
+      server.httpServer?.closeAllConnections?.()
+      await Promise.race([
+        server.close(),
+        new Promise(resolveClose => setTimeout(resolveClose, 100)),
+      ])
+    }
 
-  const viteOut = join(fixtureDir, "vite-dist")
-  await viteBuild({
-    root: fixtureDir,
-    logLevel: "error",
-    build: {
-      outDir: viteOut,
-      emptyOutDir: true,
-      lib: { entry: join(fixtureDir, "main.js"), formats: ["es"], fileName: "main" },
-    },
-  })
-  const viteModule = await import(`${pathToFileURL(join(viteOut, "main.js"))}?v=${Date.now()}`)
-  assert.equal(viteModule.result, "after")
-
-  for (const entry of ["main.js", "dedicated-worker.js", "shared-worker.js"]) {
-    const bundle = await rollup({
-      input: join(fixtureDir, entry),
-      plugins: [nodeResolve({ browser: true })],
+    const viteOut = join(fixtureDir, "vite-dist")
+    await viteBuild({
+      root: fixtureDir,
+      logLevel: "error",
+      build: {
+        outDir: viteOut,
+        emptyOutDir: true,
+        lib: { entry: join(fixtureDir, "main.js"), formats: ["es"], fileName: "main" },
+      },
     })
-    const output = join(fixtureDir, `rollup-${entry}`)
-    await bundle.write({ file: output, format: "es" })
-    await bundle.close()
-    const module = await import(`${pathToFileURL(output)}?v=${Date.now()}`)
-    assert.equal(module.result, "after")
-    if (entry === "dedicated-worker.js") assert.equal(globalThis.workerResult, "after")
-    if (entry === "shared-worker.js") assert.equal(globalThis.sharedWorkerResult, "after")
+    const viteModule = await import(`${pathToFileURL(join(viteOut, "main.js"))}?v=${Date.now()}`)
+    assert.equal(viteModule.result, "after")
+
+    for (const entry of ["main.js", "dedicated-worker.js", "shared-worker.js"]) {
+      const bundle = await rollup({
+        input: join(fixtureDir, entry),
+        plugins: [nodeResolve({ browser: true })],
+      })
+      const output = join(fixtureDir, `rollup-${entry}`)
+      await bundle.write({ file: output, format: "es" })
+      await bundle.close()
+      const module = await import(`${pathToFileURL(output)}?v=${Date.now()}`)
+      assert.equal(module.result, "after")
+      if (entry === "dedicated-worker.js") assert.equal(globalThis.workerResult, "after")
+      if (entry === "shared-worker.js") assert.equal(globalThis.sharedWorkerResult, "after")
+    }
+  } finally {
+    await rm(fixtureDir, { recursive: true, force: true })
   }
-} finally {
-  await rm(fixtureDir, { recursive: true, force: true })
-}
 })

@@ -11,12 +11,30 @@ test("packed package has zero dependencies and works outside the workspace", asy
   try {
     const pkg = JSON.parse(await readFile(join(packageDir, "package.json"), "utf8"))
     assert.deepEqual(pkg.dependencies ?? {}, {})
-    if (!process.env.COLLA_PACKAGE_SPEC) execFileSync("pnpm", ["pack", "--pack-destination", directory], { cwd: packageDir, stdio: "inherit" })
+    if (!process.env.COLLA_PACKAGE_SPEC)
+      execFileSync("pnpm", ["pack", "--pack-destination", directory], {
+        cwd: packageDir,
+        stdio: "inherit",
+      })
     await writeFile(join(directory, "package.json"), JSON.stringify({ type: "module" }))
-    execFileSync("npm", ["install", "--ignore-scripts", "--save-exact", process.env.COLLA_PACKAGE_SPEC ?? join(directory, `colla-ot-${pkg.version}.tgz`)], { cwd: directory, stdio: "inherit" })
-    await writeFile(join(directory, "trace.mjs"), tracer + '\nif (trace() !== "after") throw Error("trace failed")\n')
+    execFileSync(
+      "npm",
+      [
+        "install",
+        "--ignore-scripts",
+        "--save-exact",
+        process.env.COLLA_PACKAGE_SPEC ?? join(directory, `colla-ot-${pkg.version}.tgz`),
+      ],
+      { cwd: directory, stdio: "inherit" },
+    )
+    await writeFile(
+      join(directory, "trace.mjs"),
+      tracer + '\nif (trace() !== "after") throw Error("trace failed")\n',
+    )
     execFileSync(process.execPath, ["trace.mjs"], { cwd: directory, stdio: "inherit" })
-    await writeFile(join(directory, "types.ts"), `
+    await writeFile(
+      join(directory, "types.ts"),
+      `
       import { Document, History, Value, ElementId, Change, Transaction, transform, text, ref } from "colla-ot"
       const doc = Document.create({ title: text("Hi"), chosen: null })
       const id: ElementId = doc.idAt(["title"])
@@ -27,7 +45,25 @@ test("packed package has zero dependencies and works outside the workspace", asy
       // @ts-expect-error transactions are scope-owned and cannot be constructed
       new Transaction()
       void snapshot
-    `)
-    execFileSync(process.execPath, [join(packageDir, "node_modules/typescript/bin/tsc"), "--noEmit", "--strict", "--target", "ES2022", "--module", "NodeNext", "--moduleResolution", "NodeNext", "types.ts"], { cwd: directory, stdio: "inherit" })
-  } finally { await rm(directory, { recursive: true, force: true }) }
+    `,
+    )
+    execFileSync(
+      process.execPath,
+      [
+        join(packageDir, "node_modules/typescript/bin/tsc"),
+        "--noEmit",
+        "--strict",
+        "--target",
+        "ES2022",
+        "--module",
+        "NodeNext",
+        "--moduleResolution",
+        "NodeNext",
+        "types.ts",
+      ],
+      { cwd: directory, stdio: "inherit" },
+    )
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
 })

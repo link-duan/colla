@@ -16,11 +16,7 @@ assert.ok(
   crateResponse.status === 200 || crateResponse.status === 404,
   `crates.io preflight failed with HTTP ${crateResponse.status}`,
 )
-assert.equal(
-  crateResponse.status,
-  404,
-  `colla ${npmPackage.version} already exists on crates.io`,
-)
+assert.equal(crateResponse.status, 404, `colla ${npmPackage.version} already exists on crates.io`)
 
 const npmResponse = await fetch(
   `https://registry.npmjs.org/${npmPackage.name.replace("/", "%2F")}`,

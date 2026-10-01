@@ -39,8 +39,6 @@ execFileSync("pnpm", ["exec", "tsc", "-p", resolve(packageDir, "tsconfig.json")]
 })
 
 await mkdir(distInternal, { recursive: true })
-for (const file of [
-  "colla_wasm.js",
-]) {
+for (const file of ["colla_wasm.js"]) {
   await cp(resolve(generatedDir, file), resolve(distInternal, file))
 }

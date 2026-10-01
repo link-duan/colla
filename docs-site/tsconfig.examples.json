@@ -10,9 +10,5 @@
     "rootDir": ".",
     "noEmitOnError": true
   },
-  "include": [
-    "examples/*.ts",
-    "tests/examples/*.ts",
-    ".examples-generated/*.ts"
-  ]
+  "include": ["examples/*.ts", "tests/examples/*.ts", ".examples-generated/*.ts"]
 }

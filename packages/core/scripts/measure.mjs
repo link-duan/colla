@@ -22,17 +22,12 @@ execFileSync("pnpm", ["build"], {
   stdio: ["inherit", process.stderr, process.stderr],
 })
 
-const {
-  Change,
-  Value,
-  Document,
-  apply,
-  compose,
-  transform,
-} = await import(pathToFileURL(resolve(packageDir, "dist/node.js")))
+const { Change, Value, Document, apply, compose, transform } = await import(
+  pathToFileURL(resolve(packageDir, "dist/node.js"))
+)
 
 function median(values) {
-  const sorted = [...values].sort((left, right) => left - right)
+  const sorted = values.toSorted((left, right) => left - right)
   return sorted[Math.floor(sorted.length / 2)]
 }
 
@@ -77,8 +72,10 @@ function formatMarkdown(result, json) {
     ["Browser base64 module", result.sizes.browserBase64],
     ["Complete browser ESM bundle", result.sizes.browserEntry],
     ["npm tarball", result.sizes.npmTarball],
-  ].map(([name, sizes]) =>
-    `| ${name} | ${formatBytes(sizes.raw)} | ${formatBytes(sizes.gzip)} | ${formatBytes(sizes.brotli)} |`)
+  ].map(
+    ([name, sizes]) =>
+      `| ${name} | ${formatBytes(sizes.raw)} | ${formatBytes(sizes.gzip)} | ${formatBytes(sizes.brotli)} |`,
+  )
 
   const timingRows = [
     ["Synchronous initialization", result.milliseconds.synchronousInitialization],
@@ -145,20 +142,31 @@ const concurrent = Change.create([{ type: "add", target: counter, delta: 3n }])
 const bytes = base.encode()
 const timings = {
   valueFromJS: benchmark(200, () => Value.fromJS(input).toJS()),
-  builder: benchmark(200, () => { const doc = Document.create(base); doc.edit(tx => tx.set(["meta", "status"], "ready")); doc.close() }),
+  builder: benchmark(200, () => {
+    const doc = Document.create(base)
+    doc.edit(tx => tx.set(["meta", "status"], "ready"))
+    doc.close()
+  }),
   apply: benchmark(500, () => apply(base, first)),
   compose: benchmark(500, () => compose(base, first, second)),
   transform: benchmark(500, () => transform(base, first, concurrent, { priority: "left" })),
   encode: benchmark(500, () => base.encode()),
   decode: benchmark(500, () => Value.decode(bytes)),
 }
-const memory = JSON.parse(execFileSync(process.execPath, ["--expose-gc", resolve(packageDir, "tests/memory.mjs")], { cwd: packageDir, encoding: "utf8" }))
+const memory = JSON.parse(
+  execFileSync(process.execPath, ["--expose-gc", resolve(packageDir, "tests/memory.mjs")], {
+    cwd: packageDir,
+    encoding: "utf8",
+  }),
+)
 
-const initSamples = Array.from({ length: 5 }, () => Number(JSON.parse(execFileSync(
-  process.execPath,
-  [scriptPath, "--init"],
-  { cwd: packageDir, encoding: "utf8" },
-))))
+const initSamples = Array.from({ length: 5 }, () =>
+  Number(
+    JSON.parse(
+      execFileSync(process.execPath, [scriptPath, "--init"], { cwd: packageDir, encoding: "utf8" }),
+    ),
+  ),
+)
 
 const packageJson = JSON.parse(await readFile(resolve(packageDir, "package.json"), "utf8"))
 const fixtureDir = await mkdtemp(join(tmpdir(), "colla-measure-"))

@@ -59,7 +59,8 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --all --check
 RUSTDOCFLAGS='-D warnings' cargo doc --workspace --no-deps
 pnpm install --frozen-lockfile
-pnpm check
+pnpm check          # oxlint, oxfmt --check, typecheck, release scripts
+pnpm format         # apply oxfmt
 pnpm test:js
 pnpm test:e2e
 pnpm docs:build

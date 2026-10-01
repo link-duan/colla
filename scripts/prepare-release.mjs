@@ -4,7 +4,8 @@ import { createHash } from "node:crypto"
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { basename, dirname, resolve } from "node:path"
 
-const semverPattern = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/
+const semverPattern =
+  /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/
 
 function argumentsFrom(argv) {
   const values = new Map()
@@ -27,10 +28,9 @@ async function digest(path, algorithm, encoding) {
 
 const args = argumentsFrom(process.argv.slice(2))
 const workspaceDir = resolve(import.meta.dirname, "..")
-const npmPackage = JSON.parse(await readFile(
-  resolve(workspaceDir, "packages/core/package.json"),
-  "utf8",
-))
+const npmPackage = JSON.parse(
+  await readFile(resolve(workspaceDir, "packages/core/package.json"), "utf8"),
+)
 const version = npmPackage.version
 assert.match(version, semverPattern)
 assert.equal(args.tag, `v${version}`, "tag and package version do not match")

@@ -11,7 +11,7 @@
     "test:rust-examples": "node --test rust-examples.test.mjs"
   },
   "devDependencies": {
-    "vitepress": "^1.6.4",
-    "colla-ot": "workspace:*"
+    "colla-ot": "workspace:*",
+    "vitepress": "^1.6.4"
   }
 }

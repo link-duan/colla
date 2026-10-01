@@ -5,7 +5,8 @@ import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 
 const workspaceDir = resolve(import.meta.dirname, "..")
-const semverPattern = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/
+const semverPattern =
+  /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/
 
 function readArguments(argv) {
   let version
@@ -34,10 +35,12 @@ async function fetchJson(url) {
   return response.json()
 }
 
-function runRustConsumer(version, fixtureDir) {
+async function runRustConsumer(version, fixtureDir) {
   const rustDir = join(fixtureDir, "rust")
-  return mkdir(join(rustDir, "src"), { recursive: true }).then(async () => {
-    await writeFile(join(rustDir, "Cargo.toml"), `[package]
+  await mkdir(join(rustDir, "src"), { recursive: true })
+  await writeFile(
+    join(rustDir, "Cargo.toml"),
+    `[package]
 name = "colla-release-consumer"
 version = "0.0.0"
 edition = "2021"
@@ -47,21 +50,26 @@ publish = false
 colla = "=${version}"
 
 [workspace]
-`)
-    const source = await readFile(join(workspaceDir, "crates/colla/tests/release_consumer.rs"), "utf8")
-    await writeFile(join(rustDir, "src/main.rs"), source)
-    execFileSync("cargo", ["generate-lockfile"], { cwd: rustDir, stdio: "inherit" })
-    execFileSync("cargo", ["run", "--locked", "--quiet"], {
-      cwd: rustDir,
-      stdio: "inherit",
-    })
-    const lock = await readFile(join(rustDir, "Cargo.lock"), "utf8")
-    assert.match(
-      lock,
-      new RegExp(`name = "colla"\\nversion = "${version.replaceAll(".", "\\.")}"\\nsource = "registry\\+`),
-      "Rust consumer did not resolve colla from a registry",
-    )
+`,
+  )
+  const source = await readFile(
+    join(workspaceDir, "crates/colla/tests/release_consumer.rs"),
+    "utf8",
+  )
+  await writeFile(join(rustDir, "src/main.rs"), source)
+  execFileSync("cargo", ["generate-lockfile"], { cwd: rustDir, stdio: "inherit" })
+  execFileSync("cargo", ["run", "--locked", "--quiet"], {
+    cwd: rustDir,
+    stdio: "inherit",
   })
+  const lock = await readFile(join(rustDir, "Cargo.lock"), "utf8")
+  assert.match(
+    lock,
+    new RegExp(
+      `name = "colla"\\nversion = "${version.replaceAll(".", "\\.")}"\\nsource = "registry\\+`,
+    ),
+    "Rust consumer did not resolve colla from a registry",
+  )
 }
 
 function resolveNpmVersion(name, requested) {
@@ -83,9 +91,8 @@ function runJavaScriptConsumers(version) {
       process.env.COLLA_NODE_RESOLVE_VERSION ?? "16.0.1",
     ),
   }
-  const browserContexts = process.env.COLLA_RUN_BROWSER === "1"
-    ? ["main", "dedicated-worker", "shared-worker"]
-    : []
+  const browserContexts =
+    process.env.COLLA_RUN_BROWSER === "1" ? ["main", "dedicated-worker", "shared-worker"] : []
   const environment = {
     ...process.env,
     COLLA_PACKAGE_SPEC: `colla-ot@${version}`,
