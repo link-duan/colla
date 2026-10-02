@@ -76,14 +76,14 @@ type Destination =
   | { readonly parent: ElementId; readonly key: string; readonly index?: never }
   | { readonly parent: ElementId; readonly index: number; readonly key?: never }
 type Operation =
-  | { readonly type: "insert"; readonly destination: Destination; readonly value: Value }
-  | { readonly type: "delete"; readonly target: ElementId }
-  | { readonly type: "set"; readonly target: ElementId; readonly value: Value }
-  | { readonly type: "move"; readonly target: ElementId; readonly destination: Destination }
-  | { readonly type: "text"; readonly target: ElementId; readonly operations: readonly TextOp[] }
-  | { readonly type: "add"; readonly target: ElementId; readonly delta: bigint }
+  | { readonly type: 'insert'; readonly destination: Destination; readonly value: Value }
+  | { readonly type: 'delete'; readonly target: ElementId }
+  | { readonly type: 'set'; readonly target: ElementId; readonly value: Value }
+  | { readonly type: 'move'; readonly target: ElementId; readonly destination: Destination }
+  | { readonly type: 'text'; readonly target: ElementId; readonly operations: readonly TextOp[] }
+  | { readonly type: 'add'; readonly target: ElementId; readonly delta: bigint }
   | {
-      readonly type: "richtext"
+      readonly type: 'richtext'
       readonly target: ElementId
       readonly operations: readonly RichTextOp[]
     }
@@ -166,7 +166,7 @@ interface EditResult {
   readonly inverse: Change
   readonly editSteps: readonly EditStep[]
   readonly version: bigint
-  readonly origin: "local" | "remote" | "undo" | "redo"
+  readonly origin: 'local' | 'remote' | 'undo' | 'redo'
 }
 interface SubscribeOptions {
   readonly onError?: (error: unknown) => void

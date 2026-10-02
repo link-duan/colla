@@ -1,7 +1,7 @@
-import assert from "node:assert/strict"
-import { Authority, Document, History, SyncSession } from "../dist/node.js"
-import { initSync } from "../dist/internal/colla_wasm.js"
-if (!globalThis.gc) throw Error("run with --expose-gc")
+import assert from 'node:assert/strict'
+import { Authority, Document, History, SyncSession } from '../dist/node.js'
+import { initSync } from '../dist/internal/colla_wasm.js'
+if (!globalThis.gc) throw Error('run with --expose-gc')
 const wasm = initSync()
 const nextTurn = () => new Promise(resolve => setImmediate(resolve))
 async function collect() {
@@ -11,11 +11,11 @@ async function collect() {
   }
 }
 const session = SyncSession.create({
-  clientId: "memory",
-  snapshot: Authority.create({ documentId: "memory", value: { count: 0n } }).snapshot(),
+  clientId: 'memory',
+  snapshot: Authority.create({ documentId: 'memory', value: { count: 0n } }).snapshot(),
 })
 const doc = session.document,
-  id = doc.idAt(["count"])
+  id = doc.idAt(['count'])
 History.attach(doc)
 const samples = []
 for (let batch = 0; batch < 30; batch++) {
@@ -34,9 +34,9 @@ for (let batch = 0; batch < 30; batch++) {
 assert.equal(doc.get(id).toJS(), 6000n)
 const warm = samples[9],
   last = samples.at(-1)
-assert.ok(last.heap - warm.heap < 8 * 1024 * 1024, "JS heap grows after warmup")
-assert.ok(last.wasm - warm.wasm < 8 * 1024 * 1024, "Wasm memory grows after warmup")
-assert.ok(last.checkpoint < 20000, "single in-flight + compact buffer/history should stay bounded")
+assert.ok(last.heap - warm.heap < 8 * 1024 * 1024, 'JS heap grows after warmup')
+assert.ok(last.wasm - warm.wasm < 8 * 1024 * 1024, 'Wasm memory grows after warmup')
+assert.ok(last.checkpoint < 20000, 'single in-flight + compact buffer/history should stay bounded')
 session.close()
 await collect()
 console.log(

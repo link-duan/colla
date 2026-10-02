@@ -6,14 +6,14 @@ a standalone Document or the Document owned by a SyncSession.
 ## Attach and use
 
 ```ts
-import { Document, History } from "colla-ot"
+import { Document, History } from 'colla-ot'
 const doc = Document.create({ count: 0n })
 const history = History.attach(doc)
-doc.edit(tx => tx.increment(["count"], 1n))
+doc.edit(tx => tx.increment(['count'], 1n))
 if (history.canUndo) history.undo()
-console.log("After undo:", doc.get(["count"])?.toJS()) // 0n
+console.log('After undo:', doc.get(['count'])?.toJS()) // 0n
 if (history.canRedo) history.redo()
-console.log("After redo:", doc.get(["count"])?.toJS()) // 1n
+console.log('After redo:', doc.get(['count'])?.toJS()) // 1n
 history.close()
 doc.close()
 ```

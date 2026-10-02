@@ -1,13 +1,13 @@
-import assert from "node:assert/strict"
-import { readFile } from "node:fs/promises"
-import { resolve } from "node:path"
+import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
+import { resolve } from 'node:path'
 
-const workspaceDir = resolve(import.meta.dirname, "..")
+const workspaceDir = resolve(import.meta.dirname, '..')
 const npmPackage = JSON.parse(
-  await readFile(resolve(workspaceDir, "packages/core/package.json"), "utf8"),
+  await readFile(resolve(workspaceDir, 'packages/core/package.json'), 'utf8'),
 )
 
-const headers = { "User-Agent": "colla-release-preflight/0.1" }
+const headers = { 'User-Agent': 'colla-release-preflight/0.1' }
 const crateResponse = await fetch(
   `https://crates.io/api/v1/crates/colla/${encodeURIComponent(npmPackage.version)}`,
   { headers },
@@ -19,7 +19,7 @@ assert.ok(
 assert.equal(crateResponse.status, 404, `colla ${npmPackage.version} already exists on crates.io`)
 
 const npmResponse = await fetch(
-  `https://registry.npmjs.org/${npmPackage.name.replace("/", "%2F")}`,
+  `https://registry.npmjs.org/${npmPackage.name.replace('/', '%2F')}`,
   { headers },
 )
 assert.ok(

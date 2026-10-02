@@ -1,24 +1,24 @@
-import assert from "node:assert/strict"
-import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises"
-import { dirname, resolve } from "node:path"
+import assert from 'node:assert/strict'
+import { appendFile, mkdir, readFile, writeFile } from 'node:fs/promises'
+import { dirname, resolve } from 'node:path'
 
 function argumentsFrom(argv) {
-  const result = { attempts: 1, require: "none" }
+  const result = { attempts: 1, require: 'none' }
   for (let index = 0; index < argv.length; index += 2) {
     const name = argv[index]
     const value = argv[index + 1]
-    assert.ok(name?.startsWith("--") && value, `invalid argument near ${name ?? "end"}`)
+    assert.ok(name?.startsWith('--') && value, `invalid argument near ${name ?? 'end'}`)
     result[name.slice(2)] = value
   }
-  assert.ok(result.manifest, "--manifest is required")
-  assert.ok(["none", "crate", "npm", "all"].includes(result.require))
+  assert.ok(result.manifest, '--manifest is required')
+  assert.ok(['none', 'crate', 'npm', 'all'].includes(result.require))
   result.attempts = Number.parseInt(result.attempts, 10)
   assert.ok(Number.isSafeInteger(result.attempts) && result.attempts > 0)
   return result
 }
 
 async function registryState(candidate) {
-  const headers = { "User-Agent": "colla-release-state/0.1" }
+  const headers = { 'User-Agent': 'colla-release-state/0.1' }
   const [crateResponse, npmResponse] = await Promise.all([
     fetch(`https://crates.io/api/v1/crates/colla/${encodeURIComponent(candidate.version)}`, {
       headers,
@@ -39,14 +39,14 @@ async function registryState(candidate) {
     assert.equal(
       crateMetadata.version.checksum,
       candidate.artifacts.crate.sha256,
-      "published crate checksum does not match this release tag",
+      'published crate checksum does not match this release tag',
     )
   }
   if (npmMetadata !== undefined) {
     assert.equal(
       npmMetadata.dist?.integrity,
       candidate.artifacts.npm.integrity,
-      "published npm integrity does not match this release tag",
+      'published npm integrity does not match this release tag',
     )
   }
   return {
@@ -66,14 +66,14 @@ async function registryState(candidate) {
 }
 
 function requirementMet(state, requirement) {
-  if (requirement === "none") return true
-  if (requirement === "crate") return state.crate.published
-  if (requirement === "npm") return state.npm.published
+  if (requirement === 'none') return true
+  if (requirement === 'crate') return state.crate.published
+  if (requirement === 'npm') return state.npm.published
   return state.crate.published && state.npm.published
 }
 
 const args = argumentsFrom(process.argv.slice(2))
-const candidate = JSON.parse(await readFile(resolve(args.manifest), "utf8"))
+const candidate = JSON.parse(await readFile(resolve(args.manifest), 'utf8'))
 let state
 for (let attempt = 1; attempt <= args.attempts; attempt += 1) {
   state = await registryState(candidate)

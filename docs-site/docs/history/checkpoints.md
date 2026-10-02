@@ -7,10 +7,10 @@ to resume undo history.
 ## Standalone restoration
 
 ```ts
-import { Document, History, HistoryCheckpoint, Value } from "colla-ot"
+import { Document, History, HistoryCheckpoint, Value } from 'colla-ot'
 const doc = Document.create({ count: 0n })
 const history = History.attach(doc)
-doc.edit(tx => tx.increment(["count"], 1n))
+doc.edit(tx => tx.increment(['count'], 1n))
 const contentBytes = doc.snapshot().encode()
 const historyBytes = history.checkpoint().encode()
 history.close()
@@ -18,7 +18,7 @@ doc.close()
 const restored = Document.create(Value.decode(contentBytes))
 const undo = History.restore(restored, HistoryCheckpoint.decode(historyBytes))
 undo.undo()
-console.log("Undo after restoration:", restored.get(["count"])?.toJS()) // 0n
+console.log('Undo after restoration:', restored.get(['count'])?.toJS()) // 0n
 undo.close()
 restored.close()
 ```

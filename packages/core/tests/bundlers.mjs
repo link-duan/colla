@@ -1,21 +1,21 @@
-import { tracer } from "./public-trace.mjs"
-import assert from "node:assert/strict"
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
-import { tmpdir } from "node:os"
-import { dirname, join, resolve } from "node:path"
-import { pathToFileURL, fileURLToPath } from "node:url"
-import { execFileSync } from "node:child_process"
-import { createRequire } from "node:module"
-import { test } from "node:test"
+import { tracer } from './public-trace.mjs'
+import assert from 'node:assert/strict'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { dirname, join, resolve } from 'node:path'
+import { pathToFileURL, fileURLToPath } from 'node:url'
+import { execFileSync } from 'node:child_process'
+import { createRequire } from 'node:module'
+import { test } from 'node:test'
 
-const packageDir = resolve(fileURLToPath(new URL("..", import.meta.url)))
+const packageDir = resolve(fileURLToPath(new URL('..', import.meta.url)))
 
-test("bundler integration", async () => {
-  const packageJson = JSON.parse(await readFile(join(packageDir, "package.json"), "utf8"))
-  const fixtureDir = await mkdtemp(join(tmpdir(), "colla-bundlers-"))
+test('bundler integration', async () => {
+  const packageJson = JSON.parse(await readFile(join(packageDir, 'package.json'), 'utf8'))
+  const fixtureDir = await mkdtemp(join(tmpdir(), 'colla-bundlers-'))
   const packageSpec = process.env.COLLA_PACKAGE_SPEC
 
-  async function writeFixture(name, extra = "") {
+  async function writeFixture(name, extra = '') {
     await writeFile(
       join(fixtureDir, name),
       tracer +
@@ -30,37 +30,37 @@ test("bundler integration", async () => {
   try {
     let installSpec = packageSpec
     if (installSpec === undefined) {
-      execFileSync("pnpm", ["pack", "--pack-destination", fixtureDir], {
+      execFileSync('pnpm', ['pack', '--pack-destination', fixtureDir], {
         cwd: packageDir,
-        stdio: "inherit",
+        stdio: 'inherit',
       })
       installSpec = join(fixtureDir, `colla-ot-${packageJson.version}.tgz`)
     }
-    await writeFile(join(fixtureDir, "package.json"), JSON.stringify({ type: "module" }))
-    execFileSync("npm", ["install", "--ignore-scripts", "--save-exact", installSpec], {
+    await writeFile(join(fixtureDir, 'package.json'), JSON.stringify({ type: 'module' }))
+    execFileSync('npm', ['install', '--ignore-scripts', '--save-exact', installSpec], {
       cwd: fixtureDir,
-      stdio: "inherit",
+      stdio: 'inherit',
     })
     execFileSync(
-      "npm",
+      'npm',
       [
-        "install",
-        "--no-save",
-        `vite@${process.env.COLLA_VITE_VERSION ?? "5.4.19"}`,
-        `rollup@${process.env.COLLA_ROLLUP_VERSION ?? "4.46.2"}`,
-        `@rollup/plugin-node-resolve@${process.env.COLLA_NODE_RESOLVE_VERSION ?? "16.0.1"}`,
+        'install',
+        '--no-save',
+        `vite@${process.env.COLLA_VITE_VERSION ?? '5.4.19'}`,
+        `rollup@${process.env.COLLA_ROLLUP_VERSION ?? '4.46.2'}`,
+        `@rollup/plugin-node-resolve@${process.env.COLLA_NODE_RESOLVE_VERSION ?? '16.0.1'}`,
       ],
       {
         cwd: fixtureDir,
-        stdio: "inherit",
+        stdio: 'inherit',
       },
     )
-    const fixtureRequire = createRequire(join(fixtureDir, "package.json"))
-    const vitePackageDir = dirname(fixtureRequire.resolve("vite/package.json"))
-    const vite = await import(pathToFileURL(join(vitePackageDir, "dist/node/index.js")))
-    const rollupModule = await import(pathToFileURL(fixtureRequire.resolve("rollup")))
+    const fixtureRequire = createRequire(join(fixtureDir, 'package.json'))
+    const vitePackageDir = dirname(fixtureRequire.resolve('vite/package.json'))
+    const vite = await import(pathToFileURL(join(vitePackageDir, 'dist/node/index.js')))
+    const rollupModule = await import(pathToFileURL(fixtureRequire.resolve('rollup')))
     const resolveModule = await import(
-      pathToFileURL(fixtureRequire.resolve("@rollup/plugin-node-resolve"))
+      pathToFileURL(fixtureRequire.resolve('@rollup/plugin-node-resolve'))
     )
     const viteApi = vite
     const rollupApi = rollupModule.rollup === undefined ? rollupModule.default : rollupModule
@@ -68,23 +68,23 @@ test("bundler integration", async () => {
     const { rollup } = rollupApi
     const nodeResolve = resolveModule.nodeResolve ?? resolveModule.default
 
-    await writeFixture("main.js")
-    await writeFixture("ssr.js")
-    await writeFixture("dedicated-worker.js", "globalThis.workerResult = result")
-    await writeFixture("shared-worker.js", "globalThis.sharedWorkerResult = result")
+    await writeFixture('main.js')
+    await writeFixture('ssr.js')
+    await writeFixture('dedicated-worker.js', 'globalThis.workerResult = result')
+    await writeFixture('shared-worker.js', 'globalThis.sharedWorkerResult = result')
     await writeFile(
-      join(fixtureDir, "index.html"),
+      join(fixtureDir, 'index.html'),
       '<script type="module" src="/main.js"></script>',
     )
 
-    const server = await createServer({ root: fixtureDir, logLevel: "error" })
+    const server = await createServer({ root: fixtureDir, logLevel: 'error' })
     try {
       await server.listen()
       const response = await fetch(`${server.resolvedUrls.local[0]}main.js`)
       assert.equal(response.ok, true)
       assert.match(await response.text(), /colla-ot|\.vite\/deps/)
-      const ssr = await server.ssrLoadModule("/ssr.js")
-      assert.equal(ssr.result, "after")
+      const ssr = await server.ssrLoadModule('/ssr.js')
+      assert.equal(ssr.result, 'after')
     } finally {
       server.httpServer?.closeAllConnections?.()
       await Promise.race([
@@ -93,31 +93,31 @@ test("bundler integration", async () => {
       ])
     }
 
-    const viteOut = join(fixtureDir, "vite-dist")
+    const viteOut = join(fixtureDir, 'vite-dist')
     await viteBuild({
       root: fixtureDir,
-      logLevel: "error",
+      logLevel: 'error',
       build: {
         outDir: viteOut,
         emptyOutDir: true,
-        lib: { entry: join(fixtureDir, "main.js"), formats: ["es"], fileName: "main" },
+        lib: { entry: join(fixtureDir, 'main.js'), formats: ['es'], fileName: 'main' },
       },
     })
-    const viteModule = await import(`${pathToFileURL(join(viteOut, "main.js"))}?v=${Date.now()}`)
-    assert.equal(viteModule.result, "after")
+    const viteModule = await import(`${pathToFileURL(join(viteOut, 'main.js'))}?v=${Date.now()}`)
+    assert.equal(viteModule.result, 'after')
 
-    for (const entry of ["main.js", "dedicated-worker.js", "shared-worker.js"]) {
+    for (const entry of ['main.js', 'dedicated-worker.js', 'shared-worker.js']) {
       const bundle = await rollup({
         input: join(fixtureDir, entry),
         plugins: [nodeResolve({ browser: true })],
       })
       const output = join(fixtureDir, `rollup-${entry}`)
-      await bundle.write({ file: output, format: "es" })
+      await bundle.write({ file: output, format: 'es' })
       await bundle.close()
       const module = await import(`${pathToFileURL(output)}?v=${Date.now()}`)
-      assert.equal(module.result, "after")
-      if (entry === "dedicated-worker.js") assert.equal(globalThis.workerResult, "after")
-      if (entry === "shared-worker.js") assert.equal(globalThis.sharedWorkerResult, "after")
+      assert.equal(module.result, 'after')
+      if (entry === 'dedicated-worker.js') assert.equal(globalThis.workerResult, 'after')
+      if (entry === 'shared-worker.js') assert.equal(globalThis.sharedWorkerResult, 'after')
     }
   } finally {
     await rm(fixtureDir, { recursive: true, force: true })

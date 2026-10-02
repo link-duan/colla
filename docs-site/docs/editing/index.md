@@ -7,13 +7,13 @@ For synchronized work, edit `session.document` instead of creating a separate Do
 ## Read current or frozen content
 
 ```ts
-import { Document } from "colla-ot"
+import { Document } from 'colla-ot'
 const doc = Document.create({ count: 0n })
 const frozen = doc.snapshot()
-doc.edit(tx => tx.increment(["count"], 1n))
-console.log("Frozen snapshot:", frozen.get(["count"])?.toJS()) // 0n
-console.log("Current document:", doc.get(["count"])?.toJS()) // 1n
-console.log("Local content version:", doc.version) // 1n
+doc.edit(tx => tx.increment(['count'], 1n))
+console.log('Frozen snapshot:', frozen.get(['count'])?.toJS()) // 0n
+console.log('Current document:', doc.get(['count'])?.toJS()) // 1n
+console.log('Local content version:', doc.version) // 1n
 doc.close()
 ```
 

@@ -7,13 +7,13 @@ undo intent; it is not an Authority log retention setting.
 ## Explicit grouping
 
 ```ts
-import { Document, History, text } from "colla-ot"
-const doc = Document.create({ title: text("") })
+import { Document, History, text } from 'colla-ot'
+const doc = Document.create({ title: text('') })
 const history = History.attach(doc, { capacity: 50 })
-doc.edit(tx => tx.text(["title"]).insert(0, "H"), { group: "typing-1" })
-doc.edit(tx => tx.text(["title"]).insert(1, "i"), { group: "typing-1" })
+doc.edit(tx => tx.text(['title']).insert(0, 'H'), { group: 'typing-1' })
+doc.edit(tx => tx.text(['title']).insert(1, 'i'), { group: 'typing-1' })
 history.undo() // removes both insertions
-console.log("More undo available:", history.canUndo) // false
+console.log('More undo available:', history.canUndo) // false
 history.close()
 doc.close()
 ```

@@ -16,11 +16,11 @@ npm install colla-ot@^0.4.0
 ## First edit
 
 ```ts
-import { Document, text } from "colla-ot"
+import { Document, text } from 'colla-ot'
 
-const doc = Document.create({ title: text("Draft") })
-doc.edit(tx => tx.text(["title"]).insert(5, " v2"))
-console.log("Updated title:", doc.get(["title"])?.toJS()) // Text containing Draft v2
+const doc = Document.create({ title: text('Draft') })
+doc.edit(tx => tx.text(['title']).insert(5, ' v2'))
+console.log('Updated title:', doc.get(['title'])?.toJS()) // Text containing Draft v2
 doc.close()
 ```
 

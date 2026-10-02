@@ -2,12 +2,12 @@ name: Fuzz
 
 on:
   schedule:
-    - cron: "17 3 * * *"
+    - cron: '17 3 * * *'
   workflow_dispatch:
     inputs:
       seconds:
         description: Seconds per target
-        default: "1200"
+        default: '1200'
 
 permissions:
   contents: read

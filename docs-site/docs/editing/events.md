@@ -6,15 +6,15 @@ an editor view and call the returned unsubscribe function when detaching it.
 ## Observe content
 
 ```ts
-import { Document } from "colla-ot"
+import { Document } from 'colla-ot'
 const doc = Document.create({ count: 0n })
 const unsubscribe = doc.subscribe(
   event => {
-    console.log("Content commit:", event.origin, event.version, event.after.get(["count"])?.toJS())
+    console.log('Content commit:', event.origin, event.version, event.after.get(['count'])?.toJS())
   },
-  { onError: error => console.error("View update failed", error) },
+  { onError: error => console.error('View update failed', error) },
 )
-doc.edit(tx => tx.increment(["count"], 1n)) // local, 1n, 1n
+doc.edit(tx => tx.increment(['count'], 1n)) // local, 1n, 1n
 unsubscribe()
 doc.close()
 ```

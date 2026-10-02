@@ -8,18 +8,18 @@ Rust owns the semantic engine and version-2 codecs; the synchronous JavaScript
 facade has zero npm runtime dependencies.
 
 ```ts
-import { Document, History, text, ref } from "colla-ot"
-const doc = Document.create({ tasks: [{ title: text("Draft") }], done: [], selected: null })
+import { Document, History, text, ref } from 'colla-ot'
+const doc = Document.create({ tasks: [{ title: text('Draft') }], done: [], selected: null })
 const history = History.attach(doc)
-const task = doc.idAt(["tasks", 0])
+const task = doc.idAt(['tasks', 0])
 doc.edit(tx => {
-  tx.text(["tasks", 0, "title"]).insert(5, " v2")
-  tx.set(["selected"], ref(task))
-  tx.move(task, { parent: ["done"], index: 0 })
+  tx.text(['tasks', 0, 'title']).insert(5, ' v2')
+  tx.set(['selected'], ref(task))
+  tx.move(task, { parent: ['done'], index: 0 })
 })
-console.log("Path after move:", doc.pathOf(task)) // ["done", 0]
+console.log('Path after move:', doc.pathOf(task)) // ["done", 0]
 history.undo()
-console.log("Path after undo:", doc.pathOf(task)) // ["tasks", 0]
+console.log('Path after undo:', doc.pathOf(task)) // ["tasks", 0]
 history.close()
 doc.close()
 ```

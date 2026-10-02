@@ -88,13 +88,13 @@
 
 html {
   font-family:
-    "Geist",
-    "Inter",
+    'Geist',
+    'Inter',
     ui-sans-serif,
     system-ui,
     -apple-system,
     BlinkMacSystemFont,
-    "Segoe UI",
+    'Segoe UI',
     sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -172,7 +172,7 @@ a {
   font-weight: 600;
 }
 
-.VPNavBarMenuLink[href*="CHANGELOG"] {
+.VPNavBarMenuLink[href*='CHANGELOG'] {
   display: inline-flex;
   align-items: center;
   height: 24px;
@@ -189,7 +189,7 @@ a {
   transition: all 0.15s ease;
 }
 
-.VPNavBarMenuLink[href*="CHANGELOG"]:hover {
+.VPNavBarMenuLink[href*='CHANGELOG']:hover {
   border-color: var(--vp-c-text-2);
   color: var(--vp-c-text-1);
   background: var(--vp-c-default-soft) !important;
@@ -439,7 +439,7 @@ a {
 .vp-doc .eyebrow,
 .home-kicker {
   color: var(--vp-c-text-3);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
   font-size: 11px;
   font-weight: 650;
   letter-spacing: 0.08em;
@@ -513,7 +513,7 @@ a {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
-.vp-doc div[class*="language-"] {
+.vp-doc div[class*='language-'] {
   /* Keep bordered code cards inside the article's mobile gutters. */
   margin-inline: 0;
   border: 1px solid var(--vp-c-divider);
@@ -524,8 +524,8 @@ a {
   overflow: hidden;
 }
 
-.vp-doc div[class*="language-"] code {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+.vp-doc div[class*='language-'] code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
   font-size: 13px;
   line-height: 1.7;
 }
@@ -719,7 +719,7 @@ a {
 }
 
 .landing-page .VPHero::before {
-  content: "";
+  content: '';
   position: absolute;
   top: -140px;
   left: 50%;
@@ -985,7 +985,7 @@ a {
   color: var(--vp-c-text-3);
 }
 
-.landing-page .home-code-section div[class*="language-"] {
+.landing-page .home-code-section div[class*='language-'] {
   margin: 0 !important;
   border-radius: 0 !important;
   background: transparent !important;

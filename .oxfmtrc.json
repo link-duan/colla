@@ -3,5 +3,6 @@
   "printWidth": 100,
   "semi": false,
   "arrowParens": "avoid",
-  "ignorePatterns": ["pnpm-lock.yaml"]
+  "ignorePatterns": ["pnpm-lock.yaml"],
+  "singleQuote": true
 }

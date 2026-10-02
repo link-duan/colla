@@ -4,13 +4,13 @@ description: Node, pnpm, stable Rust with the wasm32 target, cached builds, wasm
 inputs:
   node-version:
     description: Node.js version.
-    default: "24"
+    default: '24'
   registry-url:
     description: Optional npm registry URL for publishing jobs.
-    default: ""
+    default: ''
   rust-components:
     description: Extra rustup components, comma separated.
-    default: ""
+    default: ''
 
 runs:
   using: composite
