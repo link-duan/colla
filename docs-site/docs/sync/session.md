@@ -7,13 +7,13 @@ controlled SyncSnapshot, never from an arbitrary content Value.
 ## Create and edit
 
 ```ts
-import { Authority, SyncSession } from 'colla-ot'
-const authority = Authority.create({ documentId: 'demo', value: { count: 0n } })
-const session = SyncSession.create({ clientId: 'writer-1', snapshot: authority.snapshot() })
-session.document.edit(tx => tx.increment(['count'], 1n))
-console.log('Visible local count:', session.document.get(['count'])?.toJS()) // 1n, already visible
-console.log('Confirmed server revision:', session.revision) // 0n, not confirmed yet
-console.log('Submission base revision:', session.outbound()?.baseRevision) // 0n
+import { Authority, SyncSession } from "colla-ot"
+const authority = Authority.create({ documentId: "demo", value: { count: 0n } })
+const session = SyncSession.create({ clientId: "writer-1", snapshot: authority.snapshot() })
+session.document.edit(tx => tx.increment(["count"], 1n))
+console.log("Visible local count:", session.document.get(["count"])?.toJS()) // 1n, already visible
+console.log("Confirmed server revision:", session.revision) // 0n, not confirmed yet
+console.log("Submission base revision:", session.outbound()?.baseRevision) // 0n
 session.close()
 ```
 

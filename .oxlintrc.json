@@ -11,15 +11,12 @@
     "node": true,
     "browser": true
   },
-  "ignorePatterns": [
-    "packages/core/src/internal/**",
-    "packages/core/dist/**",
-    "docs-site/.vitepress/cache/**",
-    "docs-site/.vitepress/dist/**",
-    "docs-site/.examples-dist/**",
-    "docs-site/.examples-generated/**"
-  ],
   "rules": {
-    "import/no-unassigned-import": "off"
+    "import/no-unassigned-import": [
+      "error",
+      {
+        "allow": ["**/*.css", "**/wasm-*.js", "**/dist/node.js"]
+      }
+    ]
   }
 }

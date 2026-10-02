@@ -7,17 +7,17 @@ with unpaired UTF-16 surrogates are rejected.
 ## High-level editing
 
 ```ts
-import { Document, text } from 'colla-ot'
-const doc = Document.create({ title: text('A😀B') })
+import { Document, text } from "colla-ot"
+const doc = Document.create({ title: text("A😀B") })
 doc.edit(tx => {
-  const title = tx.text(['title'])
-  title.insert(3, '!')
-  console.log('Working text after insertion:', tx.get(['title'])?.toJS()) // Text containing A😀!B
-  title.replace(1, 2, '🐬')
-  console.log('Working text after replacement:', tx.get(['title'])?.toJS()) // Text containing A🐬!B
+  const title = tx.text(["title"])
+  title.insert(3, "!")
+  console.log("Working text after insertion:", tx.get(["title"])?.toJS()) // Text containing A😀!B
+  title.replace(1, 2, "🐬")
+  console.log("Working text after replacement:", tx.get(["title"])?.toJS()) // Text containing A🐬!B
   title.delete(3, 1)
 })
-console.log('Committed text:', doc.get(['title'])?.toJS()) // Text containing A🐬B
+console.log("Committed text:", doc.get(["title"])?.toJS()) // Text containing A🐬B
 doc.close()
 ```
 

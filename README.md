@@ -27,11 +27,11 @@ doc.close()
 `colla` and `colla-ot` share development version **0.4.0**. No official release
 has been published yet.
 
-| Layer | Public objects |
-| --- | --- |
-| Content and algebra | Value, Change, ElementId, Ref, apply, compose, invert, transform |
-| Editing | Document, Transaction, scoped List/Text/RichText editors |
-| Undo/redo | History, HistoryCheckpoint |
+| Layer                       | Public objects                                                               |
+| --------------------------- | ---------------------------------------------------------------------------- |
+| Content and algebra         | Value, Change, ElementId, Ref, apply, compose, invert, transform             |
+| Editing                     | Document, Transaction, scoped List/Text/RichText editors                     |
+| Undo/redo                   | History, HistoryCheckpoint                                                   |
 | Centralized synchronization | SyncSession, Authority, SyncSnapshot, Submission, ServerMessage, checkpoints |
 
 Use `Value` for content snapshots, `SyncSnapshot` for confirmed server content

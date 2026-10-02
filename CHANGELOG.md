@@ -87,7 +87,7 @@ package are recorded here. Both artifacts always use the same version.
   longer a two-tag hack; `Int`/`String`/`Text`/`RichText`/`List`/`Map` shift down
   by one) and byte layouts changed, so bytes produced by 0.2.x no longer decode.
   colla is early-stage with no external consumers, so the break is taken now.
-- **Decoding is now structural.** Byte decoding no longer enforces *semantic*
+- **Decoding is now structural.** Byte decoding no longer enforces _semantic_
   canonicalization (zero-length ops, empty inserts, mergeable adjacent ops,
   `Modify(Noop)`, trailing retains, negative zero). These are the job of the
   construction APIs (`from_ops`/`from_entries`/`from_spans`) and `normalize`.

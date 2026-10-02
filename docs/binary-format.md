@@ -6,17 +6,17 @@ Use the library codecs to exchange data.
 
 ## Object fields
 
-| Object | Readable fields / preserved state |
-| --- | --- |
-| Value | Owning identity and Body tree |
-| Change | Ordered identity-targeted operations |
-| SyncSnapshot | documentId: string, revision: bigint, value: Value |
-| Submission | documentId, clientId: string, sequence, baseRevision: bigint, change: Change |
-| ServerMessage Commit | type: commit, documentId, clientId, sequence, revision, change |
-| ServerMessage Rejection | type: rejection, documentId, clientId, sequence, reason: CollaError |
-| SessionCheckpoint | Confirmed basis, writer/sequence, original request and basis, rebased pending, buffer, visible version, retained rebase commits, enabled History |
-| HistoryCheckpoint | Undo/redo stacks, capacity/grouping and exact content basis |
-| AuthorityCheckpoint | History floor snapshot, retained contiguous commits and deduplication receipts |
+| Object                  | Readable fields / preserved state                                                                                                                |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Value                   | Owning identity and Body tree                                                                                                                    |
+| Change                  | Ordered identity-targeted operations                                                                                                             |
+| SyncSnapshot            | documentId: string, revision: bigint, value: Value                                                                                               |
+| Submission              | documentId, clientId: string, sequence, baseRevision: bigint, change: Change                                                                     |
+| ServerMessage Commit    | type: commit, documentId, clientId, sequence, revision, change                                                                                   |
+| ServerMessage Rejection | type: rejection, documentId, clientId, sequence, reason: CollaError                                                                              |
+| SessionCheckpoint       | Confirmed basis, writer/sequence, original request and basis, rebased pending, buffer, visible version, retained rebase commits, enabled History |
+| HistoryCheckpoint       | Undo/redo stacks, capacity/grouping and exact content basis                                                                                      |
+| AuthorityCheckpoint     | History floor snapshot, retained contiguous commits and deduplication receipts                                                                   |
 
 JavaScript ServerMessage uses optional revision/change/reason fields; inspect type before
 accessing them. Rust uses Commit and Rejection enum variants. Checkpoint internals are
@@ -30,16 +30,16 @@ Rust is the sole wire implementation. The common header is five ASCII bytes
 `COLLA`, a little-endian u16 equal to 2, then one type byte. A canonical cocodec
 payload follows. Version 1 and unversioned legacy bodies are rejected.
 
-| Tag | Object |
-| --- | --- |
-| 1 | Value |
-| 2 | Change |
-| 3 | SyncSnapshot |
-| 4 | Submission |
-| 5 | ServerMessage (Commit or Rejection) |
-| 6 | SessionCheckpoint |
-| 7 | HistoryCheckpoint |
-| 8 | AuthorityCheckpoint |
+| Tag | Object                              |
+| --- | ----------------------------------- |
+| 1   | Value                               |
+| 2   | Change                              |
+| 3   | SyncSnapshot                        |
+| 4   | Submission                          |
+| 5   | ServerMessage (Commit or Rejection) |
+| 6   | SessionCheckpoint                   |
+| 7   | HistoryCheckpoint                   |
+| 8   | AuthorityCheckpoint                 |
 
 ## Canonical representation
 
@@ -77,7 +77,6 @@ the same individual content limit as decoding. Decode retains no caller-mutable
 buffer. Shared fixed v2 examples live in [golden/v2.json](https://github.com/link-duan/colla/blob/master/golden/v2.json).
 Changing these bytes requires explicit fixture review and a format decision;
 tests are regression evidence, not a second codec implementation.
-
 
 ## Workflows
 

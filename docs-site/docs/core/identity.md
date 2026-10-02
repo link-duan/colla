@@ -7,12 +7,12 @@ Use IDs for selections or references that should follow a moved element.
 ## Locate an element
 
 ```ts
-import { Document, text } from 'colla-ot'
-const doc = Document.create({ tasks: [{ title: text('Draft') }], done: [] })
-const task = doc.idAt(['tasks', 0])
-doc.edit(tx => tx.move(task, { parent: ['done'], index: 0 }))
-console.log('New path, same task ID:', doc.pathOf(task)) // ['done', 0]
-console.log('Lookup by original ID:', doc.get(task)?.kind()) // 'map'
+import { Document, text } from "colla-ot"
+const doc = Document.create({ tasks: [{ title: text("Draft") }], done: [] })
+const task = doc.idAt(["tasks", 0])
+doc.edit(tx => tx.move(task, { parent: ["done"], index: 0 }))
+console.log("New path, same task ID:", doc.pathOf(task)) // ['done', 0]
+console.log("Lookup by original ID:", doc.get(task)?.kind()) // 'map'
 doc.close()
 ```
 

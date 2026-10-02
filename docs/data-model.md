@@ -10,15 +10,15 @@ independent of client requests. Failed transactions do not rewind allocation.
 Restore retains identities; a new runtime allocates later content in a fresh
 namespace. Deterministic allocators support fixtures.
 
-| Edit | Identity |
-| --- | --- |
-| Leaf edit/container member edit | Preserve edited element |
-| Set existing | Preserve target root, import fresh descendants |
-| Insert normal content | New subtree identities |
-| Move | Preserve complete subtree |
-| Copy | Fresh subtree identities, internal Ref remapping |
-| Undo/redo | Restore original identities |
-| Codec restore | Preserve all identities |
+| Edit                            | Identity                                         |
+| ------------------------------- | ------------------------------------------------ |
+| Leaf edit/container member edit | Preserve edited element                          |
+| Set existing                    | Preserve target root, import fresh descendants   |
+| Insert normal content           | New subtree identities                           |
+| Move                            | Preserve complete subtree                        |
+| Copy                            | Fresh subtree identities, internal Ref remapping |
+| Undo/redo                       | Restore original identities                      |
+| Codec restore                   | Preserve all identities                          |
 
 Refs are weak, same-document, atomic ID targets. They can dangle or form cycles.
 One-hop resolution observes only the queried snapshot. Copy remaps targets

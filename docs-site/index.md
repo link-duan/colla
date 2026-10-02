@@ -41,7 +41,6 @@ Both language APIs use the same
 base-aware `transform` and version-2 format. Transport, persistence storage,
 authentication, presence and editor adapters belong to your application.
 
-
 ## Choose a reading path
 
 - **Build your first editor:** [Getting started](/docs/getting-started/) → [Editing](/docs/editing/) → [History](/docs/history/).

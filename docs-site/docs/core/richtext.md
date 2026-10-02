@@ -7,15 +7,15 @@ so application behavior should depend on content and attributes, not span bounda
 ## Insert and format
 
 ```ts
-import { Document, richText } from 'colla-ot'
+import { Document, richText } from "colla-ot"
 const doc = Document.create({ body: richText([]) })
 doc.edit(tx => {
-  const body = tx.richText(['body'])
-  body.insertText(0, 'Hello', { bold: true })
-  body.insertEmbed(5, { image: 'asset-123' }, { alt: 'Diagram' })
+  const body = tx.richText(["body"])
+  body.insertText(0, "Hello", { bold: true })
+  body.insertEmbed(5, { image: "asset-123" }, { alt: "Diagram" })
   body.format(0, 5, { bold: null, italic: true })
 })
-console.log('Formatted content:', doc.get(['body'])?.toJS())
+console.log("Formatted content:", doc.get(["body"])?.toJS())
 doc.close()
 ```
 

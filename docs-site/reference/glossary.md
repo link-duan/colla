@@ -166,22 +166,22 @@ A public failure with stable code, operation and diagnostic details; message tex
 
 ## Error codes
 
-| Code | Meaning |
-| --- | --- |
-| `invalid_argument` | Unsupported argument shape or operation request. |
-| `invalid_value` | Invalid content, such as malformed Unicode or nonfinite numeric input. |
-| `invalid_encoding` | Malformed, noncanonical, wrong-version or wrong-type bytes. |
-| `invalid_state` | Closed runtime, expired editor, invalid restoration basis or forbidden reentrancy. |
-| `limit_exceeded` | Input exceeds a resource bound. |
-| `type_mismatch` | Operation does not match the target kind. |
-| `missing_key` | Required target is absent. |
-| `out_of_bounds` | Invalid sequence index or removal range. |
-| `integer_overflow` | Checked i64 arithmetic overflow. |
-| `incompatible_change` | Change cannot be interpreted against the supplied basis. |
-| `invalid_utf16_boundary` | High-level text offset splits a surrogate pair. |
-| `structural_conflict` | Merged ownership structure cannot be applied safely. |
-| `missing_revision` | Receive requires an earlier revision interval; content remains unchanged. |
-| `history_expired` | Required rebase history is no longer retained. |
+| Code                     | Meaning                                                                            |
+| ------------------------ | ---------------------------------------------------------------------------------- |
+| `invalid_argument`       | Unsupported argument shape or operation request.                                   |
+| `invalid_value`          | Invalid content, such as malformed Unicode or nonfinite numeric input.             |
+| `invalid_encoding`       | Malformed, noncanonical, wrong-version or wrong-type bytes.                        |
+| `invalid_state`          | Closed runtime, expired editor, invalid restoration basis or forbidden reentrancy. |
+| `limit_exceeded`         | Input exceeds a resource bound.                                                    |
+| `type_mismatch`          | Operation does not match the target kind.                                          |
+| `missing_key`            | Required target is absent.                                                         |
+| `out_of_bounds`          | Invalid sequence index or removal range.                                           |
+| `integer_overflow`       | Checked i64 arithmetic overflow.                                                   |
+| `incompatible_change`    | Change cannot be interpreted against the supplied basis.                           |
+| `invalid_utf16_boundary` | High-level text offset splits a surrogate pair.                                    |
+| `structural_conflict`    | Merged ownership structure cannot be applied safely.                               |
+| `missing_revision`       | Receive requires an earlier revision interval; content remains unchanged.          |
+| `history_expired`        | Required rebase history is no longer retained.                                     |
 
 Match code rather than human-readable reason text. JavaScript details is an immutable
 string-valued record; elementId is optional. Listener exceptions occur after commit,
