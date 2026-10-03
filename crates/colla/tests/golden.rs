@@ -4,50 +4,39 @@ fn hex(bytes: Vec<u8>) -> String {
     bytes.iter().map(|v| format!("{v:02x}")).collect()
 }
 fn build() -> Vec<Json> {
-    let mut ids = IdAllocator::deterministic([17; 16]);
-    let item = Value::with_allocator(Body::Text("A😀B".into()), &mut ids).unwrap();
-    let reference = Value::with_allocator(Body::Ref(Ref { target: item.id() }), &mut ids).unwrap();
-    let list = Value::with_allocator(Body::List(vec![item.clone(), reference]), &mut ids).unwrap();
-    let destination = Value::with_allocator(Body::List(vec![]), &mut ids).unwrap();
-    let integer = Value::with_allocator(Body::Int(-5), &mut ids).unwrap();
-    let rich = Value::with_allocator(
-        Body::RichText(vec![RichSpan::Text {
-            text: "hello".into(),
-            attrs: Attrs::new(),
-        }]),
-        &mut ids,
-    )
-    .unwrap();
-    let base = Value::with_allocator(
-        Body::Map(
-            [
-                ("from".into(), list.clone()),
-                ("to".into(), destination.clone()),
-                ("count".into(), integer.clone()),
-                ("rich".into(), rich.clone()),
-            ]
-            .into(),
+    let key = |name: &str| Segment::Key(name.into());
+    let base = Value::map([
+        (
+            "from".into(),
+            Value::list(vec![Value::text("A😀B").unwrap(), Value::int(2)]).unwrap(),
         ),
-        &mut ids,
-    )
+        ("to".into(), Value::list(vec![]).unwrap()),
+        ("count".into(), Value::int(-5)),
+        (
+            "rich".into(),
+            Value::rich_text(vec![RichSpan::Text {
+                text: "hello".into(),
+                attrs: Attrs::new(),
+            }])
+            .unwrap(),
+        ),
+    ])
     .unwrap();
     let movement = Change::new([
-        Operation::Move {
-            target: item.id(),
-            destination: Destination {
-                parent: destination.id(),
-                slot: Segment::Index(0),
-            },
+        Operation::ListMove {
+            path: vec![key("from")],
+            from: 0,
+            to: 1,
         },
         Operation::Add {
-            target: integer.id(),
+            path: vec![key("count")],
             delta: 9,
         },
     ])
     .unwrap();
     let text = Change::new([
         Operation::Text {
-            target: item.id(),
+            path: vec![key("from"), Segment::Index(0)],
             change: TextChange::from_ops([
                 TextOp::Retain(1),
                 TextOp::Insert("X".into()),
@@ -56,7 +45,7 @@ fn build() -> Vec<Json> {
             .unwrap(),
         },
         Operation::RichText {
-            target: rich.id(),
+            path: vec![key("rich")],
             operations: vec![RichOp::Retain {
                 len: 5,
                 attrs: AttrPatch::from([("bold".into(), Some(Attr::Bool(true)))]),
@@ -70,7 +59,10 @@ fn build() -> Vec<Json> {
         ("text-tie", text.clone(), text.clone()),
         (
             "delete-move",
-            Change::new([Operation::Delete { target: list.id() }]).unwrap(),
+            Change::new([Operation::Delete {
+                path: vec![key("from")],
+            }])
+            .unwrap(),
             movement.clone(),
         ),
     ] {
@@ -81,8 +73,8 @@ fn build() -> Vec<Json> {
     let authority = Authority::create("fixture", base.clone()).unwrap();
     let session = SyncSession::create("writer", authority.snapshot()).unwrap();
     let history = History::attach(&session.document()).unwrap();
-    session.document().apply(&movement).unwrap();
     session.document().apply(&text).unwrap();
+    session.document().apply(&movement).unwrap();
     let request = session.outbound().unwrap().unwrap();
     let (authority, message) = authority.accept(&request).unwrap();
     for (name, kind, bytes) in [

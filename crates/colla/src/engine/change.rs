@@ -1,76 +1,81 @@
-use super::{
-    codec, value::missing, Body, ElementId, Error, ErrorCode, Path, Result, Segment, Value,
-};
+use super::{codec, Body, Error, ErrorCode, Path, Result, Segment, Value};
 use cocodec::{Decode, Encode};
 use std::sync::Arc;
 
-/// The destination index is interpreted after detaching a moved source.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Destination {
-    /// Stable ID of the destination owning container.
-    pub parent: ElementId,
-    /// Vacant Map key or post-removal List position.
-    pub slot: Segment,
-}
-codec::record_codec!(Destination, parent, slot);
-
 #[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
-/// One ordered identity-addressed content operation.
+/// One ordered path-addressed content operation. Each path is interpreted
+/// against the content produced by the preceding operations.
 pub enum Operation {
     #[cocodec(tag = 0)]
-    /// Inserts an owning subtree at a vacant Map key or List position.
+    /// Inserts a subtree at a vacant Map key or a List position.
     Insert {
-        /// Owning container and insertion slot.
-        destination: Destination,
-        /// Subtree to insert, retaining its supplied identities.
+        /// Parent container path followed by the vacant key or insertion index.
+        path: Path,
+        /// Subtree to insert.
         value: Value,
     },
     #[cocodec(tag = 1)]
-    /// Deletes an existing Map member or List element and its owning subtree.
+    /// Deletes an existing Map member or List element and its subtree.
     Delete {
-        /// ID of the existing owning element to delete; Refs are not dereferenced.
-        target: ElementId,
+        /// Path of the existing Map member or List element.
+        path: Path,
     },
     #[cocodec(tag = 2)]
-    /// Replaces content while retaining the target root identity.
+    /// Replaces an existing element, including the root.
     Set {
-        /// ID of the existing element to replace.
-        target: ElementId,
-        /// Replacement subtree whose root ID must equal the target ID.
+        /// Path of the element to replace.
+        path: Path,
+        /// Replacement subtree.
         value: Value,
     },
     #[cocodec(tag = 3)]
-    /// Moves the same owning subtree without changing any of its IDs.
-    Move {
-        /// ID of the existing owning element to move.
-        target: ElementId,
-        /// Owning container and post-removal destination slot.
-        destination: Destination,
+    /// Moves one element within the same List.
+    ListMove {
+        /// Path of the List.
+        path: Path,
+        /// Current index of the moved element.
+        from: usize,
+        /// Destination index after the element is removed.
+        to: usize,
     },
     #[cocodec(tag = 4)]
     /// Edits a collaborative Text value using Unicode scalar positions.
     Text {
-        /// ID of the existing Text element to edit.
-        target: ElementId,
+        /// Path of the existing Text element.
+        path: Path,
         /// Ordered scalar retains, insertions and deletions.
         change: crate::sequence::change::TextChange,
     },
     #[cocodec(tag = 5)]
     /// Adds a checked signed integer delta.
     Add {
-        /// ID of the existing Int element to increment.
-        target: ElementId,
+        /// Path of the existing Int element.
+        path: Path,
         /// Signed delta applied with checked integer arithmetic.
         delta: i64,
     },
     #[cocodec(tag = 6)]
     /// Edits RichText content and formatting; each embed counts as one scalar unit.
     RichText {
-        /// ID of the existing RichText element to edit.
-        target: ElementId,
+        /// Path of the existing RichText element.
+        path: Path,
         /// Scalar sequence operations in execution order.
         operations: Vec<super::RichOp>,
     },
+}
+impl Operation {
+    /// Returns the path this operation addresses.
+    pub fn path(&self) -> &Path {
+        match self {
+            Self::Insert { path, .. }
+            | Self::Delete { path }
+            | Self::Set { path, .. }
+            | Self::ListMove { path, .. }
+            | Self::Text { path, .. }
+            | Self::Add { path, .. }
+            | Self::RichText { path, .. } => path,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Encode, Decode)]
@@ -89,16 +94,15 @@ impl Change {
                 }
             }
             match &operation {
-                Operation::Set { target, value } => {
-                    if *target != value.id() {
-                        return Err(Error::new(
-                            ErrorCode::InvalidValue,
-                            "set must preserve target identity",
-                        ));
+                Operation::Insert { path, value } => {
+                    if path.is_empty() {
+                        return Err(root_error());
                     }
                     value.validate()?;
                 }
-                Operation::Insert { value, .. } => value.validate()?,
+                Operation::Delete { path } if path.is_empty() => return Err(root_error()),
+                Operation::Set { value, .. } => value.validate()?,
+                Operation::ListMove { from, to, .. } if from == to => continue,
                 Operation::Text { change, .. } => {
                     if &crate::sequence::change::TextChange::from_ops(change.ops().iter().cloned())?
                         != change
@@ -125,7 +129,7 @@ impl Change {
         }
         Ok(Self(Arc::new(result)))
     }
-    /// Creates the identity Change with no operations.
+    /// Creates the empty Change with no operations.
     pub fn noop() -> Self {
         Self::default()
     }
@@ -170,7 +174,7 @@ impl Change {
     }
 }
 
-/// Applies an identity-addressed Change atomically against the current content.
+/// Applies a path-addressed Change atomically.
 pub fn apply(base: &Value, change: &Change) -> Result<Value> {
     let mut value = base.clone();
     for operation in change.operations() {
@@ -191,45 +195,35 @@ pub fn compose(base: &Value, first: &Change, second: &Change) -> Result<Change> 
     // Validate the original execution order before compacting. In particular,
     // cancelling additions must not conceal an intermediate integer overflow.
     let (sequence, _) = sequence.normalized(base)?;
-    let mut operations = Vec::new();
+    let mut operations: Vec<Operation> = Vec::new();
     for operation in sequence.operations() {
         let merged = match (operations.last(), operation) {
+            (Some(Operation::Add { path: a, delta: x }), Operation::Add { path: b, delta: y })
+                if a == b =>
+            {
+                x.checked_add(*y).map(|delta| Operation::Add {
+                    path: a.clone(),
+                    delta,
+                })
+            }
             (
-                Some(Operation::Add {
-                    target: a,
-                    delta: x,
-                }),
-                Operation::Add {
-                    target: b,
-                    delta: y,
-                },
-            ) if a == b => x
-                .checked_add(*y)
-                .map(|delta| Operation::Add { target: *a, delta }),
-            (
-                Some(Operation::Text {
-                    target: a,
-                    change: x,
-                }),
-                Operation::Text {
-                    target: b,
-                    change: y,
-                },
+                Some(Operation::Text { path: a, change: x }),
+                Operation::Text { path: b, change: y },
             ) if a == b => {
                 let change = crate::sequence::op::compose(&x.clone().into(), &y.clone().into())
-                    .map_err(|e| Error::new(ErrorCode::IncompatibleChange, e.to_string()))?;
+                    .map_err(algebra_error)?;
                 Some(Operation::Text {
-                    target: *a,
+                    path: a.clone(),
                     change: change.as_text().cloned().unwrap_or_default(),
                 })
             }
             (
                 Some(Operation::RichText {
-                    target: a,
+                    path: a,
                     operations: x,
                 }),
                 Operation::RichText {
-                    target: b,
+                    path: b,
                     operations: y,
                 },
             ) if a == b => {
@@ -237,22 +231,31 @@ pub fn compose(base: &Value, first: &Change, second: &Change) -> Result<Change> 
                     &super::rich::to_sequence_change(x)?,
                     &super::rich::to_sequence_change(y)?,
                 )
-                .map_err(|e| Error::new(ErrorCode::IncompatibleChange, e.to_string()))?;
+                .map_err(algebra_error)?;
                 Some(Operation::RichText {
-                    target: *a,
+                    path: a.clone(),
                     operations: super::rich::from_sequence_change(&change)?,
                 })
             }
-            (Some(Operation::Set { target: a, .. }), Operation::Set { target: b, .. })
-                if a == b =>
-            {
+            (Some(Operation::Set { path: a, .. }), Operation::Set { path: b, .. }) if a == b => {
                 Some(operation.clone())
             }
-            (Some(Operation::Move { target: a, .. }), Operation::Move { target: b, .. })
-                if a == b =>
-            {
-                Some(operation.clone())
-            }
+            (
+                Some(Operation::ListMove {
+                    path: a,
+                    from,
+                    to: middle,
+                }),
+                Operation::ListMove {
+                    path: b,
+                    from: next,
+                    to,
+                },
+            ) if a == b && middle == next => Some(Operation::ListMove {
+                path: a.clone(),
+                from: *from,
+                to: *to,
+            }),
             _ => None,
         };
         if let Some(merged) = merged {
@@ -265,68 +268,67 @@ pub fn compose(base: &Value, first: &Change, second: &Change) -> Result<Change> 
     Ok(Change::new(operations)?.normalized(base)?.0)
 }
 
-/// Constructs a reverse Change that restores the base content and identities.
+/// Constructs a reverse Change that restores the base content.
 pub fn invert(base: &Value, change: &Change) -> Result<Change> {
     let mut before = base.clone();
     let mut inverses = Vec::new();
     for operation in change.operations() {
         let inverse = match operation {
-            Operation::Insert { value, .. } => vec![Operation::Delete { target: value.id() }],
-            Operation::Delete { target } => vec![Operation::Insert {
-                destination: destination_of(&before, *target)?,
-                value: before.get(*target)?,
+            Operation::Insert { path, .. } => vec![Operation::Delete { path: path.clone() }],
+            Operation::Delete { path } => vec![Operation::Insert {
+                path: path.clone(),
+                value: before.get(path)?.clone(),
             }],
-            Operation::Set { target, .. } => vec![Operation::Set {
-                target: *target,
-                value: before.get(*target)?,
+            Operation::Set { path, .. } => vec![Operation::Set {
+                path: path.clone(),
+                value: before.get(path)?.clone(),
             }],
-            Operation::Move { target, .. } => vec![Operation::Move {
-                target: *target,
-                destination: destination_of(&before, *target)?,
+            Operation::ListMove { path, from, to } => vec![Operation::ListMove {
+                path: path.clone(),
+                from: *to,
+                to: *from,
             }],
-            Operation::Text { target, change } => {
-                let value = before.get(*target)?;
-                let Body::Text(text) = value.body() else {
+            Operation::Text { path, change } => {
+                let Body::Text(text) = before.get(path)?.body() else {
                     return Err(type_error("expected Text"));
                 };
                 let inverse = crate::sequence::op::invert(
                     &change.clone().into(),
                     &crate::sequence::value::Value::text(text.clone()),
                 )
-                .map_err(|e| Error::new(ErrorCode::IncompatibleChange, e.to_string()))?;
+                .map_err(algebra_error)?;
                 vec![Operation::Text {
-                    target: *target,
+                    path: path.clone(),
                     change: inverse.as_text().cloned().unwrap_or_default(),
                 }]
             }
-            Operation::Add { target, delta } => match delta.checked_neg() {
+            Operation::Add { path, delta } => match delta.checked_neg() {
                 Some(delta) => vec![Operation::Add {
-                    target: *target,
+                    path: path.clone(),
                     delta,
                 }],
                 None => vec![
                     Operation::Add {
-                        target: *target,
+                        path: path.clone(),
                         delta: i64::MAX,
                     },
                     Operation::Add {
-                        target: *target,
+                        path: path.clone(),
                         delta: 1,
                     },
                 ],
             },
-            Operation::RichText { target, operations } => {
-                let value = before.get(*target)?;
-                let Body::RichText(spans) = value.body() else {
+            Operation::RichText { path, operations } => {
+                let Body::RichText(spans) = before.get(path)?.body() else {
                     return Err(type_error("expected RichText"));
                 };
                 let inverse = crate::sequence::op::invert(
                     &super::rich::to_sequence_change(operations)?,
                     &super::rich::to_sequence_value(spans)?,
                 )
-                .map_err(|e| Error::new(ErrorCode::IncompatibleChange, e.to_string()))?;
+                .map_err(algebra_error)?;
                 vec![Operation::RichText {
-                    target: *target,
+                    path: path.clone(),
                     operations: super::rich::from_sequence_change(&inverse)?,
                 }]
             }
@@ -339,37 +341,73 @@ pub fn invert(base: &Value, change: &Change) -> Result<Change> {
 
 pub(crate) fn apply_operation(base: &Value, operation: &Operation) -> Result<Value> {
     let result = match operation {
-        Operation::Insert { destination, value } => insert(base, destination, value)?,
-        Operation::Delete { target } => remove(base, *target)?.0,
-        Operation::Set { target, value } => {
-            if value.id() != *target {
-                return Err(Error::new(ErrorCode::InvalidValue, "set identity mismatch"));
-            }
-            base.replace_at(*target, value)?
+        Operation::Insert { path, value } => {
+            let (slot, parent) = path.split_last().ok_or_else(root_error)?;
+            base.update(parent, |parent| {
+                Ok(Value::trusted(match (parent.body(), slot) {
+                    (Body::Map(map), Segment::Key(key)) => {
+                        if map.contains_key(key) {
+                            return Err(Error::new(
+                                ErrorCode::InvalidArgument,
+                                "Map insertion key is occupied",
+                            )
+                            .detail("key", key));
+                        }
+                        let mut map = map.clone();
+                        map.insert(key.clone(), value.clone());
+                        Body::Map(map)
+                    }
+                    (Body::List(list), Segment::Index(index)) => {
+                        if *index > list.len() {
+                            return Err(Error::new(
+                                ErrorCode::OutOfBounds,
+                                "List insertion index is out of bounds",
+                            ));
+                        }
+                        let mut list = list.clone();
+                        list.insert(*index, value.clone());
+                        Body::List(list)
+                    }
+                    _ => return Err(type_error("insertion slot does not match parent kind")),
+                }))
+            })?
         }
-        Operation::Move {
-            target,
-            destination,
-        } => {
-            if *target == base.id() {
-                return Err(Error::new(ErrorCode::InvalidArgument, "root cannot move"));
-            }
-            let source = base.get(*target)?;
-            // Resolve and check the parent before detaching the source.
-            base.get(destination.parent)?;
-            if source.find(destination.parent).is_some() {
-                return Err(structural(
-                    "cannot move an element into itself or its descendant",
+        Operation::Delete { path } => {
+            let (slot, parent) = path.split_last().ok_or_else(root_error)?;
+            base.get(path)?;
+            base.update(parent, |parent| {
+                Ok(Value::trusted(match (parent.body(), slot) {
+                    (Body::Map(map), Segment::Key(key)) => {
+                        let mut map = map.clone();
+                        map.remove(key);
+                        Body::Map(map)
+                    }
+                    (Body::List(list), Segment::Index(index)) => {
+                        let mut list = list.clone();
+                        list.remove(*index);
+                        Body::List(list)
+                    }
+                    _ => unreachable!("get() resolved the deleted element"),
+                }))
+            })?
+        }
+        Operation::Set { path, value } => base.update(path, |_| Ok(value.clone()))?,
+        Operation::ListMove { path, from, to } => base.update(path, |list| {
+            let Body::List(list) = list.body() else {
+                return Err(type_error("expected List"));
+            };
+            if *from >= list.len() || *to >= list.len() {
+                return Err(Error::new(
+                    ErrorCode::OutOfBounds,
+                    "List move index is out of bounds",
                 ));
             }
-            if destination_of(base, *target)? == *destination {
-                return Ok(base.clone());
-            }
-            let (detached, source) = remove(base, *target)?;
-            insert(&detached, destination, &source)?
-        }
-        Operation::Text { target, change } => {
-            let value = base.get(*target)?;
+            let mut list = list.clone();
+            let moved = list.remove(*from);
+            list.insert(*to, moved);
+            Ok(Value::trusted(Body::List(list)))
+        })?,
+        Operation::Text { path, change } => base.update(path, |value| {
             let Body::Text(text) = value.body() else {
                 return Err(type_error("expected Text"));
             };
@@ -377,24 +415,18 @@ pub(crate) fn apply_operation(base: &Value, operation: &Operation) -> Result<Val
                 &crate::sequence::value::Value::text(text.clone()),
                 &change.clone().into(),
             )?;
-            let value = Value::trusted(
-                *target,
-                Body::Text(result.as_text().unwrap().as_str().into()),
-            );
-            base.replace_at(*target, &value)?
-        }
-        Operation::Add { target, delta } => {
-            let value = base.get(*target)?;
+            Value::text(result.as_text().unwrap().as_str())
+        })?,
+        Operation::Add { path, delta } => base.update(path, |value| {
             let Body::Int(number) = value.body() else {
                 return Err(type_error("expected Int"));
             };
             let number = number.checked_add(*delta).ok_or_else(|| {
                 Error::new(ErrorCode::IntegerOverflow, "integer addition overflow")
             })?;
-            base.replace_at(*target, &Value::trusted(*target, Body::Int(number)))?
-        }
-        Operation::RichText { target, operations } => {
-            let value = base.get(*target)?;
+            Ok(Value::int(number))
+        })?,
+        Operation::RichText { path, operations } => base.update(path, |value| {
             let Body::RichText(spans) = value.body() else {
                 return Err(type_error("expected RichText"));
             };
@@ -402,81 +434,22 @@ pub(crate) fn apply_operation(base: &Value, operation: &Operation) -> Result<Val
                 &super::rich::to_sequence_value(spans)?,
                 &super::rich::to_sequence_change(operations)?,
             )?;
-            base.replace_at(
-                *target,
-                &Value::trusted(
-                    *target,
-                    Body::RichText(super::rich::from_sequence_value(&result)?),
-                ),
-            )?
-        }
+            Value::rich_text(super::rich::from_sequence_value(&result)?)
+        })?,
     };
-    result.validate()?;
+    result.check_limits()?;
     Ok(result)
 }
 
-pub(crate) fn destination_of(base: &Value, id: ElementId) -> Result<Destination> {
-    let mut path: Path = base.path_of(id).ok_or_else(|| missing(id))?;
-    let slot = path
-        .pop()
-        .ok_or_else(|| Error::new(ErrorCode::InvalidArgument, "root has no owning parent"))?;
-    Ok(Destination {
-        parent: base.id_at(path)?,
-        slot,
-    })
-}
-
-fn insert(base: &Value, destination: &Destination, value: &Value) -> Result<Value> {
-    let parent = base.get(destination.parent)?;
-    let body = match (parent.body(), &destination.slot) {
-        (Body::Map(map), Segment::Key(key)) => {
-            if map.contains_key(key) {
-                return Err(structural("Map destination key is occupied").detail("key", key));
-            }
-            let mut next = map.clone();
-            next.insert(key.clone(), value.clone());
-            Body::Map(next)
-        }
-        (Body::List(list), Segment::Index(index)) => {
-            if *index > list.len() {
-                return Err(Error::new(
-                    ErrorCode::OutOfBounds,
-                    "List insertion index is out of bounds",
-                ));
-            }
-            let mut next = list.clone();
-            next.insert(*index, value.clone());
-            Body::List(next)
-        }
-        _ => return Err(type_error("destination does not match parent kind")),
-    };
-    base.replace_at(parent.id(), &Value::trusted(parent.id(), body))
-}
-
-fn remove(base: &Value, target: ElementId) -> Result<(Value, Value)> {
-    let destination = destination_of(base, target)?;
-    let parent = base.get(destination.parent)?;
-    let (body, removed) = match (parent.body(), destination.slot) {
-        (Body::Map(map), Segment::Key(key)) => {
-            let mut next = map.clone();
-            let removed = next.remove(&key).unwrap();
-            (Body::Map(next), removed)
-        }
-        (Body::List(list), Segment::Index(index)) => {
-            let mut next = list.clone();
-            let removed = next.remove(index);
-            (Body::List(next), removed)
-        }
-        _ => unreachable!("destination_of returns the existing owning edge"),
-    };
-    Ok((
-        base.replace_at(parent.id(), &Value::trusted(parent.id(), body))?,
-        removed,
-    ))
-}
-pub(crate) fn structural(reason: &str) -> Error {
-    Error::new(ErrorCode::StructuralConflict, reason)
+fn root_error() -> Error {
+    Error::new(
+        ErrorCode::InvalidArgument,
+        "the root cannot be inserted or deleted",
+    )
 }
 pub(crate) fn type_error(reason: &str) -> Error {
     Error::new(ErrorCode::TypeMismatch, reason)
+}
+pub(crate) fn algebra_error(error: impl std::fmt::Display) -> Error {
+    Error::new(ErrorCode::IncompatibleChange, error.to_string())
 }

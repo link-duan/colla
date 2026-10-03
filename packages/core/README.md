@@ -1,7 +1,7 @@
 # colla-ot
 
-Synchronous collaborative documents powered by Rust and WebAssembly. Provides stable
-identity, atomic editing, collaborative undo/redo and centralized synchronization.
+Synchronous collaborative documents powered by Rust and WebAssembly. Provides
+path-addressed structured content, atomic editing, collaborative undo/redo and centralized synchronization.
 Node.js 22+, modern browsers and workers use the same ESM import. There are no npm
 runtime dependencies or public Wasm initialization steps.
 

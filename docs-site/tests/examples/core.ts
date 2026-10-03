@@ -4,7 +4,7 @@ const base = Value.fromJS(text('A😀B'))
 const left = Change.create([
   {
     type: 'text',
-    target: base.id,
+    path: [],
     operations: [
       { type: 'retain', length: 2 },
       { type: 'insert', text: '!' },
@@ -14,7 +14,7 @@ const left = Change.create([
 const right = Change.create([
   {
     type: 'text',
-    target: base.id,
+    path: [],
     operations: [{ type: 'insert', text: 'Hello ' }],
   },
 ])
@@ -24,5 +24,5 @@ if (!merged.equals(apply(apply(base, right), leftAfterRight))) throw new Error('
 if (!merged.equals(apply(base, compose(base, left, rightAfterLeft))))
   throw new Error('Compose failed')
 if (!apply(apply(base, left), invert(base, left)).equals(base)) throw new Error('Inverse failed')
-if (!Value.decode(merged.encode()).equals(merged)) throw new Error('Codec lost identity')
+if (!Value.decode(merged.encode()).equals(merged)) throw new Error('Codec changed content')
 console.log(merged.toJS()) // Text { type: 'text', value: 'Hello A😀!B' }

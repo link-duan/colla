@@ -8,7 +8,7 @@ boundaries instead of constructing plain objects that resemble protocol fields.
 
 A Submission carries documentId, clientId, sequence, baseRevision and change. Sequence
 and revisions are bigint u64 values in JavaScript. Together, the document/client/sequence
-identify the request; ElementIds identify content and serve a different purpose.
+identify the request.
 
 Request identity remains fixed until confirmation. See [Retries](./retries#retry-the-original-bytes)
 for the distinction between the original request and its rebased working Change.

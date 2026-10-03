@@ -17,8 +17,8 @@ console.log('Local content version:', doc.version) // 1n
 doc.close()
 ```
 
-Document and Transaction expose the same read operations as Value: get, has, kind,
-idAt, pathOf, resolve and referencesTo. Transaction reads observe its working edits.
+Document and Transaction expose the same read operations as Value: get, has and kind.
+Transaction reads observe its working edits.
 Value reads always observe that Value's snapshot.
 
 ## Local version is not server revision

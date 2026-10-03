@@ -1,9 +1,9 @@
 use colla::{Authority, AuthorityCheckpoint, Value};
 
 fn main() -> colla::Result<()> {
-    let value = Value::text("😀 stable identity")?;
+    let value = Value::text("😀 round trip")?;
     let decoded = Value::decode(&value.encode())?;
-    println!("Value content and IDs preserved: {}", decoded == value);
+    println!("Value content preserved: {}", decoded == value);
     let authority = Authority::create("example", value)?;
     let bytes = authority.checkpoint().encode();
     let restored = Authority::restore(AuthorityCheckpoint::decode(&bytes)?)?;

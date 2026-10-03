@@ -6,17 +6,12 @@ import {
   CoreWire,
   CoreSession,
   CoreAuthority,
-  core_validate_id,
   core_apply,
   core_invert,
   core_compose,
   core_transform,
 } from './internal/colla_wasm.js'
-export type ElementId = string & {
-  readonly __elementId: unique symbol
-}
 export type Path = readonly (string | number)[]
-export type Location = Path | ElementId
 export type ValueKind =
   | 'null'
   | 'bool'
@@ -25,7 +20,6 @@ export type ValueKind =
   | 'string'
   | 'text'
   | 'richtext'
-  | 'ref'
   | 'list'
   | 'map'
 export type ErrorCode =
@@ -40,21 +34,18 @@ export type ErrorCode =
   | 'integer_overflow'
   | 'incompatible_change'
   | 'invalid_utf16_boundary'
-  | 'structural_conflict'
   | 'missing_revision'
   | 'history_expired'
 export class CollaError extends Error {
   readonly code: ErrorCode
   readonly operation: string
   readonly details: Readonly<Record<string, string>>
-  readonly elementId?: ElementId
   constructor(code: ErrorCode, operation: string, details: Readonly<Record<string, string>> = {}) {
     super(details.reason ?? code)
     this.name = 'CollaError'
     this.code = code
     this.operation = operation
     this.details = Object.freeze({ ...details })
-    this.elementId = details.elementId as ElementId | undefined
     Object.freeze(this)
   }
 }
@@ -100,14 +91,8 @@ function bytes(value: unknown): Uint8Array {
   if (!(value instanceof Uint8Array)) fail('invalid_argument', 'decode', 'expected Uint8Array')
   return value
 }
-export const ElementId = Object.freeze({
-  parse(value: string): ElementId {
-    return invoke('ElementId.parse', () => core_validate_id(checkedString(value)) as ElementId)
-  },
-})
-function locate(value: Location): string | (string | number)[] {
-  if (typeof value === 'string') return ElementId.parse(value)
-  if (!Array.isArray(value)) fail('invalid_argument', 'location', 'expected a Path or ElementId')
+function checkedPath(value: Path): (string | number)[] {
+  if (!Array.isArray(value)) fail('invalid_argument', 'path', 'expected a Path')
   return value.map(part => (typeof part === 'string' ? checkedString(part) : checkedIndex(part)))
 }
 export type AttrValue = boolean | bigint | number | string
@@ -121,7 +106,6 @@ export type Input =
   | string
   | Text
   | RichText
-  | Ref
   | Value
   | readonly Input[]
   | InputMap
@@ -173,13 +157,6 @@ export class Text {
     Object.freeze(this)
   }
 }
-export class Ref {
-  readonly target: ElementId
-  constructor(target: ElementId) {
-    this.target = ElementId.parse(target)
-    Object.freeze(this)
-  }
-}
 export class RichText {
   readonly type = 'richtext'
   readonly spans: readonly RichTextSpan[]
@@ -211,18 +188,9 @@ export function text(value: string): Text {
 export function richText(spans: readonly RichTextSpan[]): RichText {
   return new RichText(spans)
 }
-export function ref(target: ElementId): Ref {
-  return new Ref(target)
-}
 function immutableInput(input: Input, active = new Set<object>(), depth = 0): Input {
   if (depth > 100) fail('limit_exceeded', 'input', 'value depth exceeded')
-  if (
-    input instanceof Value ||
-    input instanceof Text ||
-    input instanceof RichText ||
-    input instanceof Ref
-  )
-    return input
+  if (input instanceof Value || input instanceof Text || input instanceof RichText) return input
   if (typeof input === 'string') return checkedString(input)
   if (input === null || ['boolean', 'bigint', 'number'].includes(typeof input)) return input
   if (!input || typeof input !== 'object') fail('invalid_argument', 'input', 'unsupported value')
@@ -237,9 +205,8 @@ function immutableInput(input: Input, active = new Set<object>(), depth = 0): In
 type Tagged = unknown[]
 function inputNode(input: Input, active = new Set<object>(), depth = 0): Tagged {
   if (depth > 100) fail('limit_exceeded', 'input', 'value depth exceeded')
-  if (input instanceof Value) return [10, input.encode()]
+  if (input instanceof Value) return [9, input.encode()]
   if (input instanceof Text) return [5, input.value]
-  if (input instanceof Ref) return [7, input.target]
   if (input instanceof RichText)
     return [6, input.spans.map(span => spanInput(span, active, depth + 1))]
   if (input === null) return [0]
@@ -251,8 +218,8 @@ function inputNode(input: Input, active = new Set<object>(), depth = 0): Tagged 
   if (active.has(input)) fail('invalid_value', 'input', 'owning content cannot contain cycles')
   active.add(input)
   const out = Array.isArray(input)
-    ? [8, input.map(v => inputNode(v, active, depth + 1))]
-    : [9, entries(input).map(([key, value]) => [key, inputNode(value as Input, active, depth + 1)])]
+    ? [7, input.map(v => inputNode(v, active, depth + 1))]
+    : [8, entries(input).map(([key, value]) => [key, inputNode(value as Input, active, depth + 1)])]
   active.delete(input)
   return out
 }
@@ -285,10 +252,8 @@ function project(node: any[]): Input {
     case 6:
       return richText(node[1].map(projectedSpan))
     case 7:
-      return ref(node[1])
-    case 8:
       return Object.freeze(node[1].map(project))
-    case 9:
+    case 8:
       return dataObject(node[1].map(([key, value]: [string, any[]]) => [key, project(value)]))
     default:
       return fail('invalid_state', 'projection', 'invalid Rust projection')
@@ -326,18 +291,15 @@ export class Value {
   static decode(input: Uint8Array): Value {
     return invoke('Value.decode', () => wrapValue(CoreValue.decode(bytes(input))))
   }
-  get id(): ElementId {
-    return rawValue(this).id() as ElementId
-  }
   encode(): Uint8Array {
     return invoke('Value.encode', () => rawValue(this).encode())
   }
   toJS(): Input {
     return invoke('Value.toJS', () => project(rawValue(this).projection()))
   }
-  get(location: Location = []): Value | undefined {
+  get(path: Path = []): Value | undefined {
     try {
-      return invoke('Value.get', () => wrapValue(rawValue(this).get(locate(location))))
+      return invoke('Value.get', () => wrapValue(rawValue(this).get(checkedPath(path))))
     } catch (error) {
       if (
         error instanceof CollaError &&
@@ -347,66 +309,17 @@ export class Value {
       throw error
     }
   }
-  has(location: Location): boolean {
-    return this.get(location) !== undefined
+  has(path: Path): boolean {
+    return this.get(path) !== undefined
   }
-  kind(location: Location = []): ValueKind | undefined {
-    const value = Array.isArray(location) && location.length === 0 ? this : this.get(location)
+  kind(path: Path = []): ValueKind | undefined {
+    const value = Array.isArray(path) && path.length === 0 ? this : this.get(path)
     return value && invoke('Value.kind', () => rawValue(value).kind() as ValueKind)
-  }
-  idAt(path: Path): ElementId {
-    const value = this.get(path)
-    if (!value) fail('missing_key', 'Value.idAt', 'element does not exist')
-    return value.id
-  }
-  pathOf(id: ElementId): Path | undefined {
-    const path = invoke('Value.pathOf', () => rawValue(this).path_of(ElementId.parse(id)))
-    return path && Object.freeze(path)
-  }
-  resolve(reference: Ref): Value | undefined {
-    if (!(reference instanceof Ref)) fail('invalid_argument', 'Value.resolve', 'expected Ref')
-    const value = invoke('Value.resolve', () => rawValue(this).resolve(reference.target))
-    return value && wrapValue(value)
-  }
-  referencesTo(id: ElementId): readonly ElementId[] {
-    return Object.freeze(
-      invoke('Value.referencesTo', () =>
-        rawValue(this).references_to(ElementId.parse(id)),
-      ) as ElementId[],
-    )
   }
   equals(other: Value): boolean {
     return invoke('Value.equals', () => rawValue(this).equals(rawValue(other)))
   }
-  contentEquals(other: Value): boolean {
-    return invoke('Value.contentEquals', () => rawValue(this).content_equals(rawValue(other)))
-  }
-  copy(): Value {
-    return invoke('Value.copy', () => wrapValue(rawValue(this).copied()))
-  }
 }
-export type Destination =
-  | {
-      readonly parent: ElementId
-      readonly key: string
-      readonly index?: never
-    }
-  | {
-      readonly parent: ElementId
-      readonly index: number
-      readonly key?: never
-    }
-export type MoveTarget =
-  | {
-      readonly parent: Location
-      readonly key: string
-      readonly index?: never
-    }
-  | {
-      readonly parent: Location
-      readonly index: number
-      readonly key?: never
-    }
 export type TextOp =
   | {
       readonly type: 'retain' | 'delete'
@@ -433,47 +346,39 @@ export type RichTextOp =
 export type Operation =
   | {
       readonly type: 'insert'
-      readonly destination: Destination
+      readonly path: Path
       readonly value: Value
     }
   | {
       readonly type: 'delete'
-      readonly target: ElementId
+      readonly path: Path
     }
   | {
       readonly type: 'set'
-      readonly target: ElementId
+      readonly path: Path
       readonly value: Value
     }
   | {
-      readonly type: 'move'
-      readonly target: ElementId
-      readonly destination: Destination
+      readonly type: 'listMove'
+      readonly path: Path
+      readonly from: number
+      readonly to: number
     }
   | {
       readonly type: 'text'
-      readonly target: ElementId
+      readonly path: Path
       readonly operations: readonly TextOp[]
     }
   | {
       readonly type: 'add'
-      readonly target: ElementId
+      readonly path: Path
       readonly delta: bigint
     }
   | {
       readonly type: 'richtext'
-      readonly target: ElementId
+      readonly path: Path
       readonly operations: readonly RichTextOp[]
     }
-export type EditStep = Operation
-function destinationInput(value: Destination | MoveTarget, identity = true): Tagged {
-  if ((value.key === undefined) === (value.index === undefined))
-    fail('invalid_argument', 'destination', 'provide exactly one key or index')
-  return [
-    identity ? ElementId.parse(value.parent as ElementId) : locate(value.parent),
-    value.key === undefined ? checkedIndex(value.index) : checkedString(value.key),
-  ]
-}
 function textOperationInput(op: TextOp): Tagged {
   if (op.type === 'retain') return [0, checkedIndex(op.length)]
   if (op.type === 'insert') return [1, checkedString(op.text)]
@@ -489,50 +394,37 @@ function richOperationInput(op: RichTextOp): Tagged {
 function operationInput(op: Operation): Tagged {
   switch (op.type) {
     case 'insert':
-      return [0, destinationInput(op.destination), inputNode(op.value)]
+      return [0, checkedPath(op.path), inputNode(op.value)]
     case 'delete':
-      return [1, ElementId.parse(op.target)]
+      return [1, checkedPath(op.path)]
     case 'set':
-      return [2, ElementId.parse(op.target), inputNode(op.value)]
-    case 'move':
-      return [3, ElementId.parse(op.target), destinationInput(op.destination)]
+      return [2, checkedPath(op.path), inputNode(op.value)]
+    case 'listMove':
+      return [3, checkedPath(op.path), checkedIndex(op.from), checkedIndex(op.to)]
     case 'text':
-      return [4, ElementId.parse(op.target), op.operations.map(textOperationInput)]
+      return [4, checkedPath(op.path), op.operations.map(textOperationInput)]
     case 'add':
-      return [5, ElementId.parse(op.target), op.delta]
+      return [5, checkedPath(op.path), op.delta]
     case 'richtext':
-      return [6, ElementId.parse(op.target), op.operations.map(richOperationInput)]
+      return [6, checkedPath(op.path), op.operations.map(richOperationInput)]
     default:
       return fail('invalid_argument', 'Change.create', 'unknown operation')
   }
 }
-function destinationProjection(d: any[]): Destination {
-  return Object.freeze(
-    typeof d[1] === 'string' ? { parent: d[0], key: d[1] } : { parent: d[0], index: d[1] },
-  )
-}
 function operationProjection(op: any[]): Operation {
   switch (op[0]) {
     case 0:
-      return Object.freeze({
-        type: 'insert',
-        destination: destinationProjection(op[1]),
-        value: wrapValue(op[2]),
-      })
+      return Object.freeze({ type: 'insert', path: Object.freeze(op[1]), value: wrapValue(op[2]) })
     case 1:
-      return Object.freeze({ type: 'delete', target: op[1] })
+      return Object.freeze({ type: 'delete', path: Object.freeze(op[1]) })
     case 2:
-      return Object.freeze({ type: 'set', target: op[1], value: wrapValue(op[2]) })
+      return Object.freeze({ type: 'set', path: Object.freeze(op[1]), value: wrapValue(op[2]) })
     case 3:
-      return Object.freeze({
-        type: 'move',
-        target: op[1],
-        destination: destinationProjection(op[2]),
-      })
+      return Object.freeze({ type: 'listMove', path: Object.freeze(op[1]), from: op[2], to: op[3] })
     case 4:
       return Object.freeze({
         type: 'text',
-        target: op[1],
+        path: Object.freeze(op[1]),
         operations: Object.freeze(
           op[2].map((step: any[]) =>
             Object.freeze(
@@ -544,11 +436,11 @@ function operationProjection(op: any[]): Operation {
         ),
       })
     case 5:
-      return Object.freeze({ type: 'add', target: op[1], delta: op[2] })
+      return Object.freeze({ type: 'add', path: Object.freeze(op[1]), delta: op[2] })
     case 6:
       return Object.freeze({
         type: 'richtext',
-        target: op[1],
+        path: Object.freeze(op[1]),
         operations: Object.freeze(
           op[2].map((step: any[]) =>
             Object.freeze(
@@ -633,7 +525,6 @@ export interface EditResult {
   readonly after: Value
   readonly change: Change
   readonly inverse: Change
-  readonly editSteps: readonly EditStep[]
   readonly version: bigint
   readonly origin: Origin
 }
@@ -684,33 +575,20 @@ function editResult(raw: any): EditResult | null {
         after: wrapValue(raw.after),
         change: wrapChange(raw.change),
         inverse: wrapChange(raw.inverse),
-        editSteps: Object.freeze(raw.editSteps.map(operationProjection)),
         version: raw.version,
         origin: raw.origin,
       })
 }
 abstract class Reader {
   abstract snapshot(): Value
-  get(location: Location = []): Value | undefined {
-    return this.snapshot().get(location)
+  get(path: Path = []): Value | undefined {
+    return this.snapshot().get(path)
   }
-  has(location: Location): boolean {
-    return this.snapshot().has(location)
+  has(path: Path): boolean {
+    return this.snapshot().has(path)
   }
-  kind(location: Location = []): ValueKind | undefined {
-    return this.snapshot().kind(location)
-  }
-  idAt(path: Path): ElementId {
-    return this.snapshot().idAt(path)
-  }
-  pathOf(id: ElementId): Path | undefined {
-    return this.snapshot().pathOf(id)
-  }
-  resolve(reference: Ref): Value | undefined {
-    return this.snapshot().resolve(reference)
-  }
-  referencesTo(id: ElementId): readonly ElementId[] {
-    return this.snapshot().referencesTo(id)
+  kind(path: Path = []): ValueKind | undefined {
+    return this.snapshot().kind(path)
   }
 }
 type DocumentState = {
@@ -868,57 +746,52 @@ export class Transaction extends Reader {
       wrapValue(scoped(this).state.raw.transaction_snapshot()),
     )
   }
-  set(location: Location, value: Input): void {
+  set(path: Path, value: Input): void {
     scoped(this)
-    command(this, [0, locate(location), inputNode(value)])
+    command(this, [0, checkedPath(path), inputNode(value)])
   }
-  delete(location: Location): void {
+  delete(path: Path): void {
     scoped(this)
-    command(this, [1, locate(location)])
+    command(this, [1, checkedPath(path)])
   }
-  move(source: Location, target: MoveTarget): void {
+  copy(source: Path, destination: Path): void {
     scoped(this)
-    const [parent, slot] = destinationInput(target, false)
-    command(this, [2, locate(source), parent, slot])
+    command(this, [3, checkedPath(source), checkedPath(destination)])
   }
-  copy(source: Location, target: MoveTarget): ElementId {
+  increment(path: Path, delta: bigint): void {
     scoped(this)
-    const [parent, slot] = destinationInput(target, false)
-    return command(this, [3, locate(source), parent, slot]) as ElementId
-  }
-  increment(location: Location, delta: bigint): void {
-    scoped(this)
-    command(this, [4, locate(location), delta])
+    command(this, [4, checkedPath(path), delta])
   }
   apply(change: Change): void {
     invoke('Transaction.apply', () => scoped(this).state.raw.transaction_apply(rawChange(change)))
   }
-  list(location: Location): ListEditor {
-    return new (ListEditor as any)(token, this, editorTarget(this, location, 'list'))
+  list(path: Path): ListEditor {
+    return new (ListEditor as any)(token, this, editorTarget(this, path, 'list'))
   }
-  text(location: Location): TextEditor {
-    return new (TextEditor as any)(token, this, editorTarget(this, location, 'text'))
+  text(path: Path): TextEditor {
+    return new (TextEditor as any)(token, this, editorTarget(this, path, 'text'))
   }
-  richText(location: Location): RichTextEditor {
-    return new (RichTextEditor as any)(token, this, editorTarget(this, location, 'richtext'))
+  richText(path: Path): RichTextEditor {
+    return new (RichTextEditor as any)(token, this, editorTarget(this, path, 'richtext'))
   }
 }
-function editorTarget(tx: Transaction, location: Location, kind: ValueKind): ElementId {
-  const value = tx.get(location)
+function editorTarget(tx: Transaction, path: Path, kind: ValueKind): (string | number)[] {
+  const target = checkedPath(path)
+  const value = tx.get(target)
   if (!value) fail('missing_key', 'Transaction', 'editor target does not exist')
   if (value.kind() !== kind) fail('type_mismatch', 'Transaction', `expected ${kind}`)
-  return value.id
+  return target
 }
 const editors = new WeakMap<
   object,
   {
     tx: Transaction
-    target: ElementId
+    target: (string | number)[]
   }
 >()
 function editor(handle: object): {
   tx: Transaction
-  target: ElementId
+  target: (string | number)[]
 } {
   const item = editors.get(handle)
   if (!item) fail('invalid_state', 'editor', 'invalid editor')
@@ -926,7 +799,7 @@ function editor(handle: object): {
   return item
 }
 export class ListEditor {
-  private constructor(key: symbol, tx: Transaction, target: ElementId) {
+  private constructor(key: symbol, tx: Transaction, target: (string | number)[]) {
     if (key !== token) fail('invalid_argument', 'ListEditor', 'use tx.list')
     editors.set(this, { tx, target })
     Object.freeze(this)
@@ -936,6 +809,10 @@ export class ListEditor {
   }
   delete(index: number, count: number): void {
     this.replace(index, count, [])
+  }
+  move(from: number, to: number): void {
+    const { tx, target } = editor(this)
+    command(tx, [2, target, checkedIndex(from), checkedIndex(to)])
   }
   replace(index: number, count: number, values: readonly Input[]): void {
     const { tx, target } = editor(this)
@@ -951,7 +828,7 @@ export class ListEditor {
   }
 }
 export class TextEditor {
-  private constructor(key: symbol, tx: Transaction, target: ElementId) {
+  private constructor(key: symbol, tx: Transaction, target: (string | number)[]) {
     if (key !== token) fail('invalid_argument', 'TextEditor', 'use tx.text')
     editors.set(this, { tx, target })
     Object.freeze(this)
@@ -968,7 +845,7 @@ export class TextEditor {
   }
 }
 export class RichTextEditor {
-  private constructor(key: symbol, tx: Transaction, target: ElementId) {
+  private constructor(key: symbol, tx: Transaction, target: (string | number)[]) {
     if (key !== token) fail('invalid_argument', 'RichTextEditor', 'use tx.richText')
     editors.set(this, { tx, target })
     Object.freeze(this)

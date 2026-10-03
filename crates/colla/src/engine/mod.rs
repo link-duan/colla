@@ -1,29 +1,27 @@
-//! Identity-aware content, native movement, references, and collaboration.
+//! Path-addressed content, collaborative editing, and synchronization.
 
 mod change;
 mod codec;
 mod editing;
 mod error;
 mod history;
-mod identity;
 mod rich;
 mod sync;
 mod transform;
 mod value;
 
-pub use change::{apply, compose, invert, Change, Destination, Operation};
+pub use change::{apply, compose, invert, Change, Operation};
 pub use editing::{Document, EditResult, Origin, Transaction};
 pub(crate) use error::Error;
 pub use error::{CollaError, ErrorCode, Result};
 pub use history::{History, HistoryCheckpoint};
-pub use identity::{ElementId, IdAllocator};
 pub use rich::RichOp;
 pub use sync::{
     Authority, AuthorityCheckpoint, Commit, Rejection, ServerMessage, SessionCheckpoint,
     Submission, SyncSession, SyncSnapshot,
 };
 pub use transform::{transform, Priority};
-pub use value::{Attr, AttrPatch, Attrs, Body, Location, Path, Ref, RichSpan, Segment, Value};
+pub use value::{Attr, AttrPatch, Attrs, Body, Path, RichSpan, Segment, Value};
 
 /// Private facade support, enabled only by the binding crate through the
 /// unstable `__bindings` feature. Exempt from semver.
@@ -41,8 +39,5 @@ pub mod binding {
     }
     pub fn finish(transaction: &mut Transaction) {
         transaction.finish();
-    }
-    pub fn import_set(value: &Value, id: ElementId) -> Result<Value> {
-        value.copy_into(Some(id))
     }
 }

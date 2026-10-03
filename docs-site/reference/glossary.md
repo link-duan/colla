@@ -7,44 +7,28 @@ content, editing intent and synchronization state.
 
 ### Value
 
-An immutable owning content tree with stable element identities. It is not an editable Document.
+An immutable owning content tree without identity; equality is structural. It is not an editable Document.
 
 ### Snapshot
 
-A Value observed at one moment. Its paths and reference resolution see only that content; it is not necessarily a confirmed SyncSnapshot.
-
-### ElementId
-
-Stable identity of an element instance, independent of position, content and synchronization request identity.
+A Value observed at one moment. Its paths see only that content; it is not necessarily a confirmed SyncSnapshot.
 
 ### Path
 
-A snapshot-relative array of Map keys and List indexes. A Path is a location, not stable identity.
+An array of Map keys and List indexes interpreted against one content state. It is the
+only way to address content and changes as content is edited.
 
 ### Map and List
 
-Map owns children under string keys; List owns an ordered sequence of children. Both
-containers and their children have element identities.
+Map owns children under string keys; List owns an ordered sequence of children.
 
-### Move
+### ListMove
 
-Native relocation preserving the source and all descendant identities.
-
-### Copy
-
-A new subtree with fresh owning identities and remapped internal Refs.
-
-### Ref
-
-An atomic same-document weak reference. It may dangle; explicit resolution advances one hop.
+Native move of one element within the same List. Concurrent edits inside the element follow it.
 
 ### Change
 
-An ordered immutable operation sequence. Targets use IDs; sequence positions refer to each working step.
-
-### Edit Steps
-
-Replayable operation projection of a committed edit. Positions are scalar, not UI UTF-16 offsets.
+An ordered immutable operation sequence. Each path and sequence position refers to the content after the preceding operations; positions are scalar, not UI UTF-16 offsets.
 
 ### Document
 
@@ -98,7 +82,7 @@ Complete client restoration state, including request identity, visible content a
 
 ### HistoryCheckpoint
 
-Undo/redo stacks, grouping and capacity tied to an exact content and identity basis.
+Undo/redo stacks, grouping and capacity tied to an exact content basis.
 
 ### AuthorityCheckpoint
 
@@ -110,11 +94,7 @@ A state preserving local work while outbound synchronization is halted pending e
 
 ### Priority
 
-Consistent left/right intent arbitration used in transformation, not timestamp or ID ordering.
-
-### Structural conflict
-
-An unsafe merged ownership structure, such as a cycle, invalid parent or unresolved Map occupancy.
+Consistent left/right intent arbitration used in transformation, not timestamp ordering.
 
 ### Canonical form
 
@@ -175,7 +155,6 @@ A public failure with stable code, operation and diagnostic details; message tex
 | `integer_overflow`       | Checked i64 arithmetic overflow.                                                   |
 | `incompatible_change`    | Change cannot be interpreted against the supplied basis.                           |
 | `invalid_utf16_boundary` | High-level text offset splits a surrogate pair.                                    |
-| `structural_conflict`    | Merged ownership structure cannot be applied safely.                               |
 | `missing_revision`       | Receive requires an earlier revision interval; content remains unchanged.          |
 | `history_expired`        | Required rebase history is no longer retained.                                     |
 

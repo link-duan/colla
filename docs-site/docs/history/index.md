@@ -24,9 +24,9 @@ and redo, and they are ordinary outgoing local work in synchronized sessions.
 
 ## What an undo restores
 
-Inverses restore element identities, not merely equal-looking content. A Ref whose
-target is restored can resolve again. History is not a saved sequence of full server
-snapshots and does not rewind the Authority's revision.
+Inverses restore the content removed or replaced by the original edit, rebased across
+later remote edits. History is not a saved sequence of full server snapshots and does
+not rewind the Authority's revision.
 
 ## Boundaries
 

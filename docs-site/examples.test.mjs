@@ -11,12 +11,7 @@ const expectedOutput = {
     'Temporary field exists: false',
     "Final steps: [ 'review', 'release' ]",
   ],
-  'root-copy': [
-    'Copy has a new ID: true',
-    'Original title: Draft',
-    'Archived title: Draft',
-    'Archive inside copy: []',
-  ],
+  'root-copy': ['Original title: Draft', 'Archived title: Draft', 'Archive inside copy: []'],
   'session-restart': [
     'Before restart: 1n',
     'After restart: 1n',
@@ -44,10 +39,9 @@ const expectedOutput = {
     'After undo — Bob’s contribution remains: 10n',
     'After redo — Alice’s contribution restored: 11n',
   ],
-  'move-ref': [
-    "Path before move: [ 'todo', 0 ]",
-    "Path after move: [ 'done', 0 ]",
-    'Ref still targets the same task: true',
+  'list-move': [
+    "First task: Text { type: 'text', value: 'Review' }",
+    "Second task: Text { type: 'text', value: 'Draft' }",
   ],
   editor: [
     'Selected UTF-16 range: [1, 3) — one emoji, two code units',

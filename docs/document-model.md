@@ -5,8 +5,9 @@ state transitions. JavaScript performs input conversion, synchronous scope
 management and isolated subscriptions. Content, local version, History, pending
 and outbound effects are computed before a single commit.
 
-A scoped transaction can read its working Value, edit every value type, move or
-copy subtrees and apply an identity-explicit Change. Normalized Noop returns no
+A scoped transaction can read its working Value, edit every value type, move List
+elements, copy subtrees and apply a path-addressed Change. Each editing call
+interprets its Path against the current working content. Normalized Noop returns no
 result and changes no runtime state. Closing or receiving remotely inside the
 scope fails. Nested transactions and thenable results are rejected. Escaped
 JavaScript editors are invalid, including read access.
@@ -17,8 +18,8 @@ and out-of-range positions are rejected. Local content version is distinct from
 Authority revision. Runtime close is idempotent and does not invalidate returned
 immutable Values, Changes or snapshots.
 
-EditResult preserves before/after, change/inverse, replayable scalar edit steps,
-local version and origin. Move steps retain their source ID. Events occur after
+EditResult preserves before/after, change/inverse, local version and origin. The
+change operations replay sequentially from `before`. Events occur after
 commit; reads are allowed during dispatch, but reentrant edits are rejected.
 Listener exceptions cannot roll back content or interrupt other listeners.
 
@@ -37,8 +38,8 @@ for transformations. Compaction advances the available history floor while
 preserving deduplication receipts.
 
 Duplicate messages are idempotent. Revision gaps leave content unchanged and
-identify the missing range. Structural rejection, expired history or impossible
-rebase enters recovery-required, retaining all work and permitting local edits
+identify the missing range. Rejection, expired history or impossible rebase
+enters recovery-required, retaining all work and permitting local edits
 and exports while stopping outgoing synchronization. Applications establish a
 fresh session and merge retained work explicitly.
 

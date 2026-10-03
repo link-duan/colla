@@ -135,10 +135,10 @@ const input = {
   items: ['a', 'b', 'c'],
 }
 const base = Value.fromJS(input)
-const counter = base.idAt(['count'])
-const first = Change.create([{ type: 'add', target: counter, delta: 1n }])
-const second = Change.create([{ type: 'add', target: counter, delta: 2n }])
-const concurrent = Change.create([{ type: 'add', target: counter, delta: 3n }])
+const counter = ['count']
+const first = Change.create([{ type: 'add', path: counter, delta: 1n }])
+const second = Change.create([{ type: 'add', path: counter, delta: 2n }])
+const concurrent = Change.create([{ type: 'add', path: counter, delta: 3n }])
 const bytes = base.encode()
 const timings = {
   valueFromJS: benchmark(200, () => Value.fromJS(input).toJS()),

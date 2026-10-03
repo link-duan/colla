@@ -3,12 +3,12 @@ use criterion::{black_box, criterion_group, criterion_main, Criterion};
 fn benchmarks(c: &mut Criterion) {
     let base = Value::text("a".repeat(10000)).unwrap();
     let a = Change::new([Operation::Text {
-        target: base.id(),
+        path: vec![],
         change: TextChange::from_ops([TextOp::Retain(5000), TextOp::Insert("😀".into())]).unwrap(),
     }])
     .unwrap();
     let b = Change::new([Operation::Text {
-        target: base.id(),
+        path: vec![],
         change: TextChange::from_ops([TextOp::Retain(5001), TextOp::Delete(1)]).unwrap(),
     }])
     .unwrap();
@@ -27,20 +27,22 @@ fn benchmarks(c: &mut Criterion) {
         bench.iter(|| Value::decode(black_box(&bytes)).unwrap())
     });
     let items = Value::list((0..1000).map(Value::int).collect()).unwrap();
-    let id = items.id_at(vec![Segment::Index(500)]).unwrap();
-    let movement = Change::new([Operation::Move {
-        target: id,
-        destination: Destination {
-            parent: items.id(),
-            slot: Segment::Index(10),
-        },
+    let movement = Change::new([Operation::ListMove {
+        path: vec![],
+        from: 500,
+        to: 10,
     }])
     .unwrap();
     c.bench_function("move 1000 items", |bench| {
         bench.iter(|| apply(black_box(&items), &movement).unwrap())
     });
-    c.bench_function("lookup cached ID", |bench| {
-        bench.iter(|| items.get(black_box(id)).unwrap())
+    let nested = (0..20).fold(Value::int(0), |value, _| {
+        Value::list((0..50).map(|_| value.clone()).collect()).unwrap()
+    });
+    let path = vec![Segment::Index(25); 20];
+    let increment = Change::new([Operation::Add { path, delta: 1 }]).unwrap();
+    c.bench_function("edit deep leaf", |bench| {
+        bench.iter(|| apply(black_box(&nested), &increment).unwrap())
     });
 }
 criterion_group!(benches, benchmarks);

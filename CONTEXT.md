@@ -5,40 +5,24 @@ Colla 定义不可变结构化内容及其中心化协作编辑领域语言。
 ## Language
 
 **Value**:
-具有稳定身份的不可变拥有型内容树；包含标量、容器、Text、RichText 与 Ref。
+不携带身份的不可变拥有型内容树；包含标量、容器、Text 与 RichText，相等即结构相等。
 _Avoid_: JSON value, Document
 
 **Snapshot**:
 某一时刻的不可变完整 Value；其查询与引用解析仅观察该时刻的内容。
 _Avoid_: 已确认服务端状态, SyncSnapshot
 
-**Element ID**:
-元素实例的稳定身份，独立于内容、位置和同步请求身份。
-_Avoid_: List index, content hash, request identity
-
 **Path**:
-特定 Snapshot 中由 Map key 和 List index 组成的临时导航地址。
-_Avoid_: Stable identity
+由 Map key 和 List index 组成、相对某一内容状态解释的地址；是唯一的寻址方式。
+_Avoid_: Stable identity, Element ID
 
-**Move**:
-改变同一元素的拥有位置，同时保留它及其后代身份的原生结构编辑。
-_Avoid_: Copy, unrelated Delete and Insert
-
-**Copy**:
-创建一棵具有新拥有型身份的内容副本，并将内部 Ref 重映射到对应新元素。
-_Avoid_: Move, identity-preserving restore
-
-**Ref**:
-指向同一文档内某个 Element ID 的原子弱引用；允许悬空，解析只前进一步。
-_Avoid_: Owning edge, automatic traversal, cross-document reference
+**ListMove**:
+在同一 List 内把一个元素移到新位置的原生编辑；并发编辑经路径变换跟随该元素。
+_Avoid_: Cross-parent move, unrelated Delete and Insert
 
 **Change**:
-按执行顺序排列的规范操作序列；结构目标使用元素身份，序列坐标相对各步内容。
+按执行顺序排列的规范操作序列；每步路径和序列坐标相对前一步执行后的内容。
 _Avoid_: Event, protocol message, recursive patch
-
-**Edit Steps**:
-一次提交的可顺序重放操作投影，保留 Move 的来源身份和移动语义。
-_Avoid_: UI diff, UTF-16 cursor events
 
 **Document**:
 拥有当前可见内容及本地编辑状态的运行态对象。
@@ -86,11 +70,7 @@ _Avoid_: Automatic reset, dropped pending work
 
 **Priority**:
 对并发意图需要裁决时采用的一致左右优先规则。
-_Avoid_: Timestamp, Element ID order
-
-**Structural conflict**:
-并发合并导致拥有环、目标父节点失效或无法安全解决的 Map 占用。
-_Avoid_: Silent data removal, any concurrent Move
+_Avoid_: Timestamp, path order
 
 **Canonical form**:
 单个受控对象经规范化后的确定表示；不意味着所有效果相同的多步 Change 都具有相同序列。

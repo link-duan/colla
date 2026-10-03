@@ -1,21 +1,20 @@
 use super::super::{apply, codec, transform, Change, Error, ErrorCode, Priority, Result, Value};
 use super::{identity, Commit, Rejection, ServerMessage, Submission, SyncSnapshot};
+use cocodec::{Decode, Encode};
 use std::{collections::BTreeMap, sync::Arc};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
 struct Receipt {
     submission: Submission,
     commit: Commit,
 }
-codec::record_codec!(Receipt, submission, commit);
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
 /// Authority history floor, retained commits and request deduplication receipts.
 pub struct AuthorityCheckpoint {
     floor: SyncSnapshot,
     log: Vec<Commit>,
     receipts: BTreeMap<(String, u64), Receipt>,
 }
-codec::record_codec!(AuthorityCheckpoint, floor, log, receipts);
 impl AuthorityCheckpoint {
     /// Returns independent canonical bytes in a typed binary envelope.
     pub fn encode(&self) -> Vec<u8> {

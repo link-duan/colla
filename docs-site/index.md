@@ -4,8 +4,8 @@ title: Colla
 titleTemplate: Structured collaborative documents
 hero:
   name: Colla
-  text: Identity that moves with your content.
-  tagline: Immutable documents, native Move and Ref, collaborative undo, and centralized sync. A synchronous JavaScript API powered by a compact Rust engine.
+  text: Structured content, edited together.
+  tagline: Immutable documents, path-based OT, collaborative undo, and centralized sync. A synchronous JavaScript API powered by a compact Rust engine.
   actions:
     - theme: brand
       text: Get started
@@ -14,8 +14,8 @@ hero:
       text: API reference
       link: /reference/javascript
 features:
-  - title: Stable identities
-    details: Move any addressable subtree across parents. References and concurrent edits follow the same element.
+  - title: Plain content
+    details: Values carry no hidden identity. Paths address content, and concurrent edits follow elements through insertions, deletions and List moves.
   - title: Atomic editing
     details: One synchronous scope for lists, text, rich text and structure. Immutable snapshots remain usable after the document closes.
   - title: Collaboration included
@@ -25,14 +25,12 @@ features:
 ---
 
 ```ts
-import { Document, History, text, ref } from 'colla-ot'
-const doc = Document.create({ tasks: [{ title: text('Draft') }], done: [], selected: null })
+import { Document, History, text } from 'colla-ot'
+const doc = Document.create({ tasks: [{ title: text('Draft') }, { title: text('Review') }] })
 const history = History.attach(doc)
-const task = doc.idAt(['tasks', 0])
 doc.edit(tx => {
   tx.text(['tasks', 0, 'title']).insert(5, ' updated')
-  tx.set(['selected'], ref(task))
-  tx.move(task, { parent: ['done'], index: 0 })
+  tx.list(['tasks']).move(0, 1)
 })
 history.undo()
 ```
@@ -44,5 +42,5 @@ authentication, presence and editor adapters belong to your application.
 ## Choose a reading path
 
 - **Build your first editor:** [Getting started](/docs/getting-started/) → [Editing](/docs/editing/) → [History](/docs/history/).
-- **Understand the model:** [Values](/docs/core/values) → [Element identity](/docs/core/identity) → [Changes and OT](/docs/core/changes).
+- **Understand the model:** [Values](/docs/core/values) → [Paths](/docs/core/paths) → [Changes and OT](/docs/core/changes).
 - **Connect collaborators:** [Sync overview](/docs/sync/) → [Two-client example](/docs/examples/sync) → [Persistence](/docs/production/persistence).

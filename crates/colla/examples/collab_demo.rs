@@ -1,9 +1,8 @@
 use colla::{Authority, ServerMessage, SessionCheckpoint, SyncSession, Value};
 
 fn main() -> colla::Result<()> {
-    let value = Value::int(0);
-    let id = value.id();
-    let mut authority = Authority::create("counter", value)?;
+    let id: &[colla::Segment] = &[];
+    let mut authority = Authority::create("counter", Value::int(0))?;
     let alice = SyncSession::create("alice", authority.snapshot())?;
     let bob = SyncSession::create("bob", authority.snapshot())?;
     alice.document().edit(|tx| tx.increment(id, 1))?;

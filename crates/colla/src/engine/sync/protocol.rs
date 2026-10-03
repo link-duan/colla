@@ -2,14 +2,13 @@ use super::super::{codec, Change, Error, ErrorCode, Result, Value};
 use super::{identity, validate_change};
 use cocodec::{Decode, Encode};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Encode, Decode)]
 /// Document identity, server revision and confirmed content.
 pub struct SyncSnapshot {
     pub(super) document_id: String,
     pub(super) revision: u64,
     pub(super) value: Value,
 }
-codec::record_codec!(SyncSnapshot, document_id, revision, value);
 impl SyncSnapshot {
     /// Borrows the application document identity.
     pub fn document_id(&self) -> &str {
@@ -39,7 +38,7 @@ impl SyncSnapshot {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Encode, Decode)]
 /// Controlled immutable request identity, original base revision and Change.
 pub struct Submission {
     pub(super) document_id: String,
@@ -48,14 +47,6 @@ pub struct Submission {
     pub(super) base_revision: u64,
     pub(super) change: Change,
 }
-codec::record_codec!(
-    Submission,
-    document_id,
-    client_id,
-    sequence,
-    base_revision,
-    change
-);
 impl Submission {
     /// Borrows the application document identity.
     pub fn document_id(&self) -> &str {
@@ -100,7 +91,7 @@ impl Submission {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Encode, Decode)]
 /// Authority-ordered formal submission result; also confirms the submitting client.
 pub struct Commit {
     pub(super) document_id: String,
@@ -109,7 +100,6 @@ pub struct Commit {
     pub(super) revision: u64,
     pub(super) change: Change,
 }
-codec::record_codec!(Commit, document_id, client_id, sequence, revision, change);
 impl Commit {
     /// Borrows the application document identity.
     pub fn document_id(&self) -> &str {
@@ -143,7 +133,7 @@ impl Commit {
         validate_change(&self.change)
     }
 }
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Encode, Decode)]
 /// Controlled refusal of a submission with a structured recovery reason.
 pub struct Rejection {
     pub(super) document_id: String,
@@ -151,7 +141,6 @@ pub struct Rejection {
     pub(super) sequence: u64,
     pub(super) reason: Error,
 }
-codec::record_codec!(Rejection, document_id, client_id, sequence, reason);
 impl Rejection {
     /// Borrows the application document identity.
     pub fn document_id(&self) -> &str {

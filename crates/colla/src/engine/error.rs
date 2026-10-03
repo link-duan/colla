@@ -5,14 +5,15 @@ use std::fmt;
 /// A result using the unified public CollaError.
 pub type Result<T> = std::result::Result<T, CollaError>;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Encode, Decode)]
 /// Stable error categories shared by Rust, JavaScript and protocol diagnostics.
 pub enum ErrorCode {
+    #[default]
     #[cocodec(tag = 0)]
     /// An argument violates the public calling contract.
     InvalidArgument,
     #[cocodec(tag = 1)]
-    /// Content or an element identity is invalid.
+    /// Content is invalid.
     InvalidValue,
     #[cocodec(tag = 2)]
     /// The typed binary object is malformed or noncanonical.
@@ -42,27 +43,23 @@ pub enum ErrorCode {
     /// A UTF-16 offset splits a surrogate pair.
     InvalidUtf16Boundary,
     #[cocodec(tag = 11)]
-    /// Merging would invalidate ownership or require unsafe Map target replacement.
-    StructuralConflict,
-    #[cocodec(tag = 12)]
     /// A gap must be filled before this server message can be received.
     MissingRevision,
-    #[cocodec(tag = 13)]
+    #[cocodec(tag = 12)]
     /// The Authority no longer retains the requested content basis.
     HistoryExpired,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Encode, Decode)]
 /// Structured public failure with stable classification and diagnostic context.
 pub struct CollaError {
     /// Stable machine-readable error classification.
     pub code: ErrorCode,
     /// Public operation associated with the failure.
     pub operation: String,
-    /// Diagnostic fields, including a human-readable reason and optional elementId.
+    /// Diagnostic fields, including a human-readable reason.
     pub details: BTreeMap<String, String>,
 }
-super::codec::record_codec!(CollaError, code, operation, details);
 impl CollaError {
     /// Constructs a structured error with a code and human-readable reason.
     pub fn new(code: ErrorCode, reason: impl Into<String>) -> Self {
@@ -128,7 +125,6 @@ impl ErrorCode {
             Self::IntegerOverflow => "integer_overflow",
             Self::IncompatibleChange => "incompatible_change",
             Self::InvalidUtf16Boundary => "invalid_utf16_boundary",
-            Self::StructuralConflict => "structural_conflict",
             Self::MissingRevision => "missing_revision",
             Self::HistoryExpired => "history_expired",
         }

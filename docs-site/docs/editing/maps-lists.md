@@ -20,6 +20,6 @@ shifts `publish` to index 2 before replacement.
 Use `list.insert(listLength, values)` to append. `set(['steps', listLength], value)`
 does not append, and an out-of-range removal fails the whole transaction.
 
-Replacing an existing value with `set` retains that element's ID. List `replace` removes
-the selected items and imports replacements with fresh IDs. To reorder an existing
-item while keeping its identity and references, use [Move](/docs/core/move-copy-set).
+List `replace` removes the selected items and inserts the replacements; concurrent edits
+to the removed items are discarded. To reorder an existing item so that concurrent
+edits follow it, use [`list.move`](/docs/core/move-copy-set).

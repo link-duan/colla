@@ -3,15 +3,15 @@ use super::{
     editing::{invalid_state, Phase},
     transform, Change, Document, EditResult, Error, ErrorCode, Origin, Priority, Result, Value,
 };
+use cocodec::{Decode, Encode};
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Encode, Decode)]
 pub(crate) struct HistoryData {
     pub(crate) undo: Vec<Change>,
     pub(crate) redo: Vec<Change>,
     pub(crate) capacity: usize,
     pub(crate) group: Option<String>,
 }
-codec::record_codec!(HistoryData, undo, redo, capacity, group);
 impl HistoryData {
     pub(crate) fn record(&mut self, edit: &EditResult, group: Option<String>) -> Result<()> {
         self.redo.clear();
@@ -233,13 +233,12 @@ impl History {
         Ok(history)
     }
 }
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
 /// History stacks and exact content basis for controlled restoration.
 pub struct HistoryCheckpoint {
     base: Value,
     history: HistoryData,
 }
-codec::record_codec!(HistoryCheckpoint, base, history);
 impl HistoryCheckpoint {
     /// Returns independent canonical bytes in a typed binary envelope.
     pub fn encode(&self) -> Vec<u8> {

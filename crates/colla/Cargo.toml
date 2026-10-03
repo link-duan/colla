@@ -3,7 +3,7 @@ name = "colla"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-description = "Immutable structured documents with stable element identity, native Move and Ref, collaborative undo/redo and centralized OT synchronization"
+description = "Immutable path-addressed structured documents with collaborative undo/redo and centralized OT synchronization"
 keywords = ["ot", "collaboration", "undo", "rich-text", "sync"]
 categories = ["data-structures", "encoding", "text-editors", "wasm"]
 documentation = "https://docs.rs/colla"
@@ -19,7 +19,6 @@ harness = false
 [dependencies]
 cocodec = "0.1"
 thiserror = "2"
-getrandom = "0.2"
 
 [dev-dependencies]
 proptest = "1"

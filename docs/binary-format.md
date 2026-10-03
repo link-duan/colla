@@ -8,8 +8,8 @@ Use the library codecs to exchange data.
 
 | Object                  | Readable fields / preserved state                                                                                                                |
 | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Value                   | Owning identity and Body tree                                                                                                                    |
-| Change                  | Ordered identity-targeted operations                                                                                                             |
+| Value                   | Body tree                                                                                                                                        |
+| Change                  | Ordered path-addressed operations                                                                                                                |
 | SyncSnapshot            | documentId: string, revision: bigint, value: Value                                                                                               |
 | Submission              | documentId, clientId: string, sequence, baseRevision: bigint, change: Change                                                                     |
 | ServerMessage Commit    | type: commit, documentId, clientId, sequence, revision, change                                                                                   |
@@ -45,24 +45,23 @@ compatibility between releases.
 
 ## Canonical representation
 
-Records contain required positional fields, never defaults for missing IDs or
-revisions. Integers use cocodec canonical varint/zigzag; tagged unions have
-explicit stable numeric tags. Maps are sorted with unique keys. Every owning
-Value writes its ElementId before its Body. An ID is a length-prefixed 16-byte
-namespace followed by a positive u64 sequence. Ref contains a target ID without
-expanding or validating target existence. Parent and reverse-reference indexes
-are derived and omitted.
+Records are cocodec derived structs: a field count followed by positional fields.
+A canonical record omits its trailing run of default-valued fields, and decoding
+restores them; an explicitly encoded trailing default is rejected. Integers use cocodec canonical varint/zigzag; tagged unions have
+explicit stable numeric tags. Maps are sorted with unique keys. A Value is its
+Body; a Path is a sequence of Key 0 or Index 1 segments.
 
-Body tags are Null 0, Bool 1, Int 2, Float 3, String 4, Text 5, RichText 6, Ref 7,
-List 8 and Map 9. Operation tags are Insert 0, Delete 1, Set 2, Move 3, Text 4,
-Add 5 and RichText 6. Public low-level sequence positions are scalars. Use
+Body tags are Null 0, Bool 1, Int 2, Float 3, String 4, Text 5, RichText 6, List 7
+and Map 8. Operation tags are Insert 0, Delete 1, Set 2, ListMove 3, Text 4, Add 5
+and RichText 6. Each operation starts with its Path. A canonical Change omits
+operations without effect, such as a ListMove to the same index. Public low-level sequence positions are scalars. Use
 controlled Value/Change construction and the Rust codecs rather than assembling
 bytes or protocol field objects in application code.
 
 ## Validation
 
 Decoding rejects wrong types/versions, trailing data, nonminimal encodings,
-unknown tags, invalid float values, duplicate owner IDs, invalid u64 protocol
+unknown tags, invalid float values, invalid u64 protocol
 fields, malformed structures and limits. Ownership depth is bounded to 100;
 nodes/operations to 1,000,000; individual strings to 16 MiB of UTF-8.
 There is no fixed total byte-size limit on an envelope. Decoder recursion and allocation are bounded before trusting lengths.

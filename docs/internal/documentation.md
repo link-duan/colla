@@ -2,8 +2,7 @@
 
 The public site teaches usage; package READMEs provide a short introduction and links.
 API references list signatures and failure conditions. Domain specifications and ADRs
-record contracts and decisions. Keep historical verification reports dated rather than
-rewriting them as current evidence.
+record contracts and decisions.
 
 ## Edit a topic
 

@@ -83,9 +83,6 @@ pub fn unsigned(value: &JsValue) -> Result<u64> {
         .parse()
         .map_err(|_| argument("bigint is outside u64"))
 }
-pub fn id(value: &JsValue) -> Result<ElementId> {
-    string(value)?.parse()
-}
 pub fn segment(value: &JsValue) -> Result<Segment> {
     Ok(if value.is_string() {
         Segment::Key(string(value)?)
@@ -93,29 +90,17 @@ pub fn segment(value: &JsValue) -> Result<Segment> {
         Segment::Index(index(value)?)
     })
 }
-pub fn location(value: &JsValue) -> Result<Location> {
-    if value.is_string() {
-        Ok(Location::Id(id(value)?))
-    } else {
-        Ok(Location::Path(
-            array(value)?
-                .iter()
-                .map(|v| segment(&v))
-                .collect::<Result<_>>()?,
-        ))
-    }
+pub fn path(value: &JsValue) -> Result<Path> {
+    array(value)?.iter().map(|v| segment(&v)).collect()
 }
-pub fn path(path: Option<Path>) -> JsValue {
-    path.map(|path| {
-        path.into_iter()
-            .map(|part| match part {
-                Segment::Key(key) => JsValue::from(key),
-                Segment::Index(n) => JsValue::from(n as f64),
-            })
-            .collect::<Array>()
-            .into()
-    })
-    .unwrap_or(JsValue::UNDEFINED)
+fn path_js(path: &[Segment]) -> JsValue {
+    path.iter()
+        .map(|part| match part {
+            Segment::Key(key) => JsValue::from(key),
+            Segment::Index(n) => JsValue::from(*n as f64),
+        })
+        .collect::<Array>()
+        .into()
 }
 fn attr(value: &JsValue) -> Result<Attr> {
     if let Some(v) = value.as_bool() {
@@ -208,14 +193,13 @@ fn value_inner(input: &JsValue, depth: usize, nodes: &mut usize) -> Result<Value
         3 => Value::float(data.as_f64().ok_or_else(|| argument("expected float"))?)?,
         4 => Value::string(string(&data)?)?,
         5 => Value::text(string(&data)?)?,
-        7 => Value::reference(id(&data)?),
-        8 => Value::list(
+        7 => Value::list(
             array(&data)?
                 .iter()
                 .map(|v| value_inner(&v, depth + 1, nodes))
                 .collect::<Result<_>>()?,
         )?,
-        9 => Value::map(
+        8 => Value::map(
             array(&data)?
                 .iter()
                 .map(|entry| {
@@ -233,7 +217,7 @@ fn value_inner(input: &JsValue, depth: usize, nodes: &mut usize) -> Result<Value
                 .map(|v| span_inner(&v, depth + 1, nodes))
                 .collect::<Result<_>>()?,
         )?,
-        10 => {
+        9 => {
             if !data.is_instance_of::<Uint8Array>() {
                 return Err(argument("expected encoded Value bytes"));
             }
@@ -269,10 +253,9 @@ pub fn projection(value: &Value) -> JsValue {
         Body::Float(v) => (3, (*v).into()),
         Body::String(v) => (4, v.into()),
         Body::Text(v) => (5, v.into()),
-        Body::Ref(v) => (7, v.target.to_string().into()),
-        Body::List(v) => (8, v.iter().map(projection).collect::<Array>().into()),
+        Body::List(v) => (7, v.iter().map(projection).collect::<Array>().into()),
         Body::Map(v) => (
-            9,
+            8,
             v.iter()
                 .map(|(key, value)| Array::of2(&key.into(), &projection(value)))
                 .collect::<Array>()
@@ -303,23 +286,6 @@ fn operation_span_js(span: &RichSpan) -> JsValue {
         .into(),
     }
 }
-fn destination(input: &JsValue) -> Result<Destination> {
-    let input = array(input)?;
-    Ok(Destination {
-        parent: id(&input.get(0))?,
-        slot: segment(&input.get(1))?,
-    })
-}
-fn destination_js(destination: &Destination) -> JsValue {
-    Array::of2(
-        &destination.parent.to_string().into(),
-        &match &destination.slot {
-            Segment::Key(key) => key.into(),
-            Segment::Index(n) => (*n as f64).into(),
-        },
-    )
-    .into()
-}
 pub fn rich_ops(input: &JsValue) -> Result<Vec<RichOp>> {
     array(input)?
         .iter()
@@ -346,30 +312,23 @@ pub fn change(input: &JsValue) -> Result<Change> {
                 let kind = index(&op.get(0))?;
                 Ok(match kind {
                     0 => Operation::Insert {
-                        destination: destination(&op.get(1))?,
+                        path: path(&op.get(1))?,
                         value: value(&op.get(2))?,
                     },
                     1 => Operation::Delete {
-                        target: id(&op.get(1))?,
+                        path: path(&op.get(1))?,
                     },
-                    2 => {
-                        let target = id(&op.get(1))?;
-                        let value = value(&op.get(2))?;
-                        Operation::Set {
-                            target,
-                            value: if value.id() == target {
-                                value
-                            } else {
-                                binding::import_set(&value, target)?
-                            },
-                        }
-                    }
-                    3 => Operation::Move {
-                        target: id(&op.get(1))?,
-                        destination: destination(&op.get(2))?,
+                    2 => Operation::Set {
+                        path: path(&op.get(1))?,
+                        value: value(&op.get(2))?,
+                    },
+                    3 => Operation::ListMove {
+                        path: path(&op.get(1))?,
+                        from: index(&op.get(2))?,
+                        to: index(&op.get(3))?,
                     },
                     4 => Operation::Text {
-                        target: id(&op.get(1))?,
+                        path: path(&op.get(1))?,
                         change: TextChange::from_ops(
                             array(&op.get(2))?
                                 .iter()
@@ -386,11 +345,11 @@ pub fn change(input: &JsValue) -> Result<Change> {
                         )?,
                     },
                     5 => Operation::Add {
-                        target: id(&op.get(1))?,
+                        path: path(&op.get(1))?,
                         delta: signed(&op.get(2))?,
                     },
                     6 => Operation::RichText {
-                        target: id(&op.get(1))?,
+                        path: path(&op.get(1))?,
                         operations: rich_ops(&op.get(2))?,
                     },
                     _ => return Err(argument("invalid operation kind")),
@@ -405,28 +364,26 @@ pub fn operations(change: &Change) -> JsValue {
         .operations()
         .iter()
         .map(|op| match op {
-            Operation::Insert { destination, value } => Array::of3(
+            Operation::Insert { path, value } => Array::of3(
                 &0.into(),
-                &destination_js(destination),
+                &path_js(path),
                 &CoreValue::from_value(value.clone()).into(),
             ),
-            Operation::Delete { target } => Array::of2(&1.into(), &target.to_string().into()),
-            Operation::Set { target, value } => Array::of3(
+            Operation::Delete { path } => Array::of2(&1.into(), &path_js(path)),
+            Operation::Set { path, value } => Array::of3(
                 &2.into(),
-                &target.to_string().into(),
+                &path_js(path),
                 &CoreValue::from_value(value.clone()).into(),
             ),
-            Operation::Move {
-                target,
-                destination,
-            } => Array::of3(
+            Operation::ListMove { path, from, to } => Array::of4(
                 &3.into(),
-                &target.to_string().into(),
-                &destination_js(destination),
+                &path_js(path),
+                &(*from as f64).into(),
+                &(*to as f64).into(),
             ),
-            Operation::Text { target, change } => Array::of3(
+            Operation::Text { path, change } => Array::of3(
                 &4.into(),
-                &target.to_string().into(),
+                &path_js(path),
                 &change
                     .ops()
                     .iter()
@@ -438,14 +395,12 @@ pub fn operations(change: &Change) -> JsValue {
                     .collect::<Array>()
                     .into(),
             ),
-            Operation::Add { target, delta } => Array::of3(
-                &5.into(),
-                &target.to_string().into(),
-                &BigInt::from(*delta).into(),
-            ),
-            Operation::RichText { target, operations } => Array::of3(
+            Operation::Add { path, delta } => {
+                Array::of3(&5.into(), &path_js(path), &BigInt::from(*delta).into())
+            }
+            Operation::RichText { path, operations } => Array::of3(
                 &6.into(),
-                &target.to_string().into(),
+                &path_js(path),
                 &operations
                     .iter()
                     .map(|op| match op {

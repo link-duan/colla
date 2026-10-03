@@ -1,23 +1,22 @@
 // This exact program runs from the packed package in Node, browsers and workers.
 export const tracer = `
-import { Authority, Document, History, SessionCheckpoint, SyncSession, Value, ref, richText, text } from "colla-ot"
+import { Authority, Document, History, SessionCheckpoint, SyncSession, Value, richText, text } from "colla-ot"
 export function trace() {
-  const doc = Document.create({ from: [{ title: text("A😀"), body: richText([]) }], to: [], selected: null })
-  const id = doc.idAt(["from", 0])
+  const doc = Document.create({ items: [{ title: text("A😀"), body: richText([]) }, { title: text("B") }], selected: null })
   const history = History.attach(doc)
   const before = doc.snapshot()
   doc.edit(tx => {
-    tx.text(["from", 0, "title"]).insert(3, "!")
-    tx.richText(["from", 0, "body"]).insertEmbed(0, ref(id))
-    tx.move(id, { parent: ["to"], index: 0 })
-    tx.set(["selected"], ref(id))
+    tx.text(["items", 0, "title"]).insert(3, "!")
+    tx.richText(["items", 0, "body"]).insertEmbed(0, 1n)
+    tx.list(["items"]).move(0, 1)
+    tx.copy(["items", 1, "title"], ["chosen"])
   })
-  if (doc.resolve(ref(id)).get(["title"]).toJS().value !== "A😀!") throw Error("Move/Ref failed")
+  if (doc.get(["items", 1, "title"]).toJS().value !== "A😀!") throw Error("ListMove failed")
   const after = doc.snapshot()
   history.undo()
-  if (!before.equals(doc.snapshot())) throw Error("Undo identity failed")
+  if (!before.equals(doc.snapshot())) throw Error("Undo failed")
   history.redo()
-  if (!after.equals(Value.decode(doc.snapshot().encode()))) throw Error("codec identity failed")
+  if (!after.equals(Value.decode(doc.snapshot().encode()))) throw Error("codec failed")
   let authority = Authority.create({ documentId: "browser", value: after })
   let session = SyncSession.create({ clientId: "client", snapshot: authority.snapshot() })
   session.document.edit(tx => tx.set(["selected"], "after"))

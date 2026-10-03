@@ -18,6 +18,6 @@ Commits, missing revisions, client and server restarts, and history compaction. 
 both visible content and IDs converge. Verify that retry bytes survive a restart and
 that a persistence failure never causes an uncommitted server state to be broadcast.
 
-For editors, test emoji boundaries, rich-text embeds, selection after Move, IME composition,
+For editors, test emoji boundaries, rich-text embeds, selection after ListMove, IME composition,
 listener failures and feedback suppression. For recovery, verify local work is retained,
 sending stops, and the application offers an explicit reconciliation path.

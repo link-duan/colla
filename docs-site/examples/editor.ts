@@ -1,12 +1,12 @@
-import { Change, Document, apply, text } from 'colla-ot'
+import { Document, apply, text } from 'colla-ot'
 
 const doc = Document.create({ title: text('A😀B') })
 let rendered = doc.snapshot()
 
 const unsubscribe = doc.subscribe(event => {
-  const textStep = event.editSteps.find(step => step.type === 'text')
+  const textStep = event.change.operations.find(step => step.type === 'text')
   console.log('Edit operations in Unicode scalars:', JSON.stringify(textStep?.operations))
-  rendered = apply(rendered, Change.create(event.editSteps))
+  rendered = apply(rendered, event.change)
 })
 
 function replaceSelection(start: number, end: number, inserted: string) {

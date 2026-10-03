@@ -1,5 +1,5 @@
 // Randomized runtime invariants: History round trips, centralized convergence
-// across interleaved clients, and TP1 for identity-based Move/Ref changes.
+// across interleaved clients, and TP1 for structural changes.
 use colla::*;
 use proptest::prelude::*;
 
@@ -14,63 +14,57 @@ fn initial() -> Value {
             "todo".into(),
             Value::list(vec![Value::int(1), Value::int(2), Value::int(3)]).unwrap(),
         ),
-        ("done".into(), Value::list(vec![]).unwrap()),
         ("selected".into(), Value::null()),
     ])
     .unwrap()
 }
 fn list_len(tx: &Transaction, name: &str) -> Result<usize> {
-    match tx.get(vec![key(name)])?.body() {
+    match tx.get(&[key(name)])?.body() {
         Body::List(list) => Ok(list.len()),
         _ => unreachable!("fixture lists stay lists"),
     }
 }
 fn text_len(tx: &Transaction) -> Result<usize> {
-    match tx.get(vec![key("title")])?.body() {
+    match tx.get(&[key("title")])?.body() {
         Body::Text(text) => Ok(text.chars().count()),
         _ => unreachable!("fixture title stays Text"),
     }
 }
 
 /// One local edit chosen from `action`; positions are reduced modulo the current size.
-fn edit(tx: &mut Transaction, action: (u8, usize, usize), structural: bool) -> Result<()> {
+fn edit(tx: &mut Transaction, action: (u8, usize, usize)) -> Result<()> {
     let (kind, a, b) = action;
-    match kind % if structural { 6 } else { 3 } {
-        0 => tx.increment(vec![key("count")], 1 + (a % 5) as i64),
+    match kind % 6 {
+        0 => tx.increment(&[key("count")], 1 + (a % 5) as i64),
         1 => {
             let pos = a % (text_len(tx)? + 1);
-            tx.text_replace(vec![key("title")], pos, 0, "x")
+            tx.text_replace(&[key("title")], pos, 0, "x")
         }
         2 => {
             let index = a % (list_len(tx, "todo")? + 1);
-            tx.list_replace(vec![key("todo")], index, 0, vec![Value::int(b as i64)])
+            tx.list_replace(&[key("todo")], index, 0, vec![Value::int(b as i64)])
         }
         3 => {
             let len = list_len(tx, "todo")?;
             if len == 0 {
                 return Ok(());
             }
-            let index = b % (list_len(tx, "done")? + 1);
-            tx.move_to(
-                vec![key("todo"), Segment::Index(a % len)],
-                vec![key("done")],
-                Segment::Index(index),
-            )
+            tx.list_move(&[key("todo")], a % len, b % len)
         }
         4 => {
             let len = list_len(tx, "todo")?;
             if len == 0 {
                 return Ok(());
             }
-            let target = tx.get(vec![key("todo"), Segment::Index(a % len)])?.id();
-            tx.set(vec![key("selected")], Value::reference(target))
+            let selected = tx.get(&[key("todo"), Segment::Index(a % len)])?;
+            tx.set(&[key("selected")], selected)
         }
         _ => {
-            let len = list_len(tx, "done")?;
+            let len = list_len(tx, "todo")?;
             if len == 0 {
                 return Ok(());
             }
-            tx.delete(vec![key("done"), Segment::Index(a % len)])
+            tx.delete(&[key("todo"), Segment::Index(a % len)])
         }
     }
 }
@@ -82,7 +76,7 @@ fn action() -> impl Strategy<Value = (u8, usize, usize)> {
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(64))]
 
-    /// Undoing every edit restores the exact initial snapshot, identities included,
+    /// Undoing every edit restores the exact initial snapshot,
     /// and redoing every edit restores the exact final snapshot.
     #[test]
     fn history_undo_redo_round_trips(actions in prop::collection::vec(action(), 1..12)) {
@@ -90,7 +84,7 @@ proptest! {
         let doc = Document::create(base.clone()).unwrap();
         let history = History::attach_with_capacity(&doc, actions.len()).unwrap();
         for action in &actions {
-            doc.edit(|tx| edit(tx, *action, true)).unwrap();
+            doc.edit(|tx| edit(tx, *action)).unwrap();
         }
         let after = doc.snapshot().unwrap();
         while history.undo().unwrap().is_some() {}
@@ -130,7 +124,7 @@ proptest! {
         for (client, kind, action) in steps {
             match kind {
                 0 => {
-                    sessions[client].document().edit(|tx| edit(tx, action, false)).unwrap();
+                    sessions[client].document().edit(|tx| edit(tx, action)).unwrap();
                 }
                 1 => submit(&mut authority, &mut submitted, client),
                 _ => deliver(&authority, client, 1 + action.1 % 3),
@@ -155,10 +149,9 @@ proptest! {
         }
     }
 
-    /// Concurrent Move/Ref/Delete edits either transform to the same content from
-    /// both orders (TP1) or fail atomically with a typed conflict.
+    /// Concurrent structural edits transform to the same content from both orders.
     #[test]
-    fn identity_edits_satisfy_tp1(
+    fn structural_edits_satisfy_tp1(
         left in prop::collection::vec(action(), 1..4),
         right in prop::collection::vec(action(), 1..4),
     ) {
@@ -167,7 +160,7 @@ proptest! {
             let doc = Document::create(base.clone()).unwrap();
             doc.edit(|tx| {
                 for action in actions {
-                    edit(tx, *action, true)?;
+                    edit(tx, *action)?;
                 }
                 Ok(())
             })
@@ -179,17 +172,10 @@ proptest! {
         let left_value = apply(&base, &left).unwrap();
         let right_value = apply(&base, &right).unwrap();
         for priority in [Priority::Left, Priority::Right] {
-            match transform(&base, &left, &right, priority) {
-                Ok((left_after_right, right_after_left)) => {
-                    let merged = apply(&right_value, &left_after_right).unwrap();
-                    prop_assert_eq!(&merged, &apply(&left_value, &right_after_left).unwrap());
-                    prop_assert_eq!(Value::decode(&merged.encode()).unwrap(), merged);
-                }
-                Err(error) => prop_assert!(
-                    matches!(error.code, ErrorCode::IncompatibleChange | ErrorCode::StructuralConflict),
-                    "unexpected transform error: {error:?}"
-                ),
-            }
+            let (left_after_right, right_after_left) = transform(&base, &left, &right, priority).unwrap();
+            let merged = apply(&right_value, &left_after_right).unwrap();
+            prop_assert_eq!(&merged, &apply(&left_value, &right_after_left).unwrap());
+            prop_assert_eq!(Value::decode(&merged.encode()).unwrap(), merged);
         }
     }
 }

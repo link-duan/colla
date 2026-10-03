@@ -1,7 +1,6 @@
 //! Bounded, strictly canonical decoding of Value trees.
 
-use super::{Attrs, Body, Ref, RichSpan, Value};
-use crate::engine::ElementId;
+use super::{Attrs, Body, RichSpan, Value};
 use cocodec::Decode;
 use std::collections::BTreeMap;
 
@@ -12,7 +11,6 @@ impl Decode for Value {
         d: &mut cocodec::Decoder<R>,
     ) -> std::result::Result<Self, cocodec::Error> {
         d.nested(|d| {
-            let id = ElementId::decode(d)?;
             let offset = d.offset();
             let invalid = |reason| cocodec::Error::NonCanonical { offset, reason };
             let body = match d.varint()? {
@@ -43,8 +41,7 @@ impl Decode for Value {
                     }
                     Body::RichText(spans)
                 }
-                7 => Body::Ref(Ref::decode(d)?),
-                8 => {
+                7 => {
                     let length = d.varint()?;
                     if length > 1_000_000 {
                         return Err(invalid("list limit exceeded"));
@@ -55,7 +52,7 @@ impl Decode for Value {
                     }
                     Body::List(values)
                 }
-                9 => {
+                8 => {
                     let length = d.varint()?;
                     if length > 1_000_000 {
                         return Err(invalid("map limit exceeded"));
@@ -75,7 +72,7 @@ impl Decode for Value {
                 }
                 _ => return Err(invalid("invalid Value tag")),
             };
-            Ok(Self::trusted(id, body))
+            Ok(Self::trusted(body))
         })
     }
 }

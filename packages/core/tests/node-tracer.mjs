@@ -35,10 +35,10 @@ test('packed package has zero dependencies and works outside the workspace', asy
     await writeFile(
       join(directory, 'types.ts'),
       `
-      import { Document, History, Value, ElementId, Change, Transaction, transform, text, ref } from "colla-ot"
+      import { Document, History, Value, Path, Change, Transaction, transform, text } from "colla-ot"
       const doc = Document.create({ title: text("Hi"), chosen: null })
-      const id: ElementId = doc.idAt(["title"])
-      const result = doc.edit(tx => { tx.text(id).insert(2, "!"); tx.set(["chosen"], ref(id)) })
+      const title: Path = ["title"]
+      const result = doc.edit(tx => { tx.text(title).insert(2, "!"); tx.copy(title, ["copied"]) })
       if (result) { const [left, right]: readonly [Change, Change] = transform(result.before, result.change, Change.noop(), { priority: "left" }); void [left, right] }
       const snapshot: Value = doc.snapshot()
       History.attach(doc).undo()

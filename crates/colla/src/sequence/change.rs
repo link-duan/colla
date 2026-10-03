@@ -1,4 +1,4 @@
-//! Canonical scalar sequence operations. Structural edits live in the identity engine.
+//! Canonical scalar sequence operations. Structural edits live in the path engine.
 use crate::sequence::attrs::{AttrPatch, Attrs};
 use crate::sequence::error::ValueError;
 use crate::sequence::richtext::RichContent;

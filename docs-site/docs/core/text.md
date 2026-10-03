@@ -35,4 +35,4 @@ For example, retaining `A😀` requires scalar length 2, while a high-level Java
 editor inserts after it at UTF-16 offset 3.
 
 For editor lifetime, see [Runtime lifecycle](/docs/editing/lifecycle#transaction-and-event-boundaries).
-Read [Text coordinates](./coordinates) before translating low-level Edit Steps to UI offsets.
+Read [Text coordinates](./coordinates) before translating low-level Change operations to UI offsets.
