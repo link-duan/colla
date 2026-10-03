@@ -160,13 +160,11 @@ pub struct CoreDocument {
 }
 #[wasm_bindgen]
 impl CoreDocument {
-    pub fn create(value: &CoreValue) -> JsResult<Self> {
-        Document::create(value.value.clone())
-            .map(|document| Self {
-                document,
-                transaction: None,
-            })
-            .map_err(m::error)
+    pub fn create(value: &CoreValue) -> Self {
+        Self {
+            document: Document::create(value.value.clone()),
+            transaction: None,
+        }
     }
     pub fn snapshot(&self) -> JsResult<CoreValue> {
         self.document

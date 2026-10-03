@@ -62,10 +62,9 @@ pub(crate) struct State {
 }
 
 impl Document {
-    /// Creates a runtime from validated initial content.
-    pub fn create(value: Value) -> Result<Self> {
-        value.validate()?;
-        Ok(Self {
+    /// Creates a runtime from initial content.
+    pub fn create(value: Value) -> Self {
+        Self {
             shared: Rc::new(Shared {
                 phase: Cell::new(Phase::Idle),
                 state: RefCell::new(State {
@@ -76,7 +75,7 @@ impl Document {
                     sync: None,
                 }),
             }),
-        })
+        }
     }
     /// Returns the immutable content snapshot for this runtime.
     pub fn snapshot(&self) -> Result<Value> {

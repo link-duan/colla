@@ -29,6 +29,11 @@ synchronization runtime. None of the 0.3 APIs or bytes carry over.
 - **BREAKING (Rust Value).** `Value` exposes a `Body` enum, `get(&[Segment])` and
   structural equality instead of the `List`/`Map`/`Text`/`FiniteF64`/`ValueKind`
   types; `Path`/`PathSeg` become `Path`/`Segment`.
+- **BREAKING (validity).** Values and Changes are valid by construction:
+  constructors and decoders enforce the same invariants, so `Value::validate` is
+  removed and Rust `Document::create` returns `Document` instead of a `Result`.
+  Decoding invalid content reports `InvalidEncoding`. Checkpoint decoders check
+  structure only; `restore` validates semantic consistency.
 - **BREAKING (errors).** `ValueError`, `ApplyError`, `ComposeError`,
   `InvertError`, `TransformError`, `CodecError` and `Utf16PositionError` are
   replaced by one `CollaError` with a stable `code`, `operation` and string

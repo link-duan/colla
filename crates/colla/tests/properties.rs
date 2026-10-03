@@ -6,7 +6,7 @@ fn content() -> impl Strategy<Value = String> {
         .prop_map(|v| v.into_iter().collect())
 }
 fn branch(base: &Value, actions: &[(u8, usize, usize, String)]) -> Change {
-    let doc = Document::create(base.clone()).unwrap();
+    let doc = Document::create(base.clone());
     doc.edit(|tx| {
         for (kind, start, count, inserted) in actions {
             let current = tx.snapshot()?;

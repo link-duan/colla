@@ -2,7 +2,7 @@
 use colla::*;
 use libfuzzer_sys::fuzz_target;
 fn branch(base: &Value, data: &[u8]) -> Change {
-    let doc = Document::create(base.clone()).unwrap();
+    let doc = Document::create(base.clone());
     doc.edit(|tx| {
         for chunk in data.chunks_exact(3).take(6) {
             // Edit the root List or one of its nested Lists.

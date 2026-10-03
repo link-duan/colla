@@ -20,11 +20,10 @@ impl AuthorityCheckpoint {
     pub fn encode(&self) -> Vec<u8> {
         codec::encode(codec::Kind::AuthorityCheckpoint, self)
     }
-    /// Strictly decodes and validates a typed binary envelope, rejecting trailing data.
+    /// Strictly decodes a typed binary envelope, rejecting trailing data;
+    /// `restore` validates the checkpoint's semantic consistency.
     pub fn decode(bytes: &[u8]) -> Result<Self> {
-        let value: Self = codec::decode(codec::Kind::AuthorityCheckpoint, bytes)?;
-        Authority::restore(value.clone())?;
-        Ok(value)
+        codec::decode(codec::Kind::AuthorityCheckpoint, bytes)
     }
 }
 #[derive(Debug, Clone)]
@@ -38,7 +37,6 @@ impl Authority {
     pub fn create(document_id: impl Into<String>, value: Value) -> Result<Self> {
         let document_id = document_id.into();
         identity(&document_id)?;
-        value.validate()?;
         Ok(Self {
             data: Arc::new(AuthorityCheckpoint {
                 floor: SyncSnapshot {

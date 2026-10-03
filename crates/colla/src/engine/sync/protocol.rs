@@ -1,5 +1,5 @@
 use super::super::{codec, Change, Error, ErrorCode, Result, Value};
-use super::{identity, validate_change};
+use super::identity;
 use cocodec::{Decode, Encode};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Encode, Decode)]
@@ -33,8 +33,7 @@ impl SyncSnapshot {
         Ok(value)
     }
     pub(super) fn validate(&self) -> Result<()> {
-        identity(&self.document_id)?;
-        self.value.validate()
+        identity(&self.document_id)
     }
 }
 
@@ -87,7 +86,7 @@ impl Submission {
                 "request sequence must be positive",
             ));
         }
-        validate_change(&self.change)
+        Ok(())
     }
 }
 
@@ -130,7 +129,7 @@ impl Commit {
                 "Commit sequence and revision must be positive",
             ));
         }
-        validate_change(&self.change)
+        Ok(())
     }
 }
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]

@@ -88,31 +88,60 @@ impl Operation {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Encode, Decode)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Encode)]
 #[cocodec(transparent)]
 /// Immutable canonical operation sequence; clones share storage.
 pub struct Change(Arc<Vec<Operation>>);
+impl Decode for Change {
+    fn decode<R: cocodec::Read>(
+        d: &mut cocodec::Decoder<R>,
+    ) -> std::result::Result<Self, cocodec::Error> {
+        let offset = d.offset();
+        let mut operations = <Vec<Operation> as Decode>::decode(d)?;
+        let canonical = operations.len() <= 1_000_000
+            && operations.iter_mut().all(|operation| {
+                matches!(canonicalize(operation), Ok(false)) && !operation.is_noop()
+            });
+        if !canonical {
+            return Err(cocodec::Error::NonCanonical {
+                offset,
+                reason: "noncanonical change",
+            });
+        }
+        Ok(Self(Arc::new(operations)))
+    }
+}
+/// Canonicalizes one operation in place and reports whether it changed.
+/// Values and TextChanges are valid by construction.
+fn canonicalize(operation: &mut Operation) -> Result<bool> {
+    let path = operation.path();
+    if path.is_empty()
+        && matches!(
+            operation,
+            Operation::Insert { .. } | Operation::Delete { .. }
+        )
+    {
+        return Err(root_error());
+    }
+    for segment in path {
+        if let Segment::Key(key) = segment {
+            super::value::check_string(key)?;
+        }
+    }
+    if let Operation::RichText { operations, .. } = operation {
+        let normalized = super::rich::normalized(operations)?;
+        let changed = normalized != *operations;
+        *operations = normalized;
+        return Ok(changed);
+    }
+    Ok(false)
+}
 impl Change {
     /// Constructs and validates a canonical object.
     pub fn new(operations: impl IntoIterator<Item = Operation>) -> Result<Self> {
         let mut result = Vec::new();
         for mut operation in operations {
-            // TextChange is canonical by construction; decoders reject any
-            // encoding that this RichText normalization would change.
-            match &mut operation {
-                Operation::Insert { path, value } => {
-                    if path.is_empty() {
-                        return Err(root_error());
-                    }
-                    value.validate()?;
-                }
-                Operation::Delete { path } if path.is_empty() => return Err(root_error()),
-                Operation::Set { value, .. } => value.validate()?,
-                Operation::RichText { operations, .. } => {
-                    *operations = super::rich::normalized(operations)?;
-                }
-                _ => {}
-            }
+            canonicalize(&mut operation)?;
             result.push(operation);
         }
         Self::from_canonical(result)
@@ -147,15 +176,7 @@ impl Change {
     }
     /// Strictly decodes and validates a typed binary envelope, rejecting trailing data.
     pub fn decode(bytes: &[u8]) -> Result<Self> {
-        let value: Self = codec::decode(codec::Kind::Change, bytes)?;
-        let canonical = Self::new(value.operations().iter().cloned())?;
-        if canonical != value {
-            return Err(Error::new(
-                ErrorCode::InvalidEncoding,
-                "noncanonical change",
-            ));
-        }
-        Ok(value)
+        codec::decode(codec::Kind::Change, bytes)
     }
     pub(crate) fn normalized(&self, base: &Value) -> Result<(Self, Value)> {
         let mut value = base.clone();

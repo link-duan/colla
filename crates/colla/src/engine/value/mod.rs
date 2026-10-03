@@ -131,31 +131,10 @@ const MAX_NODES: u32 = 1_000_000;
 
 impl Value {
     /// Constructs, canonicalizes and validates content.
-    pub fn new(body: Body) -> Result<Self> {
-        let body = match body {
-            Body::Float(n) if n.is_finite() => Body::Float(if n == 0.0 { 0.0 } else { n }),
-            Body::Float(_) => {
-                return Err(Error::new(ErrorCode::InvalidValue, "float must be finite"))
-            }
-            Body::RichText(mut spans) => {
-                for span in &mut spans {
-                    let attrs = match span {
-                        RichSpan::Text { attrs, .. } | RichSpan::Embed { attrs, .. } => attrs,
-                    };
-                    for attr in attrs.values_mut() {
-                        if let Attr::Float(value) = attr {
-                            if *value == 0.0 {
-                                *value = 0.0;
-                            }
-                        }
-                    }
-                }
-                Body::RichText(normalize_spans(spans)?)
-            }
-            other => other,
-        };
+    pub fn new(mut body: Body) -> Result<Self> {
+        canonicalize(&mut body)?;
         let value = Self::trusted(body);
-        value.validate()?;
+        value.check_limits()?;
         Ok(value)
     }
     pub(crate) fn trusted(body: Body) -> Self {
@@ -308,48 +287,47 @@ impl Value {
     }
     /// Strictly decodes and validates a typed binary envelope, rejecting trailing data.
     pub fn decode(bytes: &[u8]) -> Result<Self> {
-        let value: Self = codec::decode(codec::Kind::Value, bytes)?;
-        value.validate()?;
-        Ok(value)
+        codec::decode(codec::Kind::Value, bytes)
     }
-    /// Checks canonical content and resource limits.
-    pub fn validate(&self) -> Result<()> {
-        fn walk(value: &Value) -> Result<()> {
-            match value.body() {
-                Body::Float(n) if !n.is_finite() || (n.to_bits() == (-0.0f64).to_bits()) => {
-                    return Err(Error::new(ErrorCode::InvalidValue, "noncanonical float"))
-                }
-                Body::String(s) | Body::Text(s) => check_string(s)?,
-                Body::Map(map) => {
-                    for (key, child) in map {
-                        check_string(key)?;
-                        walk(child)?;
-                    }
-                }
-                Body::List(list) => {
-                    for child in list {
-                        walk(child)?;
-                    }
-                }
-                Body::RichText(spans) => {
-                    if &normalize_spans(spans.clone())? != spans {
-                        return Err(Error::new(
-                            ErrorCode::InvalidValue,
-                            "noncanonical rich text spans",
-                        ));
-                    }
-                    for span in spans {
-                        if let RichSpan::Embed { value, .. } = span {
-                            walk(value)?;
+}
+
+/// Canonicalizes one node in place and reports whether it changed. Children
+/// are already valid Values, so only this node's own content is checked.
+pub(crate) fn canonicalize(body: &mut Body) -> Result<bool> {
+    match body {
+        Body::Float(n) if !n.is_finite() => {
+            Err(Error::new(ErrorCode::InvalidValue, "float must be finite"))
+        }
+        Body::Float(n) if *n == 0.0 && n.is_sign_negative() => {
+            *n = 0.0;
+            Ok(true)
+        }
+        Body::String(s) | Body::Text(s) => check_string(s).map(|_| false),
+        Body::Map(map) => {
+            map.keys().try_for_each(|key| check_string(key))?;
+            Ok(false)
+        }
+        Body::RichText(spans) => {
+            let mut changed = false;
+            for span in spans.iter_mut() {
+                let attrs = match span {
+                    RichSpan::Text { attrs, .. } | RichSpan::Embed { attrs, .. } => attrs,
+                };
+                for attr in attrs.values_mut() {
+                    if let Attr::Float(value) = attr {
+                        if *value == 0.0 && value.is_sign_negative() {
+                            *value = 0.0;
+                            changed = true;
                         }
                     }
                 }
-                _ => {}
             }
-            Ok(())
+            let normalized = normalize_spans(spans.clone())?;
+            changed |= normalized != *spans;
+            *spans = normalized;
+            Ok(changed)
         }
-        self.check_limits()?;
-        walk(self)
+        _ => Ok(false),
     }
 }
 
@@ -404,7 +382,7 @@ pub(crate) fn normalize_spans(spans: Vec<RichSpan>) -> Result<Vec<RichSpan>> {
     Ok(out)
 }
 
-fn check_string(value: &str) -> Result<()> {
+pub(crate) fn check_string(value: &str) -> Result<()> {
     if value.len() > 16 * 1024 * 1024 {
         return Err(Error::new(
             ErrorCode::LimitExceeded,

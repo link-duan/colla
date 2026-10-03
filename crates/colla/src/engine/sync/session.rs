@@ -4,7 +4,7 @@ use super::super::{
     history::HistoryData,
     transform, Change, Document, EditResult, Error, ErrorCode, Origin, Priority, Result, Value,
 };
-use super::{identity, validate_change, Commit, ServerMessage, Submission, SyncSnapshot};
+use super::{identity, Commit, ServerMessage, Submission, SyncSnapshot};
 use cocodec::{Decode, Encode};
 use std::collections::BTreeMap;
 
@@ -58,7 +58,6 @@ impl SessionData {
     fn validate(&self, visible: &Value) -> Result<()> {
         identity(&self.client_id)?;
         self.confirmed.validate()?;
-        validate_change(&self.buffer)?;
         if self.next_sequence == 0 {
             return Err(Error::new(
                 ErrorCode::InvalidEncoding,
@@ -68,7 +67,6 @@ impl SessionData {
         let mut value = self.confirmed.value.clone();
         if let Some(pending) = &self.pending {
             pending.original.validate()?;
-            validate_change(&pending.rebased)?;
             if pending.original.client_id != self.client_id
                 || pending.original.document_id != self.confirmed.document_id
                 || pending.original.sequence.checked_add(1) != Some(self.next_sequence)
@@ -156,14 +154,12 @@ impl SessionCheckpoint {
     pub fn encode(&self) -> Vec<u8> {
         codec::encode(codec::Kind::SessionCheckpoint, self)
     }
-    /// Strictly decodes and validates a typed binary envelope, rejecting trailing data.
+    /// Strictly decodes a typed binary envelope, rejecting trailing data;
+    /// `restore` validates the checkpoint's semantic consistency.
     pub fn decode(bytes: &[u8]) -> Result<Self> {
-        let value: Self = codec::decode(codec::Kind::SessionCheckpoint, bytes)?;
-        value.validate()?;
-        Ok(value)
+        codec::decode(codec::Kind::SessionCheckpoint, bytes)
     }
     fn validate(&self) -> Result<()> {
-        self.value.validate()?;
         self.session.validate(&self.value)?;
         if let Some(history) = &self.history {
             history.validate(&self.value)?;
@@ -183,7 +179,7 @@ impl SyncSession {
         let client_id = client_id.into();
         identity(&client_id)?;
         snapshot.validate()?;
-        let document = Document::create(snapshot.value.clone())?;
+        let document = Document::create(snapshot.value.clone());
         document.shared.state.borrow_mut().sync = Some(SessionData {
             client_id,
             next_sequence: 1,
@@ -248,7 +244,7 @@ impl SyncSession {
     /// Validates and restores complete runtime state from a controlled checkpoint.
     pub fn restore(checkpoint: SessionCheckpoint) -> Result<Self> {
         checkpoint.validate()?;
-        let document = Document::create(checkpoint.value.clone())?;
+        let document = Document::create(checkpoint.value.clone());
         *document.shared.state.borrow_mut() = State {
             value: checkpoint.value,
             version: checkpoint.version,
@@ -485,7 +481,7 @@ mod tests {
 
     #[test]
     fn detached_state_reports_invalid_state_instead_of_panicking() {
-        let document = Document::create(Value::int(0)).unwrap();
+        let document = Document::create(Value::int(0));
         let state = document.shared.state.borrow();
         assert_eq!(state.session().unwrap_err().code, ErrorCode::InvalidState);
         assert_eq!(state.history().unwrap_err().code, ErrorCode::InvalidState);
