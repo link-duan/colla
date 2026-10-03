@@ -26,7 +26,7 @@ pub fn transform(
     let (right, right_value) = right.normalized(base)?;
     let mut rights = right.operations().to_vec();
     let mut lefts = Vec::new();
-    let mut before_left = base.clone();
+    let mut before_left = State::new(base);
     let left_first = priority == Priority::Left;
     for operation in left.operations() {
         // Transform one left step across every right step, keeping the base
@@ -36,22 +36,47 @@ pub fn transform(
         let mut transformed = Vec::with_capacity(rights.len());
         for other in &rights {
             if let Some(mine) = &current {
-                let after = rebase(&state, mine, other, left_first)?;
-                transformed.extend(rebase(&state, other, mine, !left_first)?);
+                let after = rebase(&mut state, mine, other, left_first)?;
+                transformed.extend(rebase(&mut state, other, mine, !left_first)?);
                 current = after;
             } else {
                 transformed.push(other.clone());
             }
-            state = apply_operation(&state, other)?;
+            state.push(other);
         }
         lefts.extend(current);
-        before_left = apply_operation(&before_left, operation)?;
+        before_left.push(operation);
         rights = transformed;
     }
     Ok((
         Change::new(lefts)?.normalized(&right_value)?.0,
         Change::new(rights)?.normalized(&left_value)?.0,
     ))
+}
+
+// The content both current operations apply to, materialized only when a List
+// length is needed: most pairs transform from their paths alone.
+#[derive(Clone)]
+struct State<'a> {
+    value: Value,
+    pending: Vec<&'a Operation>,
+}
+impl<'a> State<'a> {
+    fn new(value: &Value) -> Self {
+        Self {
+            value: value.clone(),
+            pending: Vec::new(),
+        }
+    }
+    fn push(&mut self, operation: &'a Operation) {
+        self.pending.push(operation);
+    }
+    fn get(&mut self) -> Result<&Value> {
+        for operation in self.pending.drain(..) {
+            self.value = apply_operation(&self.value, operation)?;
+        }
+        Ok(&self.value)
+    }
 }
 
 fn list_edit(operation: &Operation) -> Option<(&[Segment], ListEdit)> {
@@ -105,7 +130,7 @@ fn element_path(operation: &Operation) -> &[Segment] {
 
 /// Returns `mine` transformed to apply after `other`, both relative to `state`.
 fn rebase(
-    state: &Value,
+    state: &mut State,
     mine: &Operation,
     other: &Operation,
     mine_first: bool,
@@ -114,7 +139,7 @@ fn rebase(
         (list_edit(mine), list_edit(other))
     {
         if list == other_list {
-            let Body::List(items) = state.get(list)?.body() else {
+            let Body::List(items) = state.get()?.get(list)?.body() else {
                 return Err(type_error("expected List"));
             };
             return Ok(list::rebase(items.len(), edit, other_edit, mine_first)
