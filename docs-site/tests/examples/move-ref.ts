@@ -1,6 +1,10 @@
 import { Document, History, Ref, ref, text } from 'colla-ot'
 
-const doc = Document.create({ todo: [{ title: text('Draft'), link: null }], done: [], selected: null })
+const doc = Document.create({
+  todo: [{ title: text('Draft'), link: null }],
+  done: [],
+  selected: null,
+})
 const history = History.attach(doc)
 const item = doc.idAt(['todo', 0])
 const title = doc.idAt(['todo', 0, 'title'])

@@ -24,7 +24,7 @@ const expectedOutput = {
   ],
   'first-edit': [
     "Before edit: Text { type: 'text', value: 'Draft' }",
-    "After edit: Text { type: 'text', value: 'Draft v2' }",
+    "After edit: Text { type: 'text', value: 'Draft updated' }",
   ],
   core: [
     "Left edit alone: Text { type: 'text', value: 'Say Hello' }",

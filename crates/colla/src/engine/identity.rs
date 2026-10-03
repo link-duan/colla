@@ -18,13 +18,27 @@ impl ElementId {
     pub fn sequence(self) -> u64 {
         self.sequence
     }
-    pub(crate) fn fresh() -> Self {
-        ALLOCATOR.with(|allocator| {
-            allocator
-                .borrow_mut()
-                .allocate()
-                .expect("element ID namespace exhausted")
+    /// Allocates from this thread's allocator, creating its random namespace on
+    /// first use. Entropy failure and sequence exhaustion are reported as errors.
+    pub(crate) fn try_fresh() -> Result<Self> {
+        ALLOCATOR.with(|current| {
+            let mut current = current.borrow_mut();
+            match current.as_mut() {
+                Some(allocator) => allocator.allocate(),
+                None => {
+                    let mut allocator = IdAllocator::random()?;
+                    let id = allocator.allocate();
+                    *current = Some(allocator);
+                    id
+                }
+            }
         })
+    }
+    /// Infallible variant for constructors whose public signatures cannot fail.
+    /// Panics only when the platform has no secure entropy source or after
+    /// 2^64 allocations in one namespace.
+    pub(crate) fn fresh() -> Self {
+        Self::try_fresh().unwrap_or_else(|error| panic!("element ID allocation failed: {error}"))
     }
 }
 
@@ -112,8 +126,12 @@ impl IdAllocator {
     /// Creates an allocator with a fresh namespace from the platform secure random source.
     pub fn random() -> Result<Self> {
         let mut namespace = [0; 16];
-        getrandom::getrandom(&mut namespace)
-            .map_err(|e| Error::new(ErrorCode::InvalidState, e.to_string()))?;
+        getrandom::getrandom(&mut namespace).map_err(|e| {
+            Error::new(
+                ErrorCode::InvalidState,
+                format!("secure element ID entropy unavailable: {e}"),
+            )
+        })?;
         Ok(Self::deterministic(namespace))
     }
     /// Creates an allocator in an explicit test namespace, starting at sequence one.
@@ -127,15 +145,33 @@ impl IdAllocator {
     /// Allocated sequences remain consumed even when the callback fails or unwinds.
     /// Use a distinct deterministic namespace per test or a fresh random allocator.
     pub fn scope<T>(&mut self, callback: impl FnOnce() -> T) -> T {
-        struct Restore<'a>(&'a mut IdAllocator);
+        struct Restore<'a> {
+            allocator: &'a mut IdAllocator,
+            outer: Option<IdAllocator>,
+        }
         impl Drop for Restore<'_> {
             fn drop(&mut self) {
-                ALLOCATOR.with(|current| std::mem::swap(self.0, &mut current.borrow_mut()));
+                ALLOCATOR.with(|current| {
+                    let inner = std::mem::replace(&mut *current.borrow_mut(), self.outer.take());
+                    if let Some(inner) = inner {
+                        *self.allocator = inner;
+                    }
+                });
             }
         }
-        ALLOCATOR.with(|current| std::mem::swap(self, &mut current.borrow_mut()));
-        let _restore = Restore(self);
+        let inner = std::mem::replace(self, Self::exhausted());
+        let outer = ALLOCATOR.with(|current| current.borrow_mut().replace(inner));
+        let _restore = Restore {
+            allocator: self,
+            outer,
+        };
         callback()
+    }
+    fn exhausted() -> Self {
+        Self {
+            namespace: [0; 16],
+            next: None,
+        }
     }
     /// Allocates the next ID without reuse; namespace exhaustion returns an error.
     pub fn allocate(&mut self) -> Result<ElementId> {
@@ -150,5 +186,34 @@ impl IdAllocator {
     }
 }
 thread_local! {
-    static ALLOCATOR: RefCell<IdAllocator> = RefCell::new(IdAllocator::random().expect("secure element ID entropy unavailable"));
+    // Created lazily so entropy failure surfaces as an error from fallible constructors.
+    static ALLOCATOR: RefCell<Option<IdAllocator>> = const { RefCell::new(None) };
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn nested_scopes_restore_allocators_and_keep_consumed_sequences() {
+        let mut outer = IdAllocator::deterministic([1; 16]);
+        let mut inner = IdAllocator::deterministic([2; 16]);
+        let (first, nested, last) = outer.scope(|| {
+            let first = ElementId::try_fresh().unwrap();
+            let nested = inner.scope(|| ElementId::try_fresh().unwrap());
+            (first, nested, ElementId::try_fresh().unwrap())
+        });
+        assert_eq!((first.namespace(), first.sequence()), ([1; 16], 1));
+        assert_eq!((nested.namespace(), nested.sequence()), ([2; 16], 1));
+        assert_eq!((last.namespace(), last.sequence()), ([1; 16], 2));
+        assert_eq!(outer.allocate().unwrap().sequence(), 3);
+        assert_eq!(inner.allocate().unwrap().sequence(), 2);
+    }
+
+    #[test]
+    fn exhausted_scope_reports_an_error() {
+        let mut allocator = IdAllocator::exhausted();
+        let error = allocator.scope(ElementId::try_fresh).unwrap_err();
+        assert_eq!(error.code, ErrorCode::LimitExceeded);
+    }
 }

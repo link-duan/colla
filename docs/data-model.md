@@ -10,15 +10,15 @@ independent of client requests. Failed transactions do not rewind allocation.
 Restore retains identities; a new runtime allocates later content in a fresh
 namespace. Deterministic allocators support fixtures.
 
-| Edit | Identity |
-| --- | --- |
-| Leaf edit/container member edit | Preserve edited element |
-| Set existing | Preserve target root, import fresh descendants |
-| Insert normal content | New subtree identities |
-| Move | Preserve complete subtree |
-| Copy | Fresh subtree identities, internal Ref remapping |
-| Undo/redo | Restore original identities |
-| Codec restore | Preserve all identities |
+| Edit                            | Identity                                         |
+| ------------------------------- | ------------------------------------------------ |
+| Leaf edit/container member edit | Preserve edited element                          |
+| Set existing                    | Preserve target root, import fresh descendants   |
+| Insert normal content           | New subtree identities                           |
+| Move                            | Preserve complete subtree                        |
+| Copy                            | Fresh subtree identities, internal Ref remapping |
+| Undo/redo                       | Restore original identities                      |
+| Codec restore                   | Preserve all identities                          |
 
 Refs are weak, same-document, atomic ID targets. They can dangle or form cycles.
 One-hop resolution observes only the queried snapshot. Copy remaps targets
@@ -31,4 +31,4 @@ target IDs literally. `toJS()` is a projection, not an identity-preserving codec
 Owning identity duplication is invalid. Derived indexes are never encoded.
 
 See [JavaScript API](https://link-duan.github.io/colla/reference/javascript), [Rust API](https://link-duan.github.io/colla/reference/rust),
-[glossary](../CONTEXT.md) and [design contract](implementation-0.4.0.md).
+[glossary](../CONTEXT.md).

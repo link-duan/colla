@@ -367,7 +367,7 @@ impl Transaction {
             Body::Text(text) => {
                 crate::sequence::value::Text::new(text.clone()).utf16_to_code_point(position)
             }
-            Body::RichText(spans) => super::rich::value_to_old(spans)?
+            Body::RichText(spans) => super::rich::to_sequence_value(spans)?
                 .as_rich_text()
                 .unwrap()
                 .utf16_to_code_point(position),
@@ -407,6 +407,26 @@ impl Transaction {
     }
 }
 impl State {
+    pub(crate) fn history(&self) -> Result<&super::history::HistoryData> {
+        self.history
+            .as_ref()
+            .ok_or_else(|| invalid_state("History is closed"))
+    }
+    pub(crate) fn history_mut(&mut self) -> Result<&mut super::history::HistoryData> {
+        self.history
+            .as_mut()
+            .ok_or_else(|| invalid_state("History is closed"))
+    }
+    pub(crate) fn session(&self) -> Result<&super::sync::SessionData> {
+        self.sync
+            .as_ref()
+            .ok_or_else(|| invalid_state("SyncSession is not attached"))
+    }
+    pub(crate) fn session_mut(&mut self) -> Result<&mut super::sync::SessionData> {
+        self.sync
+            .as_mut()
+            .ok_or_else(|| invalid_state("SyncSession is not attached"))
+    }
     pub(crate) fn prepare(
         &self,
         change: &Change,

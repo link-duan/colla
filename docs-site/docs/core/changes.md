@@ -14,12 +14,12 @@ provide inspection and persistence. Use high-level editors for ordinary UI input
 
 ## Algebra contracts
 
-| Function | Result |
-| --- | --- |
-| `apply(base, change)` | New immutable Value, atomically |
-| `invert(base, change)` | Change restoring original content and IDs |
-| `compose(base, first, second)` | Equivalent to sequential application |
-| `transform(base, left, right, { priority })` | `[leftAfterRight, rightAfterLeft]` |
+| Function                                     | Result                                    |
+| -------------------------------------------- | ----------------------------------------- |
+| `apply(base, change)`                        | New immutable Value, atomically           |
+| `invert(base, change)`                       | Change restoring original content and IDs |
+| `compose(base, first, second)`               | Equivalent to sequential application      |
+| `transform(base, left, right, { priority })` | `[leftAfterRight, rightAfterLeft]`        |
 
 For compose, second applies after first. For transform, left and right share the same
 base. The returned pair satisfies TP1 for mergeable changes:

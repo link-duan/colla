@@ -10,7 +10,7 @@ fn main() -> colla::Result<()> {
     ])?)?;
     let history = History::attach(&doc)?;
     doc.edit(|tx| {
-        tx.text_replace(id, 5, 0, " v2")?;
+        tx.text_replace(id, 5, 0, " updated")?;
         tx.move_to(id, vec![Segment::Key("to".into())], Segment::Index(0))
     })?;
     println!("Path after move: {:?}", doc.path_of(id)?);

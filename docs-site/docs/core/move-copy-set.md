@@ -3,11 +3,11 @@
 Choose an operation according to whether the element should remain the same instance.
 Identity affects references, concurrent edits and undo as well as path lookup.
 
-| Operation | Target identity | Descendant identities | Internal Refs |
-| --- | --- | --- | --- |
-| Move | Preserved | Preserved | Targets unchanged |
-| Copy | New | New | Remapped inside copied subtree |
-| Set existing | Preserved | Newly imported | Imported root maps to retained target |
+| Operation    | Target identity | Descendant identities | Internal Refs                         |
+| ------------ | --------------- | --------------------- | ------------------------------------- |
+| Move         | Preserved       | Preserved             | Targets unchanged                     |
+| Copy         | New             | New                   | Remapped inside copied subtree        |
+| Set existing | Preserved       | Newly imported        | Imported root maps to retained target |
 
 ## Move an existing element
 

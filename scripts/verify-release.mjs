@@ -1,43 +1,46 @@
-import assert from "node:assert/strict"
-import { execFileSync } from "node:child_process"
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
-import { tmpdir } from "node:os"
-import { dirname, join, resolve } from "node:path"
+import assert from 'node:assert/strict'
+import { execFileSync } from 'node:child_process'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { dirname, join, resolve } from 'node:path'
 
-const workspaceDir = resolve(import.meta.dirname, "..")
-const semverPattern = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/
+const workspaceDir = resolve(import.meta.dirname, '..')
+const semverPattern =
+  /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/
 
 function readArguments(argv) {
   let version
   let output
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index]
-    if (argument === "--version") {
+    if (argument === '--version') {
       version = argv[index + 1]
       index += 1
-    } else if (argument === "--output") {
+    } else if (argument === '--output') {
       output = argv[index + 1]
       index += 1
     } else {
       throw new Error(`unknown argument: ${argument}`)
     }
   }
-  assert.match(version ?? "", semverPattern, "--version must be an exact SemVer")
+  assert.match(version ?? '', semverPattern, '--version must be an exact SemVer')
   return { version, output }
 }
 
 async function fetchJson(url) {
   const response = await fetch(url, {
-    headers: { "User-Agent": "colla-release-verifier/0.1" },
+    headers: { 'User-Agent': 'colla-release-verifier/0.1' },
   })
   assert.equal(response.status, 200, `${url} returned HTTP ${response.status}`)
   return response.json()
 }
 
-function runRustConsumer(version, fixtureDir) {
-  const rustDir = join(fixtureDir, "rust")
-  return mkdir(join(rustDir, "src"), { recursive: true }).then(async () => {
-    await writeFile(join(rustDir, "Cargo.toml"), `[package]
+async function runRustConsumer(version, fixtureDir) {
+  const rustDir = join(fixtureDir, 'rust')
+  await mkdir(join(rustDir, 'src'), { recursive: true })
+  await writeFile(
+    join(rustDir, 'Cargo.toml'),
+    `[package]
 name = "colla-release-consumer"
 version = "0.0.0"
 edition = "2021"
@@ -47,45 +50,49 @@ publish = false
 colla = "=${version}"
 
 [workspace]
-`)
-    const source = await readFile(join(workspaceDir, "crates/colla/tests/release_consumer.rs"), "utf8")
-    await writeFile(join(rustDir, "src/main.rs"), source)
-    execFileSync("cargo", ["generate-lockfile"], { cwd: rustDir, stdio: "inherit" })
-    execFileSync("cargo", ["run", "--locked", "--quiet"], {
-      cwd: rustDir,
-      stdio: "inherit",
-    })
-    const lock = await readFile(join(rustDir, "Cargo.lock"), "utf8")
-    assert.match(
-      lock,
-      new RegExp(`name = "colla"\\nversion = "${version.replaceAll(".", "\\.")}"\\nsource = "registry\\+`),
-      "Rust consumer did not resolve colla from a registry",
-    )
+`,
+  )
+  const source = await readFile(
+    join(workspaceDir, 'crates/colla/tests/release_consumer.rs'),
+    'utf8',
+  )
+  await writeFile(join(rustDir, 'src/main.rs'), source)
+  execFileSync('cargo', ['generate-lockfile'], { cwd: rustDir, stdio: 'inherit' })
+  execFileSync('cargo', ['run', '--locked', '--quiet'], {
+    cwd: rustDir,
+    stdio: 'inherit',
   })
+  const lock = await readFile(join(rustDir, 'Cargo.lock'), 'utf8')
+  assert.match(
+    lock,
+    new RegExp(
+      `name = "colla"\\nversion = "${version.replaceAll('.', '\\.')}"\\nsource = "registry\\+`,
+    ),
+    'Rust consumer did not resolve colla from a registry',
+  )
 }
 
 function resolveNpmVersion(name, requested) {
-  const output = execFileSync("npm", ["view", `${name}@${requested}`, "version", "--json"], {
-    encoding: "utf8",
+  const output = execFileSync('npm', ['view', `${name}@${requested}`, 'version', '--json'], {
+    encoding: 'utf8',
   })
   const resolved = JSON.parse(output)
-  assert.equal(typeof resolved, "string", `${name}@${requested} did not resolve exactly`)
+  assert.equal(typeof resolved, 'string', `${name}@${requested} did not resolve exactly`)
   assert.match(resolved, semverPattern, `${name}@${requested} resolved to invalid SemVer`)
   return resolved
 }
 
 function runJavaScriptConsumers(version) {
   const dependencies = {
-    vite: resolveNpmVersion("vite", process.env.COLLA_VITE_VERSION ?? "5.4.19"),
-    rollup: resolveNpmVersion("rollup", process.env.COLLA_ROLLUP_VERSION ?? "4.46.2"),
+    vite: resolveNpmVersion('vite', process.env.COLLA_VITE_VERSION ?? '5.4.19'),
+    rollup: resolveNpmVersion('rollup', process.env.COLLA_ROLLUP_VERSION ?? '4.46.2'),
     nodeResolve: resolveNpmVersion(
-      "@rollup/plugin-node-resolve",
-      process.env.COLLA_NODE_RESOLVE_VERSION ?? "16.0.1",
+      '@rollup/plugin-node-resolve',
+      process.env.COLLA_NODE_RESOLVE_VERSION ?? '16.0.1',
     ),
   }
-  const browserContexts = process.env.COLLA_RUN_BROWSER === "1"
-    ? ["main", "dedicated-worker", "shared-worker"]
-    : []
+  const browserContexts =
+    process.env.COLLA_RUN_BROWSER === '1' ? ['main', 'dedicated-worker', 'shared-worker'] : []
   const environment = {
     ...process.env,
     COLLA_PACKAGE_SPEC: `colla-ot@${version}`,
@@ -94,25 +101,25 @@ function runJavaScriptConsumers(version) {
     COLLA_ROLLUP_VERSION: dependencies.rollup,
     COLLA_NODE_RESOLVE_VERSION: dependencies.nodeResolve,
   }
-  for (const test of ["node-tracer.mjs", "bundlers.mjs"]) {
-    execFileSync(process.execPath, [resolve(workspaceDir, "packages/core/tests", test)], {
+  for (const test of ['node-tracer.mjs', 'bundlers.mjs']) {
+    execFileSync(process.execPath, [resolve(workspaceDir, 'packages/core/tests', test)], {
       cwd: workspaceDir,
       env: environment,
-      stdio: "inherit",
+      stdio: 'inherit',
     })
   }
-  if (process.env.COLLA_RUN_BROWSER === "1") {
-    execFileSync("pnpm", ["--filter", "colla-ot", "test:e2e"], {
+  if (process.env.COLLA_RUN_BROWSER === '1') {
+    execFileSync('pnpm', ['--filter', 'colla-ot', 'test:e2e'], {
       cwd: workspaceDir,
       env: environment,
-      stdio: "inherit",
+      stdio: 'inherit',
     })
   }
   return { dependencies, browserContexts }
 }
 
 const { version, output } = readArguments(process.argv.slice(2))
-const fixtureDir = await mkdtemp(join(tmpdir(), "colla-release-verifier-"))
+const fixtureDir = await mkdtemp(join(tmpdir(), 'colla-release-verifier-'))
 
 try {
   const [crateMetadata, npmMetadata] = await Promise.all([
@@ -121,8 +128,8 @@ try {
   ])
   assert.equal(crateMetadata.version.num, version)
   assert.equal(npmMetadata.version, version)
-  assert.ok(crateMetadata.version.checksum, "crates.io checksum is missing")
-  assert.ok(npmMetadata.dist?.integrity, "npm integrity is missing")
+  assert.ok(crateMetadata.version.checksum, 'crates.io checksum is missing')
+  assert.ok(npmMetadata.dist?.integrity, 'npm integrity is missing')
 
   await runRustConsumer(version, fixtureDir)
   const javaScript = runJavaScriptConsumers(version)

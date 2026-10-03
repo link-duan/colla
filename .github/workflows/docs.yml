@@ -17,21 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: pnpm/action-setup@v6
-        with:
-          version: 10.34.5
-      - uses: actions/setup-node@v5
-        with:
-          node-version: 24
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-unknown-unknown
-      - uses: Swatinem/rust-cache@v2
-      - uses: taiki-e/install-action@v2
-        with:
-          tool: wasm-pack
+      - uses: ./.github/actions/setup-workspace
       - run: pnpm --filter colla-docs test:examples
       - run: pnpm --filter colla-docs test:rust-examples
       - run: cargo test -p colla --doc

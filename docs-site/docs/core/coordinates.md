@@ -5,12 +5,12 @@ Text/RichText. A text offset is not an element ID or a List index.
 
 ## Coordinate units
 
-| Surface | Position unit |
-| --- | --- |
-| JavaScript TextEditor / RichTextEditor | UTF-16 code units |
-| Low-level Change and EditStep | Unicode scalars |
-| Rust text editing | Unicode scalars |
-| RichText embed | One position in either sequence system |
+| Surface                                | Position unit                          |
+| -------------------------------------- | -------------------------------------- |
+| JavaScript TextEditor / RichTextEditor | UTF-16 code units                      |
+| Low-level Change and EditStep          | Unicode scalars                        |
+| Rust text editing                      | Unicode scalars                        |
+| RichText embed                         | One position in either sequence system |
 
 For `A😀B`, UTF-16 boundaries are 0, 1, 3, 4; scalar boundaries are 0, 1, 2, 3.
 Neither system counts user-perceived grapheme clusters. Combining marks can occupy

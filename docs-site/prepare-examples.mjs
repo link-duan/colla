@@ -12,12 +12,17 @@ function markdown(directory) {
     return entry.isDirectory() ? markdown(file) : file.endsWith('.md') ? [file] : []
   })
 }
-const sources = [...markdown(join(root, 'docs')), join(root, '../README.md'), join(root, '../packages/core/README.md')]
+const sources = [
+  ...markdown(join(root, 'docs')),
+  join(root, '../README.md'),
+  join(root, '../packages/core/README.md'),
+]
 let count = 0
 for (const source of sources) {
   const snippets = [...readFileSync(source, 'utf8').matchAll(/^```ts\n([^]*?)^```/gm)]
   for (const [index, match] of snippets.entries()) {
-    if (!/^import /m.test(match[1])) throw new Error(`Runnable snippet must include imports: ${source}`)
+    if (!/^import /m.test(match[1]))
+      throw new Error(`Runnable snippet must include imports: ${source}`)
     const name = relative(root, source).replace(/[^a-zA-Z0-9-]/g, '-')
     writeFileSync(join(generated, `${name}-${index}.ts`), match[1])
     count++

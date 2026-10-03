@@ -2,7 +2,10 @@ use super::{
     change::{apply_operation, destination_of, structural},
     Body, Change, Destination, ElementId, Error, ErrorCode, Operation, Result, Segment, Value,
 };
-use crate::sequence::change::{TextChange, TextOp, TieBreak};
+use crate::sequence::change::TieBreak;
+mod delta;
+
+use delta::difference;
 use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -169,7 +172,7 @@ fn transformed_leaves(
                     id,
                     Operation::RichText {
                         target: id,
-                        operations: super::rich::from_old(&change)?,
+                        operations: super::rich::from_sequence_change(&change)?,
                     },
                 );
             }
@@ -209,9 +212,11 @@ fn intents(change: &Change) -> Result<Intents> {
             }
             Operation::RichText { target, operations } => {
                 let previous = result.rich.entry(*target).or_default();
-                *previous =
-                    crate::sequence::op::compose(previous, &super::rich::to_old(operations)?)
-                        .map_err(algebra_error)?;
+                *previous = crate::sequence::op::compose(
+                    previous,
+                    &super::rich::to_sequence_change(operations)?,
+                )
+                .map_err(algebra_error)?;
             }
             _ => {}
         }
@@ -370,11 +375,16 @@ fn merge(
             let (_, low_after_high) =
                 crate::sequence::op::transform(&high_rich, low_rich, TieBreak::LeftFirst)
                     .map_err(algebra_error)?;
-            let result =
-                crate::sequence::op::apply(&super::rich::value_to_old(spans)?, &low_after_high)?;
+            let result = crate::sequence::op::apply(
+                &super::rich::to_sequence_value(spans)?,
+                &low_after_high,
+            )?;
             merged = merged.replace_at(
                 id,
-                &Value::trusted(id, Body::RichText(super::rich::value_from_old(&result)?)),
+                &Value::trusted(
+                    id,
+                    Body::RichText(super::rich::from_sequence_value(&result)?),
+                ),
             )?;
         }
     }
@@ -432,247 +442,137 @@ fn rebase_destination(
     })
 }
 
-/// Builds an executable identity-aware delta. Reordering is expressed with
-/// native moves, including temporary parking when Map keys form a permutation.
-fn difference(
-    before: &Value,
-    after: &Value,
-    leaves: LeafChanges,
-    original: &Change,
-) -> Result<Change> {
-    if before.id() != after.id() {
-        return Err(structural("document root identity changed"));
-    }
-    let wanted = after.ids();
-    let previous = before.ids();
-    let mut movable: BTreeSet<_> = wanted.difference(&previous).copied().collect();
-    for operation in original.operations() {
-        if let Operation::Move { target, .. } = operation {
-            if wanted.contains(target) {
-                movable.insert(*target);
-            }
-        }
-    }
-    let mut state = Delta {
-        value: before.clone(),
-        operations: Vec::new(),
-        leaves,
-        movable,
-    };
-    state.prune(before, &wanted)?;
-    state.align(after)?;
-    state.clean(after)?;
-    if state.value != *after {
-        return Err(structural("cannot construct identity-preserving delta"));
-    }
-    Ok(Change::new(state.operations)?.normalized(before)?.0)
-}
-struct Delta {
-    value: Value,
-    operations: Vec<Operation>,
-    leaves: LeafChanges,
-    movable: BTreeSet<ElementId>,
-}
-impl Delta {
-    fn prune(&mut self, value: &Value, wanted: &BTreeSet<ElementId>) -> Result<()> {
-        if !wanted.contains(&value.id()) && value.ids().is_disjoint(wanted) {
-            return self.push(Operation::Delete { target: value.id() });
-        }
-        match value.body() {
-            Body::Map(map) => {
-                for child in map.values() {
-                    self.prune(child, wanted)?;
-                }
-            }
-            Body::List(list) => {
-                for child in list {
-                    self.prune(child, wanted)?;
-                }
-            }
-            _ => {}
-        }
-        Ok(())
-    }
-    fn push(&mut self, operation: Operation) -> Result<()> {
-        let next = apply_operation(&self.value, &operation)?;
-        if next != self.value {
-            self.operations.push(operation);
-        }
-        self.value = next;
-        Ok(())
-    }
-    fn park(&mut self, id: ElementId) -> Result<()> {
-        let slot = match self.value.body() {
-            Body::Map(map) => {
-                let mut n = 0u64;
-                loop {
-                    let key = format!("\0colla:{n}");
-                    if !map.contains_key(&key) {
-                        break Segment::Key(key);
-                    }
-                    n += 1;
-                }
-            }
-            Body::List(list) => Segment::Index(
-                list.len()
-                    - usize::from(destination_of(&self.value, id)?.parent == self.value.id()),
-            ),
-            _ => return Err(structural("cannot park an element under a scalar root")),
-        };
-        self.push(Operation::Move {
-            target: id,
-            destination: Destination {
-                parent: self.value.id(),
-                slot,
-            },
-        })
-    }
-    fn place(&mut self, desired: &Value, destination: Destination) -> Result<()> {
-        if let Segment::Key(key) = &destination.slot {
-            let parent = self.value.get(destination.parent)?;
-            if let Body::Map(map) = parent.body() {
-                if let Some(occupied) = map.get(key) {
-                    if occupied.id() != desired.id() {
-                        self.park(occupied.id())?;
-                    }
-                }
-            }
-        }
-        if self.value.find(desired.id()).is_some() {
-            if destination_of(&self.value, desired.id())? != destination {
-                self.push(Operation::Move {
-                    target: desired.id(),
-                    destination,
-                })?;
-            }
-        } else {
-            let body = match desired.body() {
-                Body::Map(_) => Body::Map(BTreeMap::new()),
-                Body::List(_) => Body::List(Vec::new()),
-                body => body.clone(),
-            };
-            self.push(Operation::Insert {
-                destination,
-                value: Value::trusted(desired.id(), body),
-            })?;
-        }
-        self.align(desired)
-    }
-    fn align(&mut self, desired: &Value) -> Result<()> {
-        let current = self.value.get(desired.id())?;
-        if current != *desired {
-            if let Some(operation) = self.leaves.remove(&desired.id()) {
-                if let Ok(after) = apply_operation(&self.value, &operation) {
-                    if after.find(desired.id()) == Some(desired) {
-                        return self.push(operation);
-                    }
-                }
-            }
-        }
-        match (current.body(), desired.body()) {
-            (Body::Map(_), Body::Map(map)) => {
-                for (key, child) in map {
-                    self.place(
-                        child,
-                        Destination {
-                            parent: desired.id(),
-                            slot: Segment::Key(key.clone()),
-                        },
-                    )?;
-                }
-            }
-            (Body::List(_), Body::List(list)) => {
-                for (index, child) in list.iter().enumerate() {
-                    if !self.movable.contains(&child.id())
-                        && destination_of(&self.value, child.id())
-                            .is_ok_and(|d| d.parent == desired.id())
-                    {
-                        self.align(child)?;
-                        continue;
-                    }
-                    let parent = self.value.get(desired.id())?;
-                    let Body::List(current) = parent.body() else {
-                        unreachable!()
-                    };
-                    let current: Vec<_> = current.iter().filter(|v| v.id() != child.id()).collect();
-                    let position = list[index + 1..]
-                        .iter()
-                        .filter(|anchor| !self.movable.contains(&anchor.id()))
-                        .find_map(|anchor| current.iter().position(|v| v.id() == anchor.id()))
-                        .unwrap_or(current.len());
-                    self.place(
-                        child,
-                        Destination {
-                            parent: desired.id(),
-                            slot: Segment::Index(position),
-                        },
-                    )?;
-                }
-            }
-            (Body::Text(a), Body::Text(b)) if a != b => {
-                let a: Vec<_> = a.chars().collect();
-                let b: Vec<_> = b.chars().collect();
-                let prefix = a.iter().zip(&b).take_while(|(a, b)| a == b).count();
-                let suffix = a[prefix..]
-                    .iter()
-                    .rev()
-                    .zip(b[prefix..].iter().rev())
-                    .take_while(|(a, b)| a == b)
-                    .count();
-                self.push(Operation::Text {
-                    target: desired.id(),
-                    change: TextChange::from_ops([
-                        TextOp::Retain(prefix),
-                        TextOp::Delete(a.len() - prefix - suffix),
-                        TextOp::Insert(b[prefix..b.len() - suffix].iter().collect()),
-                    ])?,
-                })?;
-            }
-            (Body::Int(a), Body::Int(b)) if a != b => {
-                let mut delta = i128::from(*b) - i128::from(*a);
-                while delta != 0 {
-                    let step = delta.clamp(i128::from(i64::MIN), i128::from(i64::MAX)) as i64;
-                    self.push(Operation::Add {
-                        target: desired.id(),
-                        delta: step,
-                    })?;
-                    delta -= i128::from(step);
-                }
-            }
-            _ if current != *desired => self.push(Operation::Set {
-                target: desired.id(),
-                value: desired.clone(),
-            })?,
-            _ => {}
-        }
-        Ok(())
-    }
-    fn clean(&mut self, desired: &Value) -> Result<()> {
-        let current = self.value.get(desired.id())?;
-        match (current.body(), desired.body()) {
-            (Body::Map(map), Body::Map(wanted)) => {
-                for (key, child) in map {
-                    if !wanted.contains_key(key) {
-                        self.push(Operation::Delete { target: child.id() })?;
-                    }
-                }
-                for child in wanted.values() {
-                    self.clean(child)?;
-                }
-            }
-            (Body::List(list), Body::List(wanted)) => {
-                for child in list.iter().skip(wanted.len()) {
-                    self.push(Operation::Delete { target: child.id() })?;
-                }
-                for child in wanted {
-                    self.clean(child)?;
-                }
-            }
-            _ => {}
-        }
-        Ok(())
-    }
-}
 fn algebra_error(error: impl std::fmt::Display) -> Error {
     Error::new(ErrorCode::IncompatibleChange, error.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::engine::apply;
+
+    fn key(name: &str) -> Segment {
+        Segment::Key(name.into())
+    }
+    fn map(entries: Vec<(&str, Value)>) -> Value {
+        Value::map(entries.into_iter().map(|(k, v)| (k.to_string(), v))).unwrap()
+    }
+    fn change(operations: Vec<Operation>) -> Change {
+        Change::new(operations).unwrap()
+    }
+    fn converges(base: &Value, left: &Change, right: &Change, priority: Priority) -> Value {
+        let (left_after, right_after) = transform(base, left, right, priority).unwrap();
+        let merged = apply(&apply(base, right).unwrap(), &left_after).unwrap();
+        assert_eq!(
+            merged,
+            apply(&apply(base, left).unwrap(), &right_after).unwrap()
+        );
+        merged
+    }
+
+    #[test]
+    fn identical_changes_take_the_fast_path() {
+        let counter = Value::int(1);
+        let base = map(vec![("n", counter.clone())]);
+        let set = change(vec![Operation::Set {
+            target: counter.id(),
+            value: Value::with_id(counter.id(), Body::Int(5)).unwrap(),
+        }]);
+        let (left, right) = transform(&base, &set, &set, Priority::Left).unwrap();
+        assert!(left.is_noop() && right.is_noop());
+    }
+
+    #[test]
+    fn move_into_concurrently_deleted_parent_conflicts() {
+        let item = Value::int(1);
+        let target = map(vec![]);
+        let base = map(vec![
+            ("items", Value::list(vec![item.clone()]).unwrap()),
+            ("target", target.clone()),
+        ]);
+        let moved = change(vec![Operation::Move {
+            target: item.id(),
+            destination: Destination {
+                parent: target.id(),
+                slot: key("k"),
+            },
+        }]);
+        let deleted = change(vec![Operation::Delete {
+            target: target.id(),
+        }]);
+        for priority in [Priority::Left, Priority::Right] {
+            let error = transform(&base, &moved, &deleted, priority).unwrap_err();
+            assert_eq!(error.code, ErrorCode::StructuralConflict);
+        }
+    }
+
+    #[test]
+    fn set_competing_with_incoming_map_key_conflicts() {
+        let inner = map(vec![]);
+        let base = map(vec![("m", inner.clone())]);
+        let set = change(vec![Operation::Set {
+            target: inner.id(),
+            value: Value::with_id(
+                inner.id(),
+                Body::Map([("k".to_string(), Value::int(1))].into()),
+            )
+            .unwrap(),
+        }]);
+        let insert = change(vec![Operation::Insert {
+            destination: Destination {
+                parent: inner.id(),
+                slot: key("k"),
+            },
+            value: Value::int(2),
+        }]);
+        let error = transform(&base, &set, &insert, Priority::Left).unwrap_err();
+        assert_eq!(error.code, ErrorCode::StructuralConflict);
+    }
+
+    #[test]
+    fn set_preserves_concurrently_inserted_list_items() {
+        let list = Value::list(vec![Value::int(1)]).unwrap();
+        let base = map(vec![("l", list.clone())]);
+        let set = change(vec![Operation::Set {
+            target: list.id(),
+            value: Value::with_id(list.id(), Body::List(vec![Value::int(9)])).unwrap(),
+        }]);
+        let incoming = Value::int(2);
+        let insert = change(vec![Operation::Insert {
+            destination: Destination {
+                parent: list.id(),
+                slot: Segment::Index(1),
+            },
+            value: incoming.clone(),
+        }]);
+        let merged = converges(&base, &set, &insert, Priority::Left);
+        assert!(merged.find(incoming.id()).is_some());
+        assert!(merged.find(list.id()).is_some());
+    }
+
+    #[test]
+    fn competing_moves_follow_priority_and_keep_identity() {
+        let item = Value::int(1);
+        let a = Value::list(vec![]).unwrap();
+        let b = Value::list(vec![]).unwrap();
+        let base = map(vec![
+            ("items", Value::list(vec![item.clone()]).unwrap()),
+            ("a", a.clone()),
+            ("b", b.clone()),
+        ]);
+        let move_to = |parent: ElementId| {
+            change(vec![Operation::Move {
+                target: item.id(),
+                destination: Destination {
+                    parent,
+                    slot: Segment::Index(0),
+                },
+            }])
+        };
+        let (left, right) = (move_to(a.id()), move_to(b.id()));
+        for (priority, winner) in [(Priority::Left, a.id()), (Priority::Right, b.id())] {
+            let merged = converges(&base, &left, &right, priority);
+            assert_eq!(destination_of(&merged, item.id()).unwrap().parent, winner);
+        }
+    }
 }

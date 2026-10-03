@@ -1,16 +1,23 @@
 import { Change, Value, apply, text, transform } from 'colla-ot'
 
 const base = Value.fromJS(text('Hello'))
-const left = Change.create([{
-  type: 'text',
-  target: base.id,
-  operations: [{ type: 'insert', text: 'Say ' }],
-}])
-const right = Change.create([{
-  type: 'text',
-  target: base.id,
-  operations: [{ type: 'retain', length: 5 }, { type: 'insert', text: '!' }],
-}])
+const left = Change.create([
+  {
+    type: 'text',
+    target: base.id,
+    operations: [{ type: 'insert', text: 'Say ' }],
+  },
+])
+const right = Change.create([
+  {
+    type: 'text',
+    target: base.id,
+    operations: [
+      { type: 'retain', length: 5 },
+      { type: 'insert', text: '!' },
+    ],
+  },
+])
 
 console.log('Left edit alone:', apply(base, left).toJS())
 console.log('Right edit alone:', apply(base, right).toJS())

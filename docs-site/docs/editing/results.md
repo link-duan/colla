@@ -5,13 +5,13 @@ delivered as an EditEvent to subscribers, after the commit has succeeded.
 
 ## Result fields
 
-| Field | Meaning |
-| --- | --- |
-| before / after | Immutable Values at the commit boundaries |
-| change / inverse | Applied Change and its inverse |
-| editSteps | Replayable ordered operations with scalar sequence positions |
-| version | bigint local content version |
-| origin | local, remote, undo or redo |
+| Field            | Meaning                                                      |
+| ---------------- | ------------------------------------------------------------ |
+| before / after   | Immutable Values at the commit boundaries                    |
+| change / inverse | Applied Change and its inverse                               |
+| editSteps        | Replayable ordered operations with scalar sequence positions |
+| version          | bigint local content version                                 |
+| origin           | local, remote, undo or redo                                  |
 
 The inverse restores the exact previous content and identities when applied to after.
 It is not automatically valid against arbitrary later content; collaborative History

@@ -15,8 +15,12 @@ codec::record_codec!(HistoryData, undo, redo, capacity, group);
 impl HistoryData {
     pub(crate) fn record(&mut self, edit: &EditResult, group: Option<String>) -> Result<()> {
         self.redo.clear();
-        if group.is_some() && self.group == group && !self.undo.is_empty() {
-            let previous = self.undo.pop().unwrap();
+        let previous = if group.is_some() && self.group == group {
+            self.undo.pop()
+        } else {
+            None
+        };
+        if let Some(previous) = previous {
             self.undo
                 .push(compose(&edit.after, &edit.inverse, &previous)?);
         } else {
@@ -120,9 +124,7 @@ impl History {
             .shared
             .state
             .borrow()
-            .history
-            .as_ref()
-            .unwrap()
+            .history()?
             .undo
             .iter()
             .any(|c| !c.is_noop()))
@@ -135,9 +137,7 @@ impl History {
             .shared
             .state
             .borrow()
-            .history
-            .as_ref()
-            .unwrap()
+            .history()?
             .redo
             .iter()
             .any(|c| !c.is_noop()))
@@ -155,7 +155,7 @@ impl History {
         self.document.idle()?;
         let mut candidate = self.document.shared.state.borrow().clone();
         loop {
-            let history = candidate.history.as_mut().unwrap();
+            let history = candidate.history_mut()?;
             history.group = None;
             let stack = if redo {
                 &mut history.redo
@@ -175,7 +175,7 @@ impl History {
                 if redo { Origin::Redo } else { Origin::Undo },
                 None,
             )?;
-            let history = next.history.as_mut().unwrap();
+            let history = next.history_mut()?;
             if redo {
                 history.undo.push(result.inverse.clone());
             } else {
@@ -190,7 +190,7 @@ impl History {
         self.check()?;
         self.document.idle()?;
         let mut state = self.document.shared.state.borrow_mut();
-        let history = state.history.as_mut().unwrap();
+        let history = state.history_mut()?;
         history.undo.clear();
         history.redo.clear();
         history.group = None;
@@ -215,7 +215,7 @@ impl History {
         let state = self.document.shared.state.borrow();
         Ok(HistoryCheckpoint {
             base: state.value.clone(),
-            history: state.history.clone().unwrap(),
+            history: state.history()?.clone(),
         })
     }
     /// Validates and restores complete runtime state from a controlled checkpoint.
@@ -241,13 +241,13 @@ pub struct HistoryCheckpoint {
 }
 codec::record_codec!(HistoryCheckpoint, base, history);
 impl HistoryCheckpoint {
-    /// Returns independent canonical bytes in a typed version-2 envelope.
+    /// Returns independent canonical bytes in a typed binary envelope.
     pub fn encode(&self) -> Vec<u8> {
-        codec::encode(7, self)
+        codec::encode(codec::Kind::HistoryCheckpoint, self)
     }
-    /// Strictly decodes and validates a typed version-2 envelope, rejecting trailing data.
+    /// Strictly decodes and validates a typed binary envelope, rejecting trailing data.
     pub fn decode(bytes: &[u8]) -> Result<Self> {
-        let checkpoint: Self = codec::decode(7, bytes)?;
+        let checkpoint: Self = codec::decode(codec::Kind::HistoryCheckpoint, bytes)?;
         checkpoint.base.validate()?;
         checkpoint.history.validate(&checkpoint.base)?;
         Ok(checkpoint)

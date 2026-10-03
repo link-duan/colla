@@ -1,5 +1,12 @@
-import { Authority, AuthorityCheckpoint, CollaError, ServerMessage, SessionCheckpoint,
-  Submission, SyncSession } from 'colla-ot'
+import {
+  Authority,
+  AuthorityCheckpoint,
+  CollaError,
+  ServerMessage,
+  SessionCheckpoint,
+  Submission,
+  SyncSession,
+} from 'colla-ot'
 
 let authority = Authority.create({ documentId: 'counter', value: { count: 0n } })
 const baseline = authority.snapshot()
@@ -24,19 +31,24 @@ function exchange(client: SyncSession): ServerMessage {
   return message
 }
 exchange(bob)
-if (String(alice.outbound()!.encode()) !== String(original)) throw new Error('Retry payload changed')
+if (String(alice.outbound()!.encode()) !== String(original))
+  throw new Error('Retry payload changed')
 const checkpoint = alice.checkpoint().encode()
 alice.close() // stop the original writer before restoring the same client ID
 alice = SyncSession.restore(SessionCheckpoint.decode(checkpoint))
-if (String(alice.outbound()!.encode()) !== String(original)) throw new Error('Restore lost retry payload')
+if (String(alice.outbound()!.encode()) !== String(original))
+  throw new Error('Restore lost retry payload')
 const first = exchange(alice)
 const duplicate = authority.accept(Submission.decode(original))
-if (duplicate.authority.revision !== authority.revision) throw new Error('Duplicate advanced revision')
-if (String(duplicate.message.encode()) !== String(first.encode())) throw new Error('Duplicate changed receipt')
+if (duplicate.authority.revision !== authority.revision)
+  throw new Error('Duplicate advanced revision')
+if (String(duplicate.message.encode()) !== String(first.encode()))
+  throw new Error('Duplicate changed receipt')
 alice.receive(first) // duplicate delivery is safe
 const last = exchange(alice) // buffered +3 is now a separate submission
 for (const client of [alice, bob]) {
-  if (!client.document.snapshot().equals(authority.snapshot().value)) throw new Error('Clients diverged')
+  if (!client.document.snapshot().equals(authority.snapshot().value))
+    throw new Error('Clients diverged')
   if (client.document.get(['count'])?.toJS() !== 6n) throw new Error('Lost an edit')
 }
 const late = SyncSession.create({ clientId: 'late', snapshot: baseline })

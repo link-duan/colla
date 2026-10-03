@@ -8,14 +8,21 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   rust-msrv:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@1.81.0
+        with:
+          targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
       - run: cargo check -p colla --lib --locked
+      - run: cargo check -p colla-wasm --lib --locked --target wasm32-unknown-unknown
 
   rust:
     runs-on: ubuntu-latest
@@ -30,6 +37,14 @@ jobs:
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: RUSTDOCFLAGS='-D warnings' cargo doc --workspace --no-deps
       - run: cargo fmt --all --check
+
+  cargo-deny:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check advisories bans licenses sources
 
   javascript:
     runs-on: ubuntu-latest
@@ -49,19 +64,9 @@ jobs:
     name: JavaScript (Node ${{ matrix.node }}, ${{ matrix.bundlers.name }})
     steps:
       - uses: actions/checkout@v5
-      - uses: pnpm/action-setup@v6
-        with:
-          version: 10.34.5
-      - uses: actions/setup-node@v5
+      - uses: ./.github/actions/setup-workspace
         with:
           node-version: ${{ matrix.node }}
-          cache: pnpm
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-unknown-unknown
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo install wasm-pack --version 0.14.0 --locked
-      - run: pnpm install --frozen-lockfile
       - run: pnpm check
       - run: pnpm test:js
         env:
@@ -73,19 +78,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: pnpm/action-setup@v6
-        with:
-          version: 10.34.5
-      - uses: actions/setup-node@v5
-        with:
-          node-version: 24
-          cache: pnpm
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-unknown-unknown
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo install wasm-pack --version 0.14.0 --locked
-      - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/setup-workspace
       - run: pnpm --filter colla-ot exec playwright install --with-deps chromium firefox webkit
       - run: pnpm test:e2e
 
@@ -97,11 +90,31 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: fuzz
-      - run: cargo install cargo-fuzz --version 0.13.2 --locked
+      # The prebuilt cargo-fuzz is a musl binary that defaults to its own host
+      # triple, so every invocation names the glibc target explicitly.
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-fuzz@0.13.2
+      # Reuse the corpora grown by the scheduled fuzz workflow.
+      - uses: actions/cache/restore@v4
+        with:
+          path: fuzz/corpus/decode_value
+          key: fuzz-corpus-decode_value-${{ github.run_id }}
+          restore-keys: fuzz-corpus-decode_value-
+      - uses: actions/cache/restore@v4
+        with:
+          path: fuzz/corpus/decode_change
+          key: fuzz-corpus-decode_change-${{ github.run_id }}
+          restore-keys: fuzz-corpus-decode_change-
+      - uses: actions/cache/restore@v4
+        with:
+          path: fuzz/corpus/ot_algebra
+          key: fuzz-corpus-ot_algebra-${{ github.run_id }}
+          restore-keys: fuzz-corpus-ot_algebra-
       - run: python3 fuzz/seed.py
-      - run: cargo fuzz run decode_value -- -max_total_time=60
-      - run: cargo fuzz run decode_change -- -max_total_time=60
-      - run: cargo fuzz run ot_algebra -- -max_total_time=60
+      - run: cargo fuzz run --target x86_64-unknown-linux-gnu decode_value -- -max_total_time=60
+      - run: cargo fuzz run --target x86_64-unknown-linux-gnu decode_change -- -max_total_time=60
+      - run: cargo fuzz run --target x86_64-unknown-linux-gnu ot_algebra -- -max_total_time=60
       - uses: actions/upload-artifact@v7
         if: failure()
         with:
@@ -113,19 +126,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: pnpm/action-setup@v6
-        with:
-          version: 10.34.5
-      - uses: actions/setup-node@v5
-        with:
-          node-version: 24
-          cache: pnpm
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-unknown-unknown
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo install wasm-pack --version 0.14.0 --locked
-      - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/setup-workspace
       - run: pnpm check:versions
       - name: Measure quality baseline
         run: |
@@ -136,3 +137,25 @@ jobs:
         with:
           name: quality-baseline
           path: artifacts/quality-baseline.json
+
+  benchmarks:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # Base and head run back to back on the same runner so the comparison is
+      # not skewed by hardware differences between jobs.
+      - name: Benchmark base
+        run: |
+          git worktree add "$RUNNER_TEMP/base" "${{ github.event.pull_request.base.sha }}"
+          cargo bench --manifest-path "$RUNNER_TEMP/base/Cargo.toml" -p colla --bench ot_bench -- --save-baseline base
+        env:
+          CARGO_TARGET_DIR: ${{ github.workspace }}/target
+      - name: Benchmark head
+        run: cargo bench -p colla --bench ot_bench -- --baseline-lenient base
+      - name: Compare
+        run: node scripts/compare-bench.mjs --threshold 0.25 --markdown-output "$GITHUB_STEP_SUMMARY"

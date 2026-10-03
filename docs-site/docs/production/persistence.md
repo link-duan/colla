@@ -5,13 +5,13 @@ alone is not enough to restore identities, undo intent or an unconfirmed request
 
 ## Durable objects
 
-| Object | Preserved state | Restore entry |
-| --- | --- | --- |
-| Value | Content and element IDs | Document.create(Value.decode(bytes)) |
-| SyncSnapshot | Document ID, confirmed revision and Value | SyncSession.create |
-| SessionCheckpoint | Confirmed basis, original request, rebased pending, buffer, local version, enabled History | SyncSession.restore |
-| HistoryCheckpoint | Stacks, grouping, capacity and exact content basis | History.restore |
-| AuthorityCheckpoint | History floor, retained commits and deduplication receipts | Authority.restore |
+| Object              | Preserved state                                                                            | Restore entry                        |
+| ------------------- | ------------------------------------------------------------------------------------------ | ------------------------------------ |
+| Value               | Content and element IDs                                                                    | Document.create(Value.decode(bytes)) |
+| SyncSnapshot        | Document ID, confirmed revision and Value                                                  | SyncSession.create                   |
+| SessionCheckpoint   | Confirmed basis, original request, rebased pending, buffer, local version, enabled History | SyncSession.restore                  |
+| HistoryCheckpoint   | Stacks, grouping, capacity and exact content basis                                         | History.restore                      |
+| AuthorityCheckpoint | History floor, retained commits and deduplication receipts                                 | Authority.restore                    |
 
 All objects use strict Rust-owned codecs. Store bytes without converting bigint fields
 to JSON numbers. Value.toJS is a projection, not an identity-preserving durable format.

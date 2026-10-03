@@ -6,14 +6,11 @@ const expected = {
   basic_edit: [
     'Path after move: Some([Key("to"), Index(0)])',
     'Ref still targets the same item: true',
-    'Edited title: Text("Draft v2")',
+    'Edited title: Text("Draft updated")',
     'Path after undo: Some([Key("from"), Index(0)])',
     'Restored title: Text("Draft")',
   ],
-  binary_roundtrip: [
-    'Value content and IDs preserved: true',
-    'Authority snapshot preserved: true',
-  ],
+  binary_roundtrip: ['Value content and IDs preserved: true', 'Authority snapshot preserved: true'],
   collab_demo: [
     'Alice after restart: Int(1)',
     'Confirmed server revision: 1',

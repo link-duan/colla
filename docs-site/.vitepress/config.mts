@@ -29,13 +29,15 @@ export default defineConfig({
     nav: [
       { text: 'Docs', link: '/docs/getting-started/', activeMatch: '/docs/' },
       { text: 'Reference', link: '/reference/javascript', activeMatch: '/reference/' },
-      { text: `v${packageJson.version}`, link: 'https://github.com/link-duan/colla/blob/master/CHANGELOG.md', noIcon: true },
+      {
+        text: `v${packageJson.version}`,
+        link: 'https://github.com/link-duan/colla/blob/master/CHANGELOG.md',
+        noIcon: true,
+      },
     ],
     sidebar,
     outline: { level: [2, 3] },
-    socialLinks: [
-      { icon: 'github', link: 'https://github.com/link-duan/colla' },
-    ],
+    socialLinks: [{ icon: 'github', link: 'https://github.com/link-duan/colla' }],
     search: { provider: 'local' },
     editLink: { pattern: 'https://github.com/link-duan/colla/edit/master/docs-site/:path' },
     footer: {

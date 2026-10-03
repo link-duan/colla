@@ -27,6 +27,18 @@ lookup fragments rather than programs.
 Do not add source installation to the public guide. Developer validation runs against
 the workspace package, while user installation uses npm or Cargo.
 
+## Artifact constraints
+
+JavaScript has no npm runtime dependencies. Rust owns canonical encoding through
+cocodec; do not add a parallel serde/JSON codec. New runtime dependencies require
+an explanation of necessity, target support and default features, plus measurements
+of the resulting artifacts. Build and test tools are not runtime dependencies.
+
+Measure raw, gzip and Brotli sizes for Wasm and the browser entry, along with the
+actual npm tarball. Performance checks cover editing, rebasing, encoding,
+initialization and long-term memory, not source line counts or dependency counts.
+Prefer existing algorithms, platform capabilities and structural sharing.
+
 ## Validate changes
 
 The developer toolchain requires Node.js 22+, pnpm, Rust, wasm-pack and the

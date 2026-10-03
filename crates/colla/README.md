@@ -13,6 +13,11 @@ The first official release has not been published yet. Once 0.4 is available, ad
 colla = "0.4"
 ```
 
+Element IDs draw their namespace from the operating system's secure entropy via
+[`getrandom`](https://docs.rs/getrandom/0.2). On `wasm32-unknown-unknown`, select a
+backend in your application, for example `getrandom = { version = "0.2", features = ["js"] }`
+in a browser or Node host. The `colla-ot` npm package already does this.
+
 ## First edit
 
 ```rust
@@ -22,8 +27,8 @@ fn main() -> colla::Result<()> {
     let title = Value::text("Draft")?;
     let id = title.id();
     let doc = Document::create(title)?;
-    doc.edit(|tx| tx.text_replace(id, 5, 0, " v2"))?;
-    println!("Updated title: {:?}", doc.get(id)?.body()); // Text("Draft v2")
+    doc.edit(|tx| tx.text_replace(id, 5, 0, " updated"))?;
+    println!("Updated title: {:?}", doc.get(id)?.body()); // Text("Draft updated")
     doc.close()?;
     Ok(())
 }

@@ -6,17 +6,17 @@ Value does not depend on keeping its original Document open.
 
 ## JavaScript input
 
-| Input | Colla kind | Editing behavior |
-| --- | --- | --- |
-| `null`, boolean | Null, Bool | Replace with Set |
-| bigint | Int | Signed i64; checked increment |
-| finite number | Float | Replace; no increment |
-| string | String | Atomic replacement |
-| `text(string)` | Text | Collaborative sequence |
-| `richText(spans)` | RichText | Text, attributes and atomic embeds |
-| `ref(id)` | Ref | Weak, one-hop reference |
-| array | List | Ordered owning children |
-| plain object | Map | String-keyed owning children |
+| Input             | Colla kind | Editing behavior                   |
+| ----------------- | ---------- | ---------------------------------- |
+| `null`, boolean   | Null, Bool | Replace with Set                   |
+| bigint            | Int        | Signed i64; checked increment      |
+| finite number     | Float      | Replace; no increment              |
+| string            | String     | Atomic replacement                 |
+| `text(string)`    | Text       | Collaborative sequence             |
+| `richText(spans)` | RichText   | Text, attributes and atomic embeds |
+| `ref(id)`         | Ref        | Weak, one-hop reference            |
+| array             | List       | Ordered owning children            |
+| plain object      | Map        | String-keyed owning children       |
 
 `Value.fromJS(input)` constructs content; `value.get(pathOrId)` returns an immutable
 subvalue or undefined when absent. `kind`, `has`, `idAt` and `pathOf` support inspection.

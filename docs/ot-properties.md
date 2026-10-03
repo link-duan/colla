@@ -15,15 +15,15 @@ apply(apply(base, left), rightAfterLeft)
   == apply(apply(base, right), leftAfterRight)
 ```
 
-| Concurrent intents | Required behavior |
-| --- | --- |
-| Move + source/descendant content edit | Content follows the source ID |
-| Two moves of one source | Priority selects location; mergeable edits remain |
-| Deletion of source or baseline ancestor | Deletion wins; no resurrection |
-| Independent moves | Both retained |
-| Combined ownership cycle | structural_conflict |
-| Destination parent deleted/invalid | structural_conflict |
-| Unsafe occupied Map destination | structural_conflict |
+| Concurrent intents                      | Required behavior                                 |
+| --------------------------------------- | ------------------------------------------------- |
+| Move + source/descendant content edit   | Content follows the source ID                     |
+| Two moves of one source                 | Priority selects location; mergeable edits remain |
+| Deletion of source or baseline ancestor | Deletion wins; no resurrection                    |
+| Independent moves                       | Both retained                                     |
+| Combined ownership cycle                | structural_conflict                               |
+| Destination parent deleted/invalid      | structural_conflict                               |
+| Unsafe occupied Map destination         | structural_conflict                               |
 
 Destination List indexes are interpreted after removing the source. Map keys
 must be free. Conflicts cannot silently discard unrelated subtrees. Multi-step

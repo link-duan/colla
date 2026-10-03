@@ -4,12 +4,12 @@ Colla 定义不可变结构化内容及其中心化协作编辑领域语言。
 
 ## Language
 
-**Core Value**:
+**Value**:
 具有稳定身份的不可变拥有型内容树；包含标量、容器、Text、RichText 与 Ref。
 _Avoid_: JSON value, Document
 
 **Snapshot**:
-某一时刻的不可变完整 Core Value；其查询与引用解析仅观察该时刻的内容。
+某一时刻的不可变完整 Value；其查询与引用解析仅观察该时刻的内容。
 _Avoid_: 已确认服务端状态, SyncSnapshot
 
 **Element ID**:
@@ -42,7 +42,7 @@ _Avoid_: UI diff, UTF-16 cursor events
 
 **Document**:
 拥有当前可见内容及本地编辑状态的运行态对象。
-_Avoid_: Core Value, server revision
+_Avoid_: Value, server revision
 
 **Transaction**:
 在同步作用域内积累并原子提交一组内容编辑的工作状态。
@@ -96,10 +96,6 @@ _Avoid_: Silent data removal, any concurrent Move
 单个受控对象经规范化后的确定表示；不意味着所有效果相同的多步 Change 都具有相同序列。
 _Avoid_: Arbitrary field object, semantic equivalence class
 
-**Wire compatibility**:
-版本之间直接交换规范二进制对象的能力，与单版本内编码的确定性分别定义。
-_Avoid_: Canonical encoding
-
 **Golden fixtures**:
 Rust 与 JavaScript 共享的固定输入、输出和规范字节回归证据。
 _Avoid_: Independent implementation proof, normative specification
@@ -129,7 +125,7 @@ _Avoid_: Int, NaN, Infinity
 _Avoid_: HTML, editor-specific delta
 
 **Embed**:
-RichText 中长度为 1 的原子 Core Value。
+RichText 中长度为 1 的原子 Value。
 _Avoid_: Independently editable nested document
 
 **Change position**:

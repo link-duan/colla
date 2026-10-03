@@ -210,8 +210,10 @@ fn scalar_algebra_and_codec_envelope_are_strict() {
     bytes.push(0);
     assert!(Value::decode(&bytes).is_err());
     bytes.pop();
-    bytes[5] = 1;
-    assert!(Value::decode(&bytes).is_err());
+    for version in [0, 2] {
+        bytes[5] = version;
+        assert!(Value::decode(&bytes).is_err());
+    }
     let mut allocator = IdAllocator::deterministic([3; 16]);
     assert_eq!(allocator.allocate().unwrap().sequence(), 1);
     assert_eq!(allocator.allocate().unwrap().sequence(), 2);

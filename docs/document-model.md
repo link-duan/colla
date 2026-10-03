@@ -8,7 +8,14 @@ and outbound effects are computed before a single commit.
 A scoped transaction can read its working Value, edit every value type, move or
 copy subtrees and apply an identity-explicit Change. Normalized Noop returns no
 result and changes no runtime state. Closing or receiving remotely inside the
-scope fails. Escaped JavaScript editors are invalid, including read access.
+scope fails. Nested transactions and thenable results are rejected. Escaped
+JavaScript editors are invalid, including read access.
+
+JavaScript Text/RichText editing accepts UTF-16 coordinates and converts each step
+against current working content to Unicode scalars. Offsets inside surrogate pairs
+and out-of-range positions are rejected. Local content version is distinct from
+Authority revision. Runtime close is idempotent and does not invalidate returned
+immutable Values, Changes or snapshots.
 
 EditResult preserves before/after, change/inverse, replayable scalar edit steps,
 local version and origin. Move steps retain their source ID. Events occur after
@@ -37,5 +44,5 @@ fresh session and merge retained work explicitly.
 
 Value, SyncSnapshot, SessionCheckpoint, HistoryCheckpoint and AuthorityCheckpoint
 have different persistence responsibilities. Session checkpoints include enabled
-History. All controlled objects use strict Rust v2 codecs. See the
+History. All controlled objects use strict Rust codecs. See the
 [public API](https://link-duan.github.io/colla/reference/javascript) and [binary format](binary-format.md).

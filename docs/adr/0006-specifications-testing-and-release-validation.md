@@ -8,4 +8,10 @@
 
 发布验收以真实 Rust crate 和 workspace 外安装的 npm tarball 为边界，验证跨语言行为、
 Wasm 产物和支持的运行时/打包场景。Rust crate 与 npm package 从同一不可变版本构建；
-早期版本的 API 或 wire 破坏性调整通过规范和 CHANGELOG 直接说明，不额外维护迁移层。
+API 和 wire 调整通过规范和 CHANGELOG 直接说明。
+
+验收覆盖身份、Move/Ref、Unicode 边界、代数性质、多操作并发与至少三个客户端随机模拟，
+包括重复、延迟、丢失、revision 缺口、双端重启、历史裁剪、恢复和分组撤销。共享 fixtures、
+畸形输入 fuzz、长期内存及真实产物安装测试共同提供证据。Rust tests/clippy/fmt/doc、
+JavaScript 类型及产物测试、Node/浏览器/Worker/打包器验证和文档检查均为交付门槛。
+产物与依赖遵守[资源约束](../internal/documentation.md#artifact-constraints)。

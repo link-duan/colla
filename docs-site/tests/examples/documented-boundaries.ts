@@ -17,7 +17,10 @@ authority = accepted.authority
 live.receive(accepted.message)
 authority = authority.compact(authority.revision)
 const rejected = authority.accept(stale.outbound()!).message
-check(rejected.type === 'rejection' && rejected.reason?.code === 'history_expired', 'Expected history rejection')
+check(
+  rejected.type === 'rejection' && rejected.reason?.code === 'history_expired',
+  'Expected history rejection',
+)
 const before = stale.document.snapshot()
 check(stale.receive(rejected) === null, 'Rejection should not be a content edit')
 check(stale.state.status === 'recovery-required', 'Rejected session stayed active')
@@ -36,11 +39,20 @@ const doc = Document.create({ title: 'Draft', archive: [], items: ['A', 'B', 'C'
 const frozen = doc.snapshot()
 doc.edit(tx => tx.copy([], { parent: ['archive'], index: 0 }))
 const archived = doc.get(['archive', 0])!
-check(archived.id !== frozen.id && archived.contentEquals(frozen), 'Root Copy changed source content')
-check(doc.idAt(['archive', 0, 'items', 0]) !== doc.idAt(['items', 0]), 'Root Copy reused descendants')
+check(
+  archived.id !== frozen.id && archived.contentEquals(frozen),
+  'Root Copy changed source content',
+)
+check(
+  doc.idAt(['archive', 0, 'items', 0]) !== doc.idAt(['items', 0]),
+  'Root Copy reused descendants',
+)
 const moved = doc.idAt(['items', 0])
 doc.edit(tx => tx.move(moved, { parent: ['items'], index: 2 }))
-check(JSON.stringify(doc.get(['items'])?.toJS()) === '["B","C","A"]', 'Move index is not post-removal')
+check(
+  JSON.stringify(doc.get(['items'])?.toJS()) === '["B","C","A"]',
+  'Move index is not post-removal',
+)
 check(doc.idAt(['items', 2]) === moved, 'Move lost identity')
 
 const originalTitle = doc.idAt(['title'])
@@ -54,19 +66,28 @@ const oldItem = doc.idAt(['items', 0])
 doc.edit(tx => tx.list(['items']).replace(0, 1, ['B']))
 check(doc.idAt(['items', 0]) !== oldItem, 'List replacement retained removed identity')
 for (const edit of [
-  () => doc.edit(tx => { tx.set(['title'], 'invalid'); tx.set(['items', 4], 'E') }),
+  () =>
+    doc.edit(tx => {
+      tx.set(['title'], 'invalid')
+      tx.set(['items', 4], 'E')
+    }),
   () => doc.edit(tx => tx.set(['missing', 'child'], true)),
   () => doc.edit(tx => tx.list(['items']).delete(3, 2)),
 ]) {
   const beforeFailure = doc.snapshot()
   const version = doc.version
   let failed = false
-  try { edit() } catch (error) {
+  try {
+    edit()
+  } catch (error) {
     if (!(error instanceof CollaError)) throw error
     failed = true
   }
   check(failed, 'Invalid Map/List edit unexpectedly succeeded')
-  check(doc.snapshot().equals(beforeFailure) && doc.version === version, 'Failed edit committed partial state')
+  check(
+    doc.snapshot().equals(beforeFailure) && doc.version === version,
+    'Failed edit committed partial state',
+  )
 }
 doc.close()
 console.log('Rejection recovery, root Copy, Move coordinates and Map/List boundaries passed')

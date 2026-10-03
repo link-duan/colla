@@ -6,11 +6,11 @@ validation abandons the entire edit.
 
 ## Choose an editor
 
-| Surface | Methods |
-| --- | --- |
-| Transaction | set, delete, move, copy, increment, apply |
-| `tx.list(location)` | insert, delete, replace |
-| `tx.text(location)` | insert, delete, replace |
+| Surface                 | Methods                                          |
+| ----------------------- | ------------------------------------------------ |
+| Transaction             | set, delete, move, copy, increment, apply        |
+| `tx.list(location)`     | insert, delete, replace                          |
+| `tx.text(location)`     | insert, delete, replace                          |
 | `tx.richText(location)` | insertText, insertEmbed, delete, replace, format |
 
 List insertion takes an array of Input values. Replace takes an index, removal count

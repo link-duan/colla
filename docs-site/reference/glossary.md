@@ -120,10 +120,6 @@ An unsafe merged ownership structure, such as a cycle, invalid parent or unresol
 
 Deterministic normalized representation of one controlled object; not equivalence of all changes with the same effect.
 
-### Wire compatibility
-
-Ability to exchange encoded objects directly across versions, distinct from deterministic encoding within one version.
-
 ### Golden fixtures
 
 Shared fixed inputs, outputs and canonical bytes used as regression evidence, not an independent codec implementation.
@@ -150,7 +146,7 @@ A sequence of attributed text and atomic embeds, independent of any HTML or edit
 
 ### Embed
 
-One atomic Core Value occupying one RichText sequence position.
+One atomic Value occupying one RichText sequence position.
 
 ### Change position
 
@@ -166,22 +162,22 @@ A public failure with stable code, operation and diagnostic details; message tex
 
 ## Error codes
 
-| Code | Meaning |
-| --- | --- |
-| `invalid_argument` | Unsupported argument shape or operation request. |
-| `invalid_value` | Invalid content, such as malformed Unicode or nonfinite numeric input. |
-| `invalid_encoding` | Malformed, noncanonical, wrong-version or wrong-type bytes. |
-| `invalid_state` | Closed runtime, expired editor, invalid restoration basis or forbidden reentrancy. |
-| `limit_exceeded` | Input exceeds a resource bound. |
-| `type_mismatch` | Operation does not match the target kind. |
-| `missing_key` | Required target is absent. |
-| `out_of_bounds` | Invalid sequence index or removal range. |
-| `integer_overflow` | Checked i64 arithmetic overflow. |
-| `incompatible_change` | Change cannot be interpreted against the supplied basis. |
-| `invalid_utf16_boundary` | High-level text offset splits a surrogate pair. |
-| `structural_conflict` | Merged ownership structure cannot be applied safely. |
-| `missing_revision` | Receive requires an earlier revision interval; content remains unchanged. |
-| `history_expired` | Required rebase history is no longer retained. |
+| Code                     | Meaning                                                                            |
+| ------------------------ | ---------------------------------------------------------------------------------- |
+| `invalid_argument`       | Unsupported argument shape or operation request.                                   |
+| `invalid_value`          | Invalid content, such as malformed Unicode or nonfinite numeric input.             |
+| `invalid_encoding`       | Malformed, noncanonical, wrong-version or wrong-type bytes.                        |
+| `invalid_state`          | Closed runtime, expired editor, invalid restoration basis or forbidden reentrancy. |
+| `limit_exceeded`         | Input exceeds a resource bound.                                                    |
+| `type_mismatch`          | Operation does not match the target kind.                                          |
+| `missing_key`            | Required target is absent.                                                         |
+| `out_of_bounds`          | Invalid sequence index or removal range.                                           |
+| `integer_overflow`       | Checked i64 arithmetic overflow.                                                   |
+| `incompatible_change`    | Change cannot be interpreted against the supplied basis.                           |
+| `invalid_utf16_boundary` | High-level text offset splits a surrogate pair.                                    |
+| `structural_conflict`    | Merged ownership structure cannot be applied safely.                               |
+| `missing_revision`       | Receive requires an earlier revision interval; content remains unchanged.          |
+| `history_expired`        | Required rebase history is no longer retained.                                     |
 
 Match code rather than human-readable reason text. JavaScript details is an immutable
 string-valued record; elementId is optional. Listener exceptions occur after commit,
