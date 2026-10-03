@@ -140,7 +140,7 @@ impl Document {
             document: self.clone(),
             before: value.clone(),
             value,
-            change: Change::noop(),
+            operations: Vec::new(),
             active: true,
             group: None,
         })
@@ -164,7 +164,7 @@ pub struct Transaction {
     document: Document,
     before: Value,
     value: Value,
-    change: Change,
+    operations: Vec<Operation>,
     active: bool,
     pub(crate) group: Option<String>,
 }
@@ -195,10 +195,9 @@ impl Transaction {
     /// Applies a path-addressed Change atomically against the current content.
     pub fn apply(&mut self, change: &Change) -> Result<()> {
         self.check()?;
-        let value = apply(&self.value, change)?;
-        let change = compose(&self.before, &self.change, change)?;
-        self.value = value;
-        self.change = change;
+        // Applying each step validates it; compaction is deferred to commit.
+        self.value = apply(&self.value, change)?;
+        self.operations.extend(change.operations().iter().cloned());
         Ok(())
     }
     fn run(&mut self, operations: impl IntoIterator<Item = Operation>) -> Result<()> {
@@ -330,17 +329,18 @@ impl Transaction {
     }
     pub(crate) fn commit(&mut self) -> Result<Option<EditResult>> {
         self.check()?;
-        let (change, after) = self.change.normalized(&self.before)?;
+        let operations = Change::from_canonical(std::mem::take(&mut self.operations))?;
+        let change = compose(&self.before, &Change::noop(), &operations)?;
         if change.is_noop() {
             self.finish();
             return Ok(None);
         }
-        debug_assert_eq!(after, self.value);
         let (next, result) = self.document.shared.state.borrow().prepare(
             &change,
             Origin::Local,
             self.group.clone(),
         )?;
+        debug_assert_eq!(result.after, self.value);
         *self.document.shared.state.borrow_mut() = next;
         self.finish();
         Ok(Some(result))
