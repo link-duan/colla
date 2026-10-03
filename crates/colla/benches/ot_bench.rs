@@ -36,10 +36,11 @@ fn benchmarks(c: &mut Criterion) {
     c.bench_function("move 1000 items", |bench| {
         bench.iter(|| apply(black_box(&items), &movement).unwrap())
     });
-    let nested = (0..20).fold(Value::int(0), |value, _| {
-        Value::list((0..50).map(|_| value.clone()).collect()).unwrap()
+    // 10 levels with 3 children each: 88,573 nodes.
+    let nested = (0..10).fold(Value::int(0), |value, _| {
+        Value::list((0..3).map(|_| value.clone()).collect()).unwrap()
     });
-    let path = vec![Segment::Index(25); 20];
+    let path = vec![Segment::Index(1); 10];
     let increment = Change::new([Operation::Add { path, delta: 1 }]).unwrap();
     c.bench_function("edit deep leaf", |bench| {
         bench.iter(|| apply(black_box(&nested), &increment).unwrap())
