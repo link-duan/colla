@@ -15,7 +15,7 @@ const session = SyncSession.create({
   snapshot: Authority.create({ documentId: 'memory', value: { count: 0n } }).snapshot(),
 })
 const doc = session.document,
-  id = doc.idAt(['count'])
+  id = ['count']
 History.attach(doc)
 const samples = []
 for (let batch = 0; batch < 30; batch++) {

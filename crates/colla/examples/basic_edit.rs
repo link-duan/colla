@@ -1,27 +1,20 @@
-use colla::{Document, History, Ref, Segment, Value};
+use colla::{Document, History, Segment, Value};
 
 fn main() -> colla::Result<()> {
-    let item = Value::text("Draft")?;
-    let id = item.id();
-    let doc = Document::create(Value::map([
-        ("from".into(), Value::list(vec![item])?),
-        ("to".into(), Value::list(vec![])?),
-        ("selected".into(), Value::reference(id)),
-    ])?)?;
+    let doc = Document::create(Value::map([(
+        "items".into(),
+        Value::list(vec![Value::text("Draft")?, Value::text("Review")?])?,
+    )])?)?;
+    let items = [Segment::Key("items".into())];
+    let first = [items[0].clone(), Segment::Index(0)];
     let history = History::attach(&doc)?;
     doc.edit(|tx| {
-        tx.text_replace(id, 5, 0, " updated")?;
-        tx.move_to(id, vec![Segment::Key("to".into())], Segment::Index(0))
+        tx.text_replace(&first, 5, 0, " updated")?;
+        tx.list_move(&items, 0, 1)
     })?;
-    println!("Path after move: {:?}", doc.path_of(id)?);
-    println!(
-        "Ref still targets the same item: {}",
-        doc.resolve(Ref { target: id })?.map(|value| value.id()) == Some(id)
-    );
-    println!("Edited title: {:?}", doc.get(id)?.body());
+    println!("Items after move: {:?}", doc.get(&items)?.body());
     history.undo()?;
-    println!("Path after undo: {:?}", doc.path_of(id)?);
-    println!("Restored title: {:?}", doc.get(id)?.body());
+    println!("Items after undo: {:?}", doc.get(&items)?.body());
     history.close()?;
     doc.close()?;
     Ok(())

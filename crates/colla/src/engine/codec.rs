@@ -4,25 +4,6 @@ use cocodec::{Decode, Encode};
 const MAGIC: &[u8] = b"COLLA";
 const VERSION: u16 = 1;
 
-// Records have required positional fields. In particular, missing
-// identity/revision fields must never acquire defaults during decoding.
-macro_rules! record_codec {
-    ($ty:ty, $($field:ident),+ $(,)?) => {
-        impl cocodec::Encode for $ty {
-            fn encode<W: cocodec::Write>(&self, w: &mut W) -> std::result::Result<(), cocodec::Error> {
-                $(cocodec::Encode::encode(&self.$field, w)?;)+
-                Ok(())
-            }
-        }
-        impl cocodec::Decode for $ty {
-            fn decode<R: cocodec::Read>(d: &mut cocodec::Decoder<R>) -> std::result::Result<Self, cocodec::Error> {
-                d.nested(|d| Ok(Self { $($field: cocodec::Decode::decode(d)?),+ }))
-            }
-        }
-    };
-}
-pub(crate) use record_codec;
-
 /// Envelope type byte. Tags are part of the wire format documented in
 /// `docs/binary-format.md`; never renumber or reuse one.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

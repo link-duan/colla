@@ -1,6 +1,6 @@
 # 稳定元素身份、原生 Move / Ref 与协作运行态
 
-状态：Accepted / Implemented
+状态：Accepted；身份、Move 与 Ref 部分已被 [0008](0008-path-addressed-core.md) 取代，协作与公开边界部分仍然有效
 
 Colla Core 同时提供 **Element ID** 与原生 **Move**：Element ID 识别元素实例，
 独立于内容和位置；Move 表示同一元素的位置变化，并保留其身份。该决策支持元素移动后的
@@ -34,7 +34,6 @@ set 保留被替换元素的身份，新后代分配新 ID；Copy 为整棵子�
 
 当前行为由[内容模型](../data-model.md)、[运行态规范](../document-model.md)、
 [变更代数](../ot-properties.md)与[编码规范](../binary-format.md)定义。
-[验收报告](../quality/0.4.0-verification.md)记录实现、测量和本地验收证据。
 
 ## 协作与公开边界
 

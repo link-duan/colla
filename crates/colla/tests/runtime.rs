@@ -26,24 +26,24 @@ fn failed_and_nested_edits_leave_all_participants_unchanged() {
     let history = History::attach(&doc).unwrap();
     let before = session.checkpoint().unwrap().encode();
     let result = doc.edit(|tx| {
-        tx.text_replace(vec![Segment::Key("text".into())], 0, 1, "a")?;
+        tx.text_replace(&[Segment::Key("text".into())], 0, 1, "a")?;
         assert_eq!(
             doc.edit(|_| Ok(())).unwrap_err().code,
             ErrorCode::InvalidState
         );
         assert_eq!(doc.close().unwrap_err().code, ErrorCode::InvalidState);
-        tx.increment(vec![Segment::Key("count".into())], 1)
+        tx.increment(&[Segment::Key("count".into())], 1)
     });
     assert_eq!(result.unwrap_err().code, ErrorCode::IntegerOverflow);
     assert_eq!(before, session.checkpoint().unwrap().encode());
     assert!(!history.can_undo().unwrap());
     doc.edit(|tx| {
-        let path = vec![Segment::Key("text".into())];
+        let path = [Segment::Key("text".into())];
         assert_eq!(
-            tx.utf16_to_scalar(path.clone(), 2).unwrap_err().code,
+            tx.utf16_to_scalar(&path, 2).unwrap_err().code,
             ErrorCode::InvalidUtf16Boundary
         );
-        assert_eq!(tx.utf16_to_scalar(path, 3)?, 2);
+        assert_eq!(tx.utf16_to_scalar(&path, 3)?, 2);
         Ok(())
     })
     .unwrap();
@@ -55,16 +55,16 @@ fn failed_and_nested_edits_leave_all_participants_unchanged() {
 }
 
 #[test]
-fn groups_and_checkpoints_restore_original_identities() {
-    let child = Value::int(1);
-    let list = Value::list(vec![child.clone()]).unwrap();
+fn groups_and_checkpoints_restore_original_content() {
+    let child = [Segment::Index(0)];
+    let list = Value::list(vec![Value::int(1)]).unwrap();
     let doc = Document::create(list.clone()).unwrap();
     let history = History::attach(&doc).unwrap();
     for _ in 0..3 {
-        doc.edit_group(Some("typing".into()), |tx| tx.increment(child.id(), 1))
+        doc.edit_group(Some("typing".into()), |tx| tx.increment(&child, 1))
             .unwrap();
     }
-    assert_eq!(doc.get(child.id()).unwrap().body(), &Body::Int(4));
+    assert_eq!(doc.get(&child).unwrap().body(), &Body::Int(4));
     let checkpoint = HistoryCheckpoint::decode(&history.checkpoint().unwrap().encode()).unwrap();
     let restored = Document::create(doc.snapshot().unwrap()).unwrap();
     let restored_history = History::restore(&restored, checkpoint).unwrap();
@@ -77,9 +77,8 @@ fn groups_and_checkpoints_restore_original_identities() {
 
 #[test]
 fn immutable_retries_buffer_promotion_and_restart() {
-    let value = Value::int(0);
-    let id = value.id();
-    let mut authority = Authority::create("doc", value).unwrap();
+    let id: &[Segment] = &[];
+    let mut authority = Authority::create("doc", Value::int(0)).unwrap();
     let session = SyncSession::create("a", authority.snapshot()).unwrap();
     let doc = session.document();
     History::attach(&doc).unwrap();
@@ -120,9 +119,8 @@ fn immutable_retries_buffer_promotion_and_restart() {
 
 #[test]
 fn remote_reentry_gaps_and_recovery_preserve_work() {
-    let value = Value::int(0);
-    let id = value.id();
-    let mut authority = Authority::create("doc", value).unwrap();
+    let id: &[Segment] = &[];
+    let mut authority = Authority::create("doc", Value::int(0)).unwrap();
     let a = SyncSession::create("a", authority.snapshot()).unwrap();
     let b = SyncSession::create("b", authority.snapshot()).unwrap();
     b.document().edit(|tx| tx.increment(id, 1)).unwrap();
@@ -160,18 +158,16 @@ fn remote_reentry_gaps_and_recovery_preserve_work() {
 
 #[test]
 fn undo_move_keeps_remote_content_and_syncs_as_a_new_request() {
-    let item = Value::int(0);
-    let from = Value::list(vec![item.clone()]).unwrap();
-    let to = Value::list(vec![]).unwrap();
-    let mut authority =
-        Authority::create("doc", map([("from", from.clone()), ("to", to.clone())])).unwrap();
+    let items = [Segment::Key("items".into())];
+    let list = Value::list(vec![Value::int(0), Value::int(1)]).unwrap();
+    let mut authority = Authority::create("doc", map([("items", list)])).unwrap();
     let a = SyncSession::create("a", authority.snapshot()).unwrap();
     let b = SyncSession::create("b", authority.snapshot()).unwrap();
     let history = History::attach(&a.document()).unwrap();
-    a.document()
-        .edit(|tx| tx.move_to(item.id(), to.id(), Segment::Index(0)))
+    a.document().edit(|tx| tx.list_move(&items, 0, 1)).unwrap();
+    b.document()
+        .edit(|tx| tx.increment(&[items[0].clone(), Segment::Index(0)], 7))
         .unwrap();
-    b.document().edit(|tx| tx.increment(item.id(), 7)).unwrap();
     let message = publish(&mut authority, &b);
     a.receive(&message).unwrap();
     b.receive(&message).unwrap();
@@ -179,10 +175,9 @@ fn undo_move_keeps_remote_content_and_syncs_as_a_new_request() {
     a.receive(&message).unwrap();
     b.receive(&message).unwrap();
     history.undo().unwrap();
-    assert_eq!(a.document().get(item.id()).unwrap().body(), &Body::Int(7));
     assert_eq!(
-        a.document().snapshot().unwrap().path_of(item.id()).unwrap(),
-        vec![Segment::Key("from".into()), Segment::Index(0)]
+        a.document().get(&items).unwrap().body(),
+        &Body::List(vec![Value::int(7), Value::int(1)])
     );
     let message = publish(&mut authority, &a);
     a.receive(&message).unwrap();
@@ -195,14 +190,12 @@ fn undo_move_keeps_remote_content_and_syncs_as_a_new_request() {
 
 #[test]
 fn three_clients_with_delays_retries_buffers_and_restarts_converge() {
-    let items: Vec<_> = (0..4).map(Value::int).collect();
-    let list = Value::list(items.clone()).unwrap();
+    let list = Value::list((0..4).map(Value::int).collect()).unwrap();
     let text = Value::text("😀").unwrap();
-    let mut authority = Authority::create(
-        "random",
-        map([("items", list.clone()), ("title", text.clone())]),
-    )
-    .unwrap();
+    let mut authority =
+        Authority::create("random", map([("items", list), ("title", text)])).unwrap();
+    let items = [Segment::Key("items".into())];
+    let title = [Segment::Key("title".into())];
     let mut sessions: Vec<_> = (0..3)
         .map(|i| SyncSession::create(format!("c{i}"), authority.snapshot()).unwrap())
         .collect();
@@ -217,13 +210,9 @@ fn three_clients_with_delays_retries_buffers_and_restarts_converge() {
         session
             .document()
             .edit(|tx| match step % 3 {
-                0 => tx.increment(items[step % items.len()].id(), 1),
-                1 => tx.text_replace(text.id(), 0, 0, &format!("{client}")),
-                _ => tx.move_to(
-                    items[step % items.len()].id(),
-                    list.id(),
-                    Segment::Index(step % 4),
-                ),
+                0 => tx.increment(&[items[0].clone(), Segment::Index(step % 4)], 1),
+                1 => tx.text_replace(&title, 0, 0, &format!("{client}")),
+                _ => tx.list_move(&items, step % 4, (step / 3) % 4),
             })
             .unwrap();
         if step % 2 == 0 && session.outbound().unwrap().is_some() {
@@ -283,10 +272,9 @@ fn three_clients_with_delays_retries_buffers_and_restarts_converge() {
 #[test]
 fn explicit_callback_error_rolls_back() {
     let value = Value::int(0);
-    let id = value.id();
     let doc = Document::create(value.clone()).unwrap();
     let result = doc.edit(|tx| {
-        tx.increment(id, 1)?;
+        tx.increment(&[], 1)?;
         Err(CollaError::new(ErrorCode::InvalidArgument, "abort"))
     });
     assert!(result.is_err());
@@ -295,22 +283,14 @@ fn explicit_callback_error_rolls_back() {
 
 #[test]
 fn undo_one_move_preserves_the_other_clients_move() {
-    let a = Value::int(0);
-    let b = Value::int(1);
-    let c = Value::int(2);
+    let (a, b, c) = (Value::int(0), Value::int(1), Value::int(2));
     let value = Value::list(vec![a.clone(), b.clone(), c.clone()]).unwrap();
-    let root = value.id();
     let mut authority = Authority::create("moves", value).unwrap();
     let left = SyncSession::create("left", authority.snapshot()).unwrap();
     let right = SyncSession::create("right", authority.snapshot()).unwrap();
     let history = History::attach(&left.document()).unwrap();
-    left.document()
-        .edit(|tx| tx.move_to(a.id(), root, Segment::Index(2)))
-        .unwrap();
-    right
-        .document()
-        .edit(|tx| tx.move_to(b.id(), root, Segment::Index(2)))
-        .unwrap();
+    left.document().edit(|tx| tx.list_move(&[], 0, 2)).unwrap();
+    right.document().edit(|tx| tx.list_move(&[], 1, 2)).unwrap();
     let message = publish(&mut authority, &right);
     left.receive(&message).unwrap();
     right.receive(&message).unwrap();
@@ -329,7 +309,6 @@ fn undo_rich_insertion_preserves_remote_formatting() {
         attrs: Attrs::new(),
     }])
     .unwrap();
-    let root = value.id();
     let mut authority = Authority::create("rich", value).unwrap();
     let left = SyncSession::create("left", authority.snapshot()).unwrap();
     let right = SyncSession::create("right", authority.snapshot()).unwrap();
@@ -337,7 +316,7 @@ fn undo_rich_insertion_preserves_remote_formatting() {
     left.document()
         .edit(|tx| {
             tx.rich_text_edit(
-                root,
+                &[],
                 vec![
                     RichOp::Retain {
                         len: 1,
@@ -355,7 +334,7 @@ fn undo_rich_insertion_preserves_remote_formatting() {
         .document()
         .edit(|tx| {
             tx.rich_text_edit(
-                root,
+                &[],
                 vec![
                     RichOp::Retain {
                         len: 1,
@@ -378,72 +357,37 @@ fn undo_rich_insertion_preserves_remote_formatting() {
 }
 
 #[test]
-fn history_restores_deleted_and_copied_identities_and_skips_remote_noops() {
-    let value = Value::int(1);
-    let original = value.id();
+fn history_restores_deleted_and_copied_content_and_skips_remote_noops() {
+    let item = [Segment::Key("item".into())];
     let root = map([
-        ("item", value),
+        ("item", Value::int(1)),
         ("list", Value::list(vec![]).unwrap()),
-        ("link", Value::reference(original)),
     ]);
     let doc = Document::create(root.clone()).unwrap();
     let history = History::attach_with_capacity(&doc, 2).unwrap();
-    doc.edit(|tx| tx.delete(original)).unwrap();
-    assert!(doc
-        .resolve(colla::Ref { target: original })
-        .unwrap()
-        .is_none());
+    doc.edit(|tx| tx.delete(&item)).unwrap();
+    assert!(!doc.has(&item).unwrap());
     history.undo().unwrap();
     assert_eq!(doc.snapshot().unwrap(), root);
-    let mut copied = None;
-    doc.edit(|tx| {
-        copied = Some(tx.copy(
-            original,
-            vec![Segment::Key("list".into())],
-            Segment::Index(0),
-        )?);
-        Ok(())
-    })
-    .unwrap();
-    let copied = copied.unwrap();
+    let copied = [Segment::Key("list".into()), Segment::Index(0)];
+    doc.edit(|tx| tx.copy(&item, &copied)).unwrap();
+    assert_eq!(doc.get(&copied).unwrap(), Value::int(1));
     history.undo().unwrap();
-    assert!(!doc.has(copied).unwrap());
+    assert!(!doc.has(&copied).unwrap());
     history.redo().unwrap();
-    assert!(doc.has(copied).unwrap());
-    assert_eq!(doc.references_to(original).unwrap().len(), 1);
+    assert!(doc.has(&copied).unwrap());
     let authority = Authority::create("history", root).unwrap();
     let a = SyncSession::create("a", authority.snapshot()).unwrap();
     let b = SyncSession::create("b", authority.snapshot()).unwrap();
     let history = History::attach(&a.document()).unwrap();
-    a.document().edit(|tx| tx.increment(original, 1)).unwrap();
-    b.document().edit(|tx| tx.delete(original)).unwrap();
+    a.document().edit(|tx| tx.increment(&item, 1)).unwrap();
+    b.document().edit(|tx| tx.delete(&item)).unwrap();
     let (authority, commit) = authority.accept(&b.outbound().unwrap().unwrap()).unwrap();
     a.receive(&commit).unwrap();
     assert!(!history.can_undo().unwrap());
     assert!(history.undo().unwrap().is_none());
     let (_, own) = authority.accept(&a.outbound().unwrap().unwrap()).unwrap();
     a.receive(&own).unwrap();
-    assert!(!a.document().has(original).unwrap());
+    assert!(!a.document().has(&item).unwrap());
     assert!(a.outbound().unwrap().is_none());
-}
-
-#[test]
-fn injected_allocator_burns_failed_transaction_ids() {
-    let mut allocator = colla::IdAllocator::deterministic([91; 16]);
-    allocator.scope(|| {
-        let base = Value::int(0);
-        let doc = Document::create(base.clone()).unwrap();
-        let abandoned = Value::int(1);
-        assert!(doc
-            .edit(|tx| {
-                tx.set(base.id(), abandoned.clone())?;
-                Err(CollaError::new(ErrorCode::InvalidArgument, "abort"))
-            })
-            .is_err());
-        let next = Value::int(2);
-        assert_eq!(next.id().namespace(), [91; 16]);
-        assert!(next.id().sequence() > abandoned.id().sequence() + 1);
-        assert_eq!(doc.snapshot().unwrap(), base);
-    });
-    assert!(allocator.allocate().unwrap().sequence() > 4);
 }

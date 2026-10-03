@@ -2,24 +2,22 @@
 
 # Colla
 
-Immutable structured documents with stable element identity, native Move and
-Ref, atomic editing, collaborative undo/redo, and centralized synchronization.
+Immutable path-addressed structured documents, atomic editing, collaborative
+undo/redo, and centralized synchronization.
 Rust owns the semantic engine and codecs; the synchronous JavaScript
 facade has zero npm runtime dependencies.
 
 ```ts
-import { Document, History, text, ref } from 'colla-ot'
-const doc = Document.create({ tasks: [{ title: text('Draft') }], done: [], selected: null })
+import { Document, History, text } from 'colla-ot'
+const doc = Document.create({ tasks: [{ title: text('Draft') }, { title: text('Review') }] })
 const history = History.attach(doc)
-const task = doc.idAt(['tasks', 0])
 doc.edit(tx => {
   tx.text(['tasks', 0, 'title']).insert(5, ' updated')
-  tx.set(['selected'], ref(task))
-  tx.move(task, { parent: ['done'], index: 0 })
+  tx.list(['tasks']).move(0, 1)
 })
-console.log('Path after move:', doc.pathOf(task)) // ["done", 0]
+console.log('Moved title:', doc.get(['tasks', 1, 'title'])?.toJS()) // Text: Draft updated
 history.undo()
-console.log('Path after undo:', doc.pathOf(task)) // ["tasks", 0]
+console.log('Restored title:', doc.get(['tasks', 0, 'title'])?.toJS()) // Text: Draft
 history.close()
 doc.close()
 ```
@@ -29,19 +27,18 @@ has been published yet.
 
 | Layer                       | Public objects                                                               |
 | --------------------------- | ---------------------------------------------------------------------------- |
-| Content and algebra         | Value, Change, ElementId, Ref, apply, compose, invert, transform             |
+| Content and algebra         | Value, Change, apply, compose, invert, transform                             |
 | Editing                     | Document, Transaction, scoped List/Text/RichText editors                     |
 | Undo/redo                   | History, HistoryCheckpoint                                                   |
 | Centralized synchronization | SyncSession, Authority, SyncSnapshot, Submission, ServerMessage, checkpoints |
 
 Use `Value` for content snapshots, `SyncSnapshot` for confirmed server content
-and `SessionCheckpoint` for complete offline recovery. IDs survive moves,
-undo/redo and codecs. Copies receive new identities and remap internal Refs.
+and `SessionCheckpoint` for complete offline recovery. Paths address content;
+concurrent edits follow elements through insertions, deletions and List moves.
 Mutable protocol payloads and Wasm handles are not part of the public API.
 
 All algebra uses an explicit content base. The two-way `transform` result is
-`[leftAfterRight, rightAfterLeft]`. Mergeable operations satisfy TP1; structural
-conflicts fail atomically. TP2 and arbitrary peer-to-peer convergence are outside
+`[leftAfterRight, rightAfterLeft]` and satisfies TP1. TP2 and arbitrary peer-to-peer convergence are outside
 the contract. Transport, databases, authentication, presence and editor adapters
 belong to applications.
 
@@ -66,7 +63,7 @@ pnpm docs:build
 ```
 
 `pnpm measure` records artifact sizes, editing/algebra/codec timings and memory.
-See [quality reports](docs/quality/) for before/after evidence. Building the JS
+Building the JS
 package requires Rust's wasm32 target, wasm-pack, Node and pnpm. Publish is a
 separate coordinated action described in the [release runbook](docs/internal/releasing.md).
 

@@ -21,7 +21,7 @@ try {
 }
 if (!doc.snapshot().equals(edited)) throw new Error('Transaction did not roll back')
 history.undo()
-if (!doc.snapshot().equals(before)) throw new Error('Undo did not restore identity')
+if (!doc.snapshot().equals(before)) throw new Error('Undo did not restore content')
 const restored = Document.create(Value.decode(doc.snapshot().encode()))
 if (!restored.snapshot().equals(before)) throw new Error('Snapshot restore failed')
 history.close()

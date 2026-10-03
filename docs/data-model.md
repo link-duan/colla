@@ -1,34 +1,33 @@
-# Identity-aware content
+# Content model
 
 `Value` is an immutable owning tree of Null, Bool, Int, finite Float, atomic
-String, collaborative Text, RichText, Ref, List and Map. Each independently
-addressable root/Map member/List element has a stable ElementId. Text and
-RichText characters have positions, not identities. RichText Embed is atomic.
+String, collaborative Text, RichText, List and Map. Values carry no identity:
+equality is structural, and two independently created Values with the same content
+are equal. Text and RichText characters have positions. A RichText Embed is an
+atomic Value with length one.
 
-IDs combine a random allocation namespace and positive monotonic sequence,
-independent of client requests. Failed transactions do not rewind allocation.
-Restore retains identities; a new runtime allocates later content in a fresh
-namespace. Deterministic allocators support fixtures.
+A Path is a sequence of Map keys and List indexes. It is the only way to address
+content and is always interpreted against one content state: a snapshot, the
+working content of a transaction, or the content produced by the preceding
+operations of a Change. Paths are not stable across edits; collaborative
+transformation rewrites the paths of concurrent operations instead.
 
-| Edit                            | Identity                                         |
-| ------------------------------- | ------------------------------------------------ |
-| Leaf edit/container member edit | Preserve edited element                          |
-| Set existing                    | Preserve target root, import fresh descendants   |
-| Insert normal content           | New subtree identities                           |
-| Move                            | Preserve complete subtree                        |
-| Copy                            | Fresh subtree identities, internal Ref remapping |
-| Undo/redo                       | Restore original identities                      |
-| Codec restore                   | Preserve all identities                          |
+| Edit                        | Effect                                                   |
+| --------------------------- | -------------------------------------------------------- |
+| Set existing path           | Replace the element, including the root                  |
+| Set missing Map member      | Insert the member                                        |
+| Insert / Delete             | Add at a vacant Map key or List position / remove member |
+| ListMove                    | Move one element within the same List                    |
+| Copy                        | Insert the source content at a vacant destination        |
+| Undo/redo and codec restore | Restore exact content                                    |
 
-Refs are weak, same-document, atomic ID targets. They can dangle or form cycles.
-One-hop resolution observes only the queried snapshot. Copy remaps targets
-inside the copied range; outside targets stay unchanged. Set maps an imported
-source root to the retained target root. Reverse references include Ref values
-inside embeds, but embed content remains atomic to structural editing.
+Moving content to another parent is a Delete followed by an Insert; concurrent
+edits do not follow it. Cross-parent movement that preserves concurrent edits is
+planned as an opt-in MovableTree type ([ADR 0008](adr/0008-path-addressed-core.md)).
 
-Full equality includes owner IDs. Content equality omits them but compares Ref
-target IDs literally. `toJS()` is a projection, not an identity-preserving codec.
-Owning identity duplication is invalid. Derived indexes are never encoded.
+Content limits are enforced by every construction, edit and decode: depth 100,
+1,000,000 nodes including embeds, and 16 MiB of UTF-8 per string. `toJS()` is a
+projection, not a codec.
 
 See [JavaScript API](https://link-duan.github.io/colla/reference/javascript), [Rust API](https://link-duan.github.io/colla/reference/rust),
 [glossary](../CONTEXT.md).

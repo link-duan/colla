@@ -9,7 +9,6 @@ import {
   Document,
   History,
   HistoryCheckpoint,
-  Ref,
   ServerMessage,
   SessionCheckpoint,
   Submission,
@@ -19,7 +18,6 @@ import {
   apply,
   compose,
   invert,
-  ref,
   richText,
   text,
   transform,
@@ -30,14 +28,14 @@ test('Text operations reject unknown and missing types before applying a change'
   const base = Value.fromJS(text('abc'))
   for (const type of ['typo', 'DELETE', '', undefined, null, 2]) {
     assert.throws(
-      () => Change.create([{ type: 'text', target: base.id, operations: [{ type, length: 1 }] }]),
+      () => Change.create([{ type: 'text', path: [], operations: [{ type, length: 1 }] }]),
       code('invalid_argument'),
     )
   }
   const change = Change.create([
     {
       type: 'text',
-      target: base.id,
+      path: [],
       operations: [
         { type: 'retain', length: 1 },
         { type: 'delete', length: 1 },
@@ -47,7 +45,6 @@ test('Text operations reject unknown and missing types before applying a change'
   ])
   const next = apply(base, change)
   assert.equal(next.toJS().value, 'a!c')
-  assert.equal(next.id, base.id)
   assert.equal(base.toJS().value, 'abc')
 })
 
@@ -57,16 +54,15 @@ function accept(authority, session) {
   return result
 }
 
-test('complete editing, stable identities, Move steps, inverse and immutable snapshots', () => {
+test('complete editing, ListMove, inverse and immutable snapshots', () => {
   const doc = Document.create({
-    blocks: [{ title: text('Draft'), body: richText([]) }],
+    blocks: [{ title: text('Draft'), body: richText([]) }, { title: text('Second') }],
     archived: [],
     featured: null,
     views: 0n,
   })
   const history = History.attach(doc)
   assert.equal(History.attach(doc), history)
-  const blockId = doc.idAt(['blocks', 0])
   const before = doc.snapshot()
   let escaped, escapedText, escapedRich, escapedList
   const edit = doc.edit(tx => {
@@ -77,16 +73,17 @@ test('complete editing, stable identities, Move steps, inverse and immutable sna
     escapedText.insert(5, ' updated')
     escapedRich.insertText(0, 'Hello')
     escapedRich.format(0, 5, { bold: true })
-    escapedRich.insertEmbed(5, ref(blockId))
-    tx.set(['featured'], ref(blockId))
-    tx.move(blockId, { parent: ['archived'], index: 0 })
+    escapedRich.insertEmbed(5, 7n)
+    tx.copy(['blocks', 0, 'title'], ['featured2'])
+    tx.list(['blocks']).move(0, 1)
     tx.increment(['views'], 1n)
   })
-  assert.deepEqual(doc.pathOf(blockId), ['archived', 0])
-  assert.equal(doc.resolve(ref(blockId)).get(['title']).toJS().value, 'Draft updated')
-  assert.equal(edit.editSteps.find(step => step.type === 'move').target, blockId)
+  assert.equal(doc.get(['blocks', 1, 'title']).toJS().value, 'Draft updated')
+  assert.equal(doc.get(['featured2']).toJS().value, 'Draft updated')
+  const move = edit.change.operations.find(step => step.type === 'listMove')
+  assert.deepEqual(move, { type: 'listMove', path: ['blocks'], from: 0, to: 1 })
   assert.ok(apply(before, edit.change).equals(edit.after))
-  assert.ok(apply(before, Change.create(edit.editSteps)).equals(edit.after))
+  assert.ok(apply(before, Change.create(edit.change.operations)).equals(edit.after))
   assert.ok(apply(edit.after, invert(before, edit.change)).equals(before))
   assert.ok(Value.decode(edit.after.encode()).equals(edit.after))
   for (const fn of [
@@ -129,10 +126,7 @@ test('UTF-16 coordinates use each working step and reject surrogate splits', () 
   assert.throws(() => doc.edit(tx => tx.text(['title']).delete(99, 1)), code('out_of_bounds'))
   assert.throws(() => doc.edit(tx => tx.list(['list']).replace(0, 2, [])), code('out_of_bounds'))
   assert.throws(() => doc.edit(tx => tx.delete([])), code('invalid_argument'))
-  assert.throws(
-    () => doc.edit(tx => tx.move([], { parent: ['list'], index: 0 })),
-    code('invalid_argument'),
-  )
+  assert.throws(() => doc.edit(tx => tx.list(['list']).move(0, 1)), code('out_of_bounds'))
 })
 
 test('Noop, thenable and nested transactions cannot change version or pending', async () => {
@@ -249,32 +243,20 @@ test('listener failures are isolated and both event channels reject reentry', ()
   assert.equal(syncEvents, 2)
 })
 
-test('Copy/set remap internal Ref targets and Undo restores dangling references', () => {
-  const source = Document.create({ target: 1n, link: null })
-  source.edit(tx => tx.set(['link'], ref(source.idAt(['target']))))
-  const doc = Document.create({ item: null, copied: null })
-  doc.edit(tx => tx.set(['item'], source.snapshot()))
-  const itemRoot = doc.idAt(['item']),
-    target = doc.idAt(['item', 'target'])
-  const link = doc.get(['item', 'link']).toJS()
-  assert.ok(link instanceof Ref)
-  assert.equal(link.target, target)
-  assert.notEqual(target, source.idAt(['target']))
-  const snapshot = doc.snapshot()
+test('copy inserts plain content and Undo restores deleted content', () => {
+  const doc = Document.create({ item: { target: 1n }, copied: null })
   const history = History.attach(doc)
-  doc.edit(tx => tx.delete(target))
-  assert.equal(doc.resolve(link), undefined)
-  assert.equal(snapshot.resolve(link).toJS(), 1n)
+  const snapshot = doc.snapshot()
+  doc.edit(tx => tx.delete(['item', 'target']))
+  assert.equal(doc.get(['item', 'target']), undefined)
+  assert.equal(snapshot.get(['item', 'target']).toJS(), 1n)
   history.undo()
-  assert.equal(doc.resolve(link).toJS(), 1n)
-  assert.equal(doc.idAt(['item']), itemRoot)
+  assert.equal(doc.get(['item', 'target']).toJS(), 1n)
   doc.edit(tx => {
     tx.delete(['copied'])
-    tx.copy(itemRoot, { parent: [], key: 'copied' })
+    tx.copy(['item'], ['copied'])
   })
-  const copied = doc.idAt(['copied', 'target'])
-  assert.equal(doc.get(['copied', 'link']).toJS().target, copied)
-  assert.notEqual(copied, target)
+  assert.ok(doc.get(['copied']).equals(doc.get(['item'])))
 })
 
 test('controlled protocol objects, immutable retry bytes, gaps and full checkpoints', () => {
@@ -420,21 +402,24 @@ test('codecs reject invalid headers, wrong types and trailing bytes', () => {
   assert.ok(value.equals(Value.decode(encoded)))
 })
 
-test('one-hop cyclic Ref and canonical formatting floats', () => {
+test('canonical formatting floats and typed path edits', () => {
   const doc = Document.create({
     a: null,
-    b: null,
     body: richText([{ type: 'text', text: 'x', attrs: { scale: -0 } }]),
   })
-  const a = doc.idAt(['a']),
-    b = doc.idAt(['b'])
-  doc.edit(tx => {
-    tx.set(a, ref(b))
-    tx.set(b, ref(a))
-  })
-  assert.equal(doc.resolve(ref(a)).toJS().target, b)
-  assert.equal(doc.resolve(ref(b)).toJS().target, a)
   assert.ok(doc.snapshot().equals(Value.decode(doc.snapshot().encode())))
   assert.equal(Object.is(doc.get(['body']).toJS().spans[0].attrs.scale, -0), false)
-  assert.throws(() => doc.edit(tx => tx.increment(a, 0n)), code('type_mismatch'))
+  assert.throws(() => doc.edit(tx => tx.increment(['a'], 1n)), code('type_mismatch'))
+})
+
+test('concurrent ListMove carries a nested edit', () => {
+  const base = Value.fromJS({ items: [{ title: text('a') }, { title: text('b') }] })
+  const left = Document.create(base)
+  const right = Document.create(base)
+  const movement = left.edit(tx => tx.list(['items']).move(0, 1)).change
+  const edit = right.edit(tx => tx.text(['items', 0, 'title']).insert(1, '!')).change
+  const [movementAfter, editAfter] = transform(base, movement, edit, { priority: 'left' })
+  const merged = apply(apply(base, movement), editAfter)
+  assert.ok(merged.equals(apply(apply(base, edit), movementAfter)))
+  assert.equal(merged.get(['items', 1, 'title']).toJS().value, 'a!')
 })

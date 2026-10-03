@@ -8,14 +8,14 @@ These standalone programs use Rust Results and scalar text positions. After addi
 
 <<< ../../../crates/colla/examples/basic_edit.rs
 
-The title retains its ID while moving between Lists. Its Ref resolves the updated Text;
-undo restores its previous location and content.
+The edited item moves to the end of the List; undo restores its previous position and
+content.
 
 ## Encode and restore
 
 <<< ../../../crates/colla/examples/binary_roundtrip.rs
 
-Value equality includes IDs. AuthorityCheckpoint restores server state, including the
+Value equality is structural. AuthorityCheckpoint restores server state, including the
 history and request receipts that a content-only Value cannot preserve.
 
 ## Two clients

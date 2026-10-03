@@ -13,9 +13,6 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 colla = { workspace = true, features = ["__bindings"] }
-# Selects the Web Crypto entropy backend for element ID namespaces on
-# wasm32-unknown-unknown; the core crate stays backend-neutral.
-getrandom = { version = "0.2", features = ["js"] }
 js-sys = "0.3"
 wasm-bindgen = "0.2"
 

@@ -14,8 +14,8 @@ export const sidebar = {
           link: '/docs/core/values',
         },
         {
-          text: 'Element identity and paths',
-          link: '/docs/core/identity',
+          text: 'Paths',
+          link: '/docs/core/paths',
         },
         {
           text: 'Text',
@@ -32,10 +32,6 @@ export const sidebar = {
         {
           text: 'Move, Copy and Set',
           link: '/docs/core/move-copy-set',
-        },
-        {
-          text: 'References',
-          link: '/docs/core/references',
         },
         {
           text: 'Changes and OT algebra',
@@ -138,8 +134,8 @@ export const sidebar = {
       collapsed: false,
       items: [
         {
-          text: 'Move and Ref',
-          link: '/docs/examples/move-ref',
+          text: 'ListMove',
+          link: '/docs/examples/list-move',
         },
         {
           text: 'Two-client synchronization',

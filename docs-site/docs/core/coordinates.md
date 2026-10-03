@@ -30,7 +30,7 @@ original snapshot or pass browser offsets directly to `Change.create`.
 ## Practical adapter choice
 
 Send browser selection ranges into high-level editors, which perform boundary checking.
-For an incremental UI projection, process Edit Steps sequentially from `event.before`.
+For an incremental UI projection, process `event.change` operations sequentially from `event.before`.
 A simpler adapter can rerender from `event.after`, at the cost of explicitly restoring
 selection and composition state. The [editor example](/docs/examples/editor) maintains
 a model mirror without incorrectly interpreting scalar steps as browser offsets.

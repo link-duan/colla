@@ -4,8 +4,8 @@ const doc = Document.create({ title: text('A😀B') })
 let rendered: Value = doc.snapshot()
 const unsubscribe = doc.subscribe(
   event => {
-    // Keep a model mirror using scalar Edit Steps, without feeding UI events back.
-    rendered = apply(rendered, Change.create(event.editSteps))
+    // Keep a model mirror using the replayable Change, without feeding UI events back.
+    rendered = apply(rendered, Change.create(event.change.operations))
     if (!rendered.equals(event.after)) throw new Error('Editor mirror diverged')
   },
   {

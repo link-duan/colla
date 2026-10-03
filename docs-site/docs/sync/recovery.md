@@ -16,8 +16,8 @@ but not being synchronized. A transport reconnect alone does not repair this sta
 Fetch a fresh SyncSnapshot from the server. Stop the old writer and create a new session
 with a fresh client identity. Compare the retained local work with the new confirmed
 content and explicitly apply the changes the user or application chooses to keep.
-Use stable IDs where they still exist; handle deleted targets and structural conflicts
-as reconciliation decisions. Do not blindly replay a stale Change against a new base.
+Paths in the retained work refer to the old content; resolve them against the new
+content and handle deleted targets as reconciliation decisions. Do not blindly replay a stale Change against a new base.
 
 Replacing the fresh session's whole content with the old visible snapshot can overwrite
 remote work. Content export is available for manual recovery, but it is not a generic

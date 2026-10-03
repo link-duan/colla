@@ -1,7 +1,7 @@
 # Persistence and restart
 
 Choose the durable object according to what must survive restart. Equal-looking content
-alone is not enough to restore identities, undo intent or an unconfirmed request.
+alone is not enough to restore undo intent or an unconfirmed request.
 
 ## Durable objects
 
@@ -14,7 +14,7 @@ alone is not enough to restore identities, undo intent or an unconfirmed request
 | AuthorityCheckpoint | History floor, retained commits and deduplication receipts                                 | Authority.restore                    |
 
 All objects use strict Rust-owned codecs. Store bytes without converting bigint fields
-to JSON numbers. Value.toJS is a projection, not an identity-preserving durable format.
+to JSON numbers. Value.toJS is a projection, not a durable format.
 
 ## Server durability
 

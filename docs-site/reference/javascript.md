@@ -9,21 +9,18 @@ Use the [tutorials](/docs/getting-started/) for complete workflows and the
 surface; optional results are written explicitly. Type declarations below describe API
 shapes and are not standalone programs.
 
-## Input and locations
+## Input and paths
 
-| Type or helper                                       | Definition / result                                                                                              |
-| ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| Input                                                | null, boolean, bigint, finite number, string, Text, RichText, Ref, Value, readonly Input array or plain InputMap |
-| ElementId                                            | Branded string; `ElementId.parse(string)` validates a serialized ID                                              |
-| Path                                                 | readonly array of string keys and number indexes; `[]` is the root                                               |
-| Location                                             | Path or ElementId                                                                                                |
-| `text(value: string): Text`                          | Immutable collaborative text wrapper; also `new Text(value)`                                                     |
-| `richText(spans: readonly RichTextSpan[]): RichText` | Immutable formatted sequence; also `new RichText(spans)`                                                         |
-| `ref(target: ElementId): Ref`                        | Immutable one-hop weak reference; also `new Ref(target)`                                                         |
-| AttrValue                                            | boolean, bigint, finite number or string                                                                         |
-| Attrs / AttrPatch                                    | String-keyed attributes; patches also permit null for removal                                                    |
+| Type or helper                                       | Definition / result                                                                                         |
+| ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| Input                                                | null, boolean, bigint, finite number, string, Text, RichText, Value, readonly Input array or plain InputMap |
+| Path                                                 | readonly array of string keys and number indexes; `[]` is the root                                          |
+| `text(value: string): Text`                          | Immutable collaborative text wrapper; also `new Text(value)`                                                |
+| `richText(spans: readonly RichTextSpan[]): RichText` | Immutable formatted sequence; also `new RichText(spans)`                                                    |
+| AttrValue                                            | boolean, bigint, finite number or string                                                                    |
+| Attrs / AttrPatch                                    | String-keyed attributes; patches also permit null for removal                                               |
 
-Text exposes `type: 'text'` and `value: string`; Ref exposes `target: ElementId`.
+Text exposes `type: 'text'` and `value: string`.
 RichText exposes `type: 'richtext'` and readonly `spans`. A RichTextSpan is
 `{ type: 'text', text: string, attrs? }` or `{ type: 'embed', value: Input, attrs? }`.
 Int is signed i64 represented by bigint; number represents finite Float.
@@ -33,33 +30,25 @@ Int is signed i64 represented by bigint; number represents finite Float.
 | Member                                   | Result / behavior                                            |
 | ---------------------------------------- | ------------------------------------------------------------ |
 | `Value.fromJS(input: Input): Value`      | Construct immutable content; a Value input is returned as-is |
-| `Value.decode(bytes: Uint8Array): Value` | Strict decode preserving identities                          |
-| `value.id: ElementId`                    | Root identity of this Value                                  |
+| `Value.decode(bytes: Uint8Array): Value` | Strict decode                                                |
 | `encode(): Uint8Array`                   | Fresh independent canonical bytes                            |
-| `toJS(): Input`                          | Immutable content projection, omitting owning IDs            |
-| `equals(other: Value): boolean`          | Compare content and identities                               |
-| `contentEquals(other: Value): boolean`   | Ignore owning IDs; still compare Ref targets literally       |
-| `copy(): Value`                          | Fresh identities and remapped internal Refs                  |
+| `toJS(): Input`                          | Immutable content projection                                 |
+| `equals(other: Value): boolean`          | Structural equality                                          |
 
 Value, Document and Transaction share these reads. Document/Transaction operate on their
 current or working snapshot; Value operates on its own immutable content.
 
-| Read                                                | Result                                                           |
-| --------------------------------------------------- | ---------------------------------------------------------------- |
-| `get(location?: Location): Value \| undefined`      | Root by default; absent target returns undefined                 |
-| `has(location: Location): boolean`                  | Whether the target exists                                        |
-| `kind(location?: Location): ValueKind \| undefined` | null, bool, int, float, string, text, richtext, ref, list or map |
-| `idAt(path: Path): ElementId`                       | Throws when no target exists                                     |
-| `pathOf(id: ElementId): Path \| undefined`          | Location in this snapshot                                        |
-| `resolve(reference: Ref): Value \| undefined`       | One hop; dangling target returns undefined                       |
-| `referencesTo(id: ElementId): readonly ElementId[]` | IDs of referring elements                                        |
+| Read                                        | Result                                                      |
+| ------------------------------------------- | ----------------------------------------------------------- |
+| `get(path?: Path): Value \| undefined`      | Root by default; absent target returns undefined            |
+| `has(path: Path): boolean`                  | Whether the target exists                                   |
+| `kind(path?: Path): ValueKind \| undefined` | null, bool, int, float, string, text, richtext, list or map |
 
 For `get`, `kind` and `has`, only `missing_key` and `out_of_bounds` become an absent
 result (`undefined` or `false`). A Path that traverses a scalar or uses a segment
 incompatible with the current container throws `type_mismatch`, even if its argument
-shape is valid. Invalid arguments and lifecycle errors also propagate. Path traversal
-never implicitly follows a Ref. See [identity](/docs/core/identity) and
-[references](/docs/core/references).
+shape is valid. Invalid arguments and lifecycle errors also propagate. See
+[Paths](/docs/core/paths).
 
 ## Change and operations
 
@@ -72,25 +61,18 @@ never implicitly follows a Ref. See [identity](/docs/core/identity) and
 | `change.operations: readonly Operation[]`                 | Immutable operation projection |
 | `change.encode(): Uint8Array`                             | Canonical bytes                |
 
-`Destination` contains an ElementId parent and exactly one key or index. `MoveTarget`
-uses a Location parent instead, for high-level Transaction methods.
+Every operation has a `path`. Insert's path ends with the vacant Map key or List
+insertion index; listMove's path names the List, and `to` counts after removal.
 
 ```ts
-type Destination =
-  | { readonly parent: ElementId; readonly key: string; readonly index?: never }
-  | { readonly parent: ElementId; readonly index: number; readonly key?: never }
 type Operation =
-  | { readonly type: 'insert'; readonly destination: Destination; readonly value: Value }
-  | { readonly type: 'delete'; readonly target: ElementId }
-  | { readonly type: 'set'; readonly target: ElementId; readonly value: Value }
-  | { readonly type: 'move'; readonly target: ElementId; readonly destination: Destination }
-  | { readonly type: 'text'; readonly target: ElementId; readonly operations: readonly TextOp[] }
-  | { readonly type: 'add'; readonly target: ElementId; readonly delta: bigint }
-  | {
-      readonly type: 'richtext'
-      readonly target: ElementId
-      readonly operations: readonly RichTextOp[]
-    }
+  | { readonly type: 'insert'; readonly path: Path; readonly value: Value }
+  | { readonly type: 'delete'; readonly path: Path }
+  | { readonly type: 'set'; readonly path: Path; readonly value: Value }
+  | { readonly type: 'listMove'; readonly path: Path; readonly from: number; readonly to: number }
+  | { readonly type: 'text'; readonly path: Path; readonly operations: readonly TextOp[] }
+  | { readonly type: 'add'; readonly path: Path; readonly delta: bigint }
+  | { readonly type: 'richtext'; readonly path: Path; readonly operations: readonly RichTextOp[] }
 ```
 
 TextOp is retain/delete with a numeric length, or insert with a string text.
@@ -108,9 +90,9 @@ one. Operations run in order against the content produced by previous operations
 | `transform(base: Value, left: Change, right: Change, options: { priority: 'left' \| 'right' })` | readonly [Change, Change] |
 
 Transform returns **left-after-right first, right-after-left second**. Both inputs share
-a base. Compose's second input applies after the first. Invert restores content and IDs
-when applied after change. Structural conflicts fail explicitly; TP1 holds for mergeable
-cases. See [Changes and OT algebra](/docs/core/changes).
+a base. Compose's second input applies after the first. Invert restores content when
+applied after change. TP1 holds for all valid inputs. See
+[Changes and OT algebra](/docs/core/changes).
 
 ## Document and Transaction
 
@@ -126,23 +108,22 @@ cases. See [Changes and OT algebra](/docs/core/changes).
 
 Transaction has shared reads, `snapshot(): Value`, and these scoped mutations:
 
-| Transaction member                                | Return                |
-| ------------------------------------------------- | --------------------- |
-| `set(location: Location, input: Input)`           | void                  |
-| `delete(location: Location)`                      | void                  |
-| `move(source: Location, destination: MoveTarget)` | void                  |
-| `copy(source: Location, destination: MoveTarget)` | ElementId of the copy |
-| `increment(location: Location, delta: bigint)`    | void                  |
-| `apply(change: Change)`                           | void                  |
-| `list(location: Location)`                        | ListEditor            |
-| `text(location: Location)`                        | TextEditor            |
-| `richText(location: Location)`                    | RichTextEditor        |
+| Transaction member                      | Return         |
+| --------------------------------------- | -------------- |
+| `set(path: Path, input: Input)`         | void           |
+| `delete(path: Path)`                    | void           |
+| `copy(source: Path, destination: Path)` | void           |
+| `increment(path: Path, delta: bigint)`  | void           |
+| `apply(change: Change)`                 | void           |
+| `list(path: Path)`                      | ListEditor     |
+| `text(path: Path)`                      | TextEditor     |
+| `richText(path: Path)`                  | RichTextEditor |
 
 Callbacks must be synchronous: no thenables, nested edits, remote receive or close.
 Escaped transactions/editors are invalid after callback exit. All failures roll back the
-transaction. Move List indexes are interpreted after source removal; Map keys must be
-vacant. Set preserves an existing target ID, importing fresh descendants. See
-[Transactions](/docs/editing/transactions) and [Move/Copy/Set](/docs/core/move-copy-set).
+transaction. Each call interprets its Path against the working content. Copy inserts at
+a vacant Map key or List index. See [Transactions](/docs/editing/transactions) and
+[Move/Copy/Set](/docs/core/move-copy-set).
 
 ## Scoped sequence editors
 
@@ -150,7 +131,7 @@ All methods return void and validate the target kind and ranges.
 
 | Editor         | Signatures                                                                                                                                                                                                                     |
 | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| ListEditor     | `insert(index, values: readonly Input[])`, `delete(index, count)`, `replace(index, count, values: readonly Input[])`                                                                                                           |
+| ListEditor     | `insert(index, values: readonly Input[])`, `delete(index, count)`, `replace(index, count, values: readonly Input[])`, `move(from, to)`                                                                                         |
 | TextEditor     | `insert(index, text: string)`, `delete(index, count)`, `replace(index, count, text: string)`                                                                                                                                   |
 | RichTextEditor | `insertText(index, text: string, attrs?: Attrs)`, `insertEmbed(index, value: Input, attrs?: Attrs)`, `delete(index, count)`, `replace(index, count, spans: readonly RichTextSpan[])`, `format(index, count, patch: AttrPatch)` |
 
@@ -160,7 +141,7 @@ occupy one position. List counts are element counts. See [Coordinates](/docs/cor
 
 ## Results and observation
 
-EditStep is Operation; EditEvent is EditResult. All returned data is immutable.
+EditEvent is EditResult. All returned data is immutable.
 
 ```ts
 interface EditResult {
@@ -168,7 +149,6 @@ interface EditResult {
   readonly after: Value
   readonly change: Change
   readonly inverse: Change
-  readonly editSteps: readonly EditStep[]
   readonly version: bigint
   readonly origin: 'local' | 'remote' | 'undo' | 'redo'
 }

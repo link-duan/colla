@@ -1,6 +1,6 @@
 # colla
 
-Immutable structured content, stable element identity, atomic editing, collaborative
+Immutable path-addressed structured content, atomic editing, collaborative
 undo/redo and centralized synchronization. The Rust crate owns state transitions and
 canonical binary codecs. Requires Rust 1.81 or newer.
 
@@ -13,22 +13,16 @@ The first official release has not been published yet. Once 0.4 is available, ad
 colla = "0.4"
 ```
 
-Element IDs draw their namespace from the operating system's secure entropy via
-[`getrandom`](https://docs.rs/getrandom/0.2). On `wasm32-unknown-unknown`, select a
-backend in your application, for example `getrandom = { version = "0.2", features = ["js"] }`
-in a browser or Node host. The `colla-ot` npm package already does this.
-
 ## First edit
 
 ```rust
-use colla::{Document, Value};
+use colla::{Document, Segment, Value};
 
 fn main() -> colla::Result<()> {
-    let title = Value::text("Draft")?;
-    let id = title.id();
-    let doc = Document::create(title)?;
-    doc.edit(|tx| tx.text_replace(id, 5, 0, " updated"))?;
-    println!("Updated title: {:?}", doc.get(id)?.body()); // Text("Draft updated")
+    let doc = Document::create(Value::map([("title".into(), Value::text("Draft")?)])?)?;
+    let title = [Segment::Key("title".into())];
+    doc.edit(|tx| tx.text_replace(&title, 5, 0, " updated"))?;
+    println!("Updated title: {:?}", doc.get(&title)?.body()); // Text("Draft updated")
     doc.close()?;
     Ok(())
 }

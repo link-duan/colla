@@ -5,30 +5,67 @@ package are recorded here. Both artifacts always use the same version.
 
 ## [Unreleased] — 0.4.0
 
-### Breaking redesign
+0.4 replaces the 0.3 Change primitives with a Rust-owned editing, history and
+synchronization runtime. None of the 0.3 APIs or bytes carry over.
 
-- Stable ElementId for owning roots, Map members and List elements. Native
-  cross-parent Move preserves complete subtree identity; Copy and set imports
-  remap internal Refs. Native weak Ref supports one-hop snapshot resolution and
-  reverse-reference queries, including dangling targets.
-- Ordered identity-targeted Change operations and explicit-base apply, compose,
-  invert and **transform** in Rust and JavaScript. Transform returns
-  left-after-right then right-after-left.
-- Immutable Value/Change/protocol objects without public Wasm handles or
-  clone/dispose requirements. Document.create/edit/snapshot, complete scoped
-  editors, synchronous isolated subscribe, stable CollaError, atomic Noop and
-  lifecycle contracts replace the old facade.
-- Rust-owned History, SyncSession and immutable Authority provide explicit
-  undo groups, remote rebasing, one in-flight request plus a buffer, immutable
-  retry payloads, formal Commit confirmation, deduplication, revision gaps,
-  history trimming and recovery that retains local work.
-- Distinct Value, SyncSnapshot, SessionCheckpoint, HistoryCheckpoint and
-  AuthorityCheckpoint persistence. Strict typed Rust codecs preserve identities.
-- The Rust crate no longer enables `getrandom/js`. Applications compiling
-  `colla` directly for `wasm32-unknown-unknown` select a getrandom backend
-  themselves; `colla-ot` already does. Element ID entropy failure is returned
-  as `InvalidState` from fallible constructors instead of panicking.
-- The private binding feature is renamed to the semver-exempt `__bindings`.
+### Changed
+
+- **BREAKING (Change model).** The recursive typed Change tree (`ChangeKind`,
+  `MapChange`/`ListChange`/`IntChange` with nested Modify, `Change.fromJS` and
+  `Change.build`) is replaced by an ordered sequence of path-addressed operations:
+  Insert, Delete, Set, ListMove, Text, Add and RichText. Each operation's Path
+  and positions refer to the content produced by the preceding operations.
+- **BREAKING (algebra).** Every function takes an explicit base Value:
+  `apply(base, change)`, `invert(base, change)`, `compose(base, first, second)`
+  and `transform(base, left, right, priority)`. `transformPair`/`transform_pair`
+  and `TieBreak` are replaced by `transform` and `Priority`; transform returns
+  left-after-right then right-after-left and always produces a result (TP1).
+- **BREAKING (JavaScript Value).** The Wasm-backed `Value` handle with `clone()`,
+  `dispose()` and facade finalizers becomes an immutable `Value` object; GC owns
+  all Wasm memory and no handle is exposed. `ValueInput`/`ValueData` become
+  `Input`, and Text/RichText are immutable `Text`/`RichText` objects created by
+  `text()`/`richText()` instead of plain `{ type }` data. The RichText
+  discriminator is `"richtext"` instead of `"richText"`.
+- **BREAKING (Rust Value).** `Value` exposes a `Body` enum, `get(&[Segment])` and
+  structural equality instead of the `List`/`Map`/`Text`/`FiniteF64`/`ValueKind`
+  types; `Path`/`PathSeg` become `Path`/`Segment`.
+- **BREAKING (errors).** `ValueError`, `ApplyError`, `ComposeError`,
+  `InvertError`, `TransformError`, `CodecError` and `Utf16PositionError` are
+  replaced by one `CollaError` with a stable `code`, `operation` and string
+  `details`, shared by Rust and JavaScript.
+- **BREAKING (wire format).** Every encoded object starts with a typed envelope
+  (`COLLA`, codec version, object kind). Values and Changes use new layouts, and
+  protocol records are cocodec derived structs that omit trailing default fields.
+  Bytes produced by 0.3 do not decode.
+- **BREAKING (limits).** `InputLimits`, `DEFAULT_INPUT_LIMITS` and per-call
+  input options are removed. All construction, editing and decoding enforce
+  fixed limits: depth 100, 1,000,000 nodes and 16 MiB per string.
+- The Rust API is exported from the crate root instead of public modules.
+
+### Added
+
+- Document: a Rust-implemented runtime exposed in both languages. `edit` runs a
+  synchronous Transaction with scoped List/Text/RichText editors (UTF-16
+  positions in JavaScript) and returns an EditResult (before, after, change,
+  inverse, local version, origin); `subscribe` delivers isolated events.
+- ListMove: move an element within its List; concurrent edits inside it follow.
+- History: undo/redo with explicit groups, rebasing across remote edits, and
+  HistoryCheckpoint restore.
+- Centralized synchronization: SyncSnapshot, Submission and ServerMessage
+  (Commit or Rejection); a client `SyncSession` with one in-flight request plus
+  a composed buffer; and an immutable server `Authority` that orders commits,
+  deduplicates retries, reports revision gaps and compacts history. Rejections
+  and unrecoverable rebases enter recovery-required while retaining local work.
+- SessionCheckpoint and AuthorityCheckpoint for complete client and server
+  restart, alongside Value and SyncSnapshot persistence.
+
+### Removed
+
+- `inspectChange` and Change View, `resolveCodePointPosition`/`resolveUtf16Position`
+  and the `int()` helper.
+- The Rust `json` feature. The `__bindings` feature exists only for the private
+  binding crate and is exempt from semver.
+- The Wasm `serde_json` runtime dependency.
 
 ### Documentation
 
@@ -37,49 +74,18 @@ package are recorded here. Both artifacts always use the same version.
   redirects. Topic, link and anchor checks plus executable examples guard against
   content regressions.
 
-### Validation and artifact size
+### Validation
 
-- Regression coverage for transaction reentry/escape, payload/revision mismatch
-  and mutable external bytes; identity-aware property tests, shared Rust/JS
-  fixtures, three-client restart/retry simulation, malformed-input fuzz,
+- Property and randomized TP1 tests for path transformation, shared Rust/JS golden
+  fixtures, three-client restart and retry simulation, malformed-input fuzzing,
   package installation, browser/Worker/bundler and memory tests.
-- Zero npm runtime dependencies. Removed the Wasm serde_json runtime dependency;
-  reused cocodec and scalar OT, removed obsolete structural OT, and added only
-  getrandom for identity namespace entropy. Release builds use size optimization
-  and LTO. Before/after measurements are recorded in docs/quality.
 - All guides, examples and package versions target the unreleased 0.4.0 development
   version. Actual publication is separate from this implementation.
 
-## [0.3.0] — Previous development baseline
+## [0.3.0] - 2026-08-25
 
 ### Changed
 
-- **BREAKING (JavaScript resource lifecycle).** Wasm-backed objects now rely on
-  JavaScript GC and wasm-bindgen-generated finalizers by default. The optional
-  `dispose()`/`Symbol.dispose` APIs remain available for deterministic cleanup;
-  handwritten facade-level `FinalizationRegistry` registrations were removed.
-- **BREAKING (JavaScript package exports).** The `colla-ot` package now exposes
-  `Document`, `Snapshot`, `Update`, immutable Values and Changes, codecs, and OT
-  operations from one package root. The `colla-ot/core` subpath is removed
-  without a compatibility alias; replace imports from `colla-ot/core` with
-  imports from `colla-ot`.
-- **BREAKING (JavaScript API).** `Document.subscribe()` is replaced by typed
-  `on("change", listener)` and `on("error", listener)` subscriptions. Change
-  events expose edit steps instead of an owned Core Change handle, and listener
-  failures no longer fail the committed operation.
-- **BREAKING (JavaScript API).** Unified every RichText discriminator to
-  `"richtext"`: `ValueKind`, `RichText.type`, `ChangeInput.type`, Change View
-  entry types, Edit Steps, and Wasm error details. The former `"richText"`
-  discriminator is removed without a compatibility alias. TypeScript/Rust
-  symbol names such as `RichText`, `richText()`, and `.richText()` are unchanged.
-- **BREAKING (JavaScript API).** Renamed the Wasm-backed `Value` class to
-  `ValueHandle`. Unified `ValueInput` and `ValueData` as the recursive `Value`
-  type, together with the corresponding `ValueMap`, `Text`, `RichTextSpan`, and
-  `RichText` types. No compatibility aliases are provided: replace
-  `Value.fromJS`/`Value.decode` with `ValueHandle.fromJS`/`ValueHandle.decode`
-  and use `Value` for both structured input and materialized output.
-  `CollaError.details.reason` now uses the unified terminology as well (for
-  example, `cyclic Value` and `unsupported Value`).
 - **BREAKING (wire format).** Adopted [`cocodec`](https://crates.io/crates/cocodec)
   as the canonical binary codec. Value/Change tags were renumbered (`Bool` is no
   longer a two-tag hack; `Int`/`String`/`Text`/`RichText`/`List`/`Map` shift down
@@ -111,18 +117,6 @@ package are recorded here. Both artifacts always use the same version.
 
 ### Added
 
-- Added `Document` local/remote update handling with optimistic local edits,
-  pending rebase, acknowledgements, typed events, and content snapshots.
-- Added binary `Snapshot` and `Update` envelopes, including Rust and JavaScript codecs.
-- Simplified the local Snapshot/Update payloads to direct cocodec tuples. This
-  is an early-development format change with no historical byte compatibility
-  promise.
-- Root and the JavaScript package's public imports use one runtime-specific
-  Wasm initialization module.
-- Added `convertChangeToEditSteps(change, base)`, a recursively frozen,
-  Snapshot-relative projection that preserves Map/List/Text/RichText operation
-  boundaries. Text and RichText consumed lengths are exposed as UTF-16 code
-  units, while List `modify.steps` are relative to the current element root.
 - Added a stable `ErrorCode` classification to the Rust `colla` crate: a
   `#[non_exhaustive]` `ErrorCode` enum with `as_str()` and `ALL`, plus a `code()`
   accessor on `ValueError`, `ApplyError`, `ComposeError`, `TransformError`,
@@ -132,7 +126,7 @@ package are recorded here. Both artifacts always use the same version.
 
 ### Fixed
 
-- `ValueHandle.fromJS` now enforces `maxSequenceLength` on richText values. A crafted
+- `Value.fromJS` now enforces `maxSequenceLength` on richText values. A crafted
   input with few spans of near-`maxStringBytes` text could previously drive the
   total length past a caller-configured `maxSequenceLength` undetected; it is
   now rejected with `limit_exceeded` (`sequence length`).

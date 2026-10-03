@@ -1,7 +1,7 @@
 # Getting started
 
 Colla is an Operational Transformation library for structured collaborative documents.
-It provides immutable content, stable element identities, atomic editing, undo/redo and
+It provides immutable path-addressed content, atomic editing, undo/redo and
 centralized synchronization. The Rust engine is exposed to JavaScript through the
 synchronous `colla-ot` package, with no npm runtime dependencies.
 

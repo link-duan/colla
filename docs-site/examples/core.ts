@@ -4,14 +4,14 @@ const base = Value.fromJS(text('Hello'))
 const left = Change.create([
   {
     type: 'text',
-    target: base.id,
+    path: [],
     operations: [{ type: 'insert', text: 'Say ' }],
   },
 ])
 const right = Change.create([
   {
     type: 'text',
-    target: base.id,
+    path: [],
     operations: [
       { type: 'retain', length: 5 },
       { type: 'insert', text: '!' },

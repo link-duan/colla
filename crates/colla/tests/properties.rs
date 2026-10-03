@@ -15,7 +15,7 @@ fn branch(base: &Value, actions: &[(u8, usize, usize, String)]) -> Change {
                     let len = text.chars().count();
                     let pos = start % (len + 1);
                     let count = count % (len - pos + 1);
-                    tx.text_replace(current.id(), pos, count, inserted)?;
+                    tx.text_replace(&[], pos, count, inserted)?;
                 }
                 Body::RichText(spans) => {
                     let len: usize = spans
@@ -52,12 +52,12 @@ fn branch(base: &Value, actions: &[(u8, usize, usize, String)]) -> Change {
                             }
                         } else {
                             RichSpan::Embed {
-                                value: Value::reference(current.id()),
+                                value: Value::int(2),
                                 attrs: Attrs::new(),
                             }
                         }));
                     }
-                    tx.rich_text_edit(current.id(), ops)?;
+                    tx.rich_text_edit(&[], ops)?;
                 }
                 _ => unreachable!(),
             }

@@ -14,7 +14,7 @@ text; reason strings are diagnostic information, not a protocol contract.
 | invalid_state                          | Fix scope, lifecycle or dispatch reentrancy       |
 | invalid_encoding / limit_exceeded      | Reject the payload and report the source          |
 | missing_revision                       | Fetch the indicated interval and retry            |
-| structural_conflict / history_expired  | Inspect session state and enter explicit recovery |
+| history_expired                        | Inspect session state and enter explicit recovery |
 
 A failing local transaction leaves content, version, History and pending work unchanged.
 Listener exceptions occur after commit and cannot roll it back. Remote failures must be

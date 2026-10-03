@@ -26,7 +26,7 @@ check(stale.receive(rejected) === null, 'Rejection should not be a content edit'
 check(stale.state.status === 'recovery-required', 'Rejected session stayed active')
 check(stale.state.recoveryReason?.code === 'history_expired', 'Recovery reason was lost')
 check(!stale.state.hasOutbound && stale.outbound() === null, 'Rejected session still sends')
-check(stale.document.snapshot().equals(before), 'Rejection discarded content or IDs')
+check(stale.document.snapshot().equals(before), 'Rejection discarded content')
 live.receive(rejected)
 check(live.state.status === 'active', 'Unrelated rejection changed another writer')
 stale.document.edit(tx => tx.increment(['count'], 2n))
@@ -37,34 +37,19 @@ live.close()
 // Copying the root into a descendant creates a finite copy of the prior tree.
 const doc = Document.create({ title: 'Draft', archive: [], items: ['A', 'B', 'C'] })
 const frozen = doc.snapshot()
-doc.edit(tx => tx.copy([], { parent: ['archive'], index: 0 }))
-const archived = doc.get(['archive', 0])!
-check(
-  archived.id !== frozen.id && archived.contentEquals(frozen),
-  'Root Copy changed source content',
-)
-check(
-  doc.idAt(['archive', 0, 'items', 0]) !== doc.idAt(['items', 0]),
-  'Root Copy reused descendants',
-)
-const moved = doc.idAt(['items', 0])
-doc.edit(tx => tx.move(moved, { parent: ['items'], index: 2 }))
+doc.edit(tx => tx.copy([], ['archive', 0]))
+check(doc.get(['archive', 0])!.equals(frozen), 'Root Copy changed source content')
+doc.edit(tx => tx.list(['items']).move(0, 2))
 check(
   JSON.stringify(doc.get(['items'])?.toJS()) === '["B","C","A"]',
   'Move index is not post-removal',
 )
-check(doc.idAt(['items', 2]) === moved, 'Move lost identity')
-
-const originalTitle = doc.idAt(['title'])
 doc.edit(tx => {
   tx.set(['title'], 'Ready')
   tx.set(['approved'], true)
   tx.list(['items']).insert(3, ['D'])
 })
-check(doc.idAt(['title']) === originalTitle && doc.has(['approved']), 'Map Set semantics changed')
-const oldItem = doc.idAt(['items', 0])
-doc.edit(tx => tx.list(['items']).replace(0, 1, ['B']))
-check(doc.idAt(['items', 0]) !== oldItem, 'List replacement retained removed identity')
+check(doc.get(['title'])?.toJS() === 'Ready' && doc.has(['approved']), 'Map Set semantics changed')
 for (const edit of [
   () =>
     doc.edit(tx => {
@@ -90,4 +75,4 @@ for (const edit of [
   )
 }
 doc.close()
-console.log('Rejection recovery, root Copy, Move coordinates and Map/List boundaries passed')
+console.log('Rejection recovery, root Copy, ListMove coordinates and Map/List boundaries passed')

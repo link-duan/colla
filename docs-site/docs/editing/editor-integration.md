@@ -17,10 +17,10 @@ grapheme navigation and selection restoration are adapter responsibilities.
 ## Output path
 
 Subscribe to Document events. For a simple adapter, render event.after and restore the
-selection deliberately. For incremental integration, process Edit Steps sequentially
-against event.before and translate scalar positions using each intermediate content.
-Move should relocate the existing UI node when possible, preserving its association
-with the element ID.
+selection deliberately. For incremental integration, process the operations of
+event.change sequentially against event.before and translate scalar positions using
+each intermediate content. A listMove should relocate the existing UI node when
+possible instead of recreating it.
 
 Suppress editor change callbacks while applying model updates to avoid echo edits.
 Listeners may read but cannot mutate Colla during dispatch. Do not create a second

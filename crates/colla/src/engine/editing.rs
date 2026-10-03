@@ -1,6 +1,6 @@
 use super::{
-    apply, compose, invert, Body, Change, Destination, ElementId, Error, ErrorCode, Location,
-    Operation, Result, RichOp, Segment, Value,
+    apply, change::type_error, compose, invert, Body, Change, Error, ErrorCode, Operation, Result,
+    RichOp, Segment, Value,
 };
 use crate::sequence::change::{TextChange, TextOp};
 use std::{
@@ -27,12 +27,10 @@ pub struct EditResult {
     pub before: Value,
     /// Immutable content immediately after this commit.
     pub after: Value,
-    /// Immutable identity-addressed or scalar change content.
+    /// Path-addressed operations, sequentially replayable from `before`.
     pub change: Change,
-    /// Reverse Change preserving all original owning identities.
+    /// Reverse Change restoring `before` from `after`.
     pub inverse: Change,
-    /// Sequentially replayable scalar operations, retaining native Move source IDs.
-    pub edit_steps: Vec<Operation>,
     /// Local content version after this commit.
     pub version: u64,
     /// Source of the committed edit.
@@ -64,7 +62,7 @@ pub(crate) struct State {
 }
 
 impl Document {
-    /// Creates a runtime from validated initial content, retaining its owning identities.
+    /// Creates a runtime from validated initial content.
     pub fn create(value: Value) -> Result<Self> {
         value.validate()?;
         Ok(Self {
@@ -90,33 +88,17 @@ impl Document {
         self.readable()?;
         Ok(self.shared.state.borrow().version)
     }
-    /// Looks up a Path or stable ID; missing or incompatible locations return an error.
-    pub fn get(&self, location: impl Into<Location>) -> Result<Value> {
-        self.snapshot()?.get(location)
+    /// Looks up a Path; missing or incompatible locations return an error.
+    pub fn get(&self, path: &[Segment]) -> Result<Value> {
+        self.snapshot()?.get(path).cloned()
     }
-    /// Returns the kind at a Path or ID, requiring the target to exist.
-    pub fn kind(&self, location: impl Into<Location>) -> Result<&'static str> {
-        Ok(self.get(location)?.kind())
+    /// Returns the kind at a Path, requiring the target to exist.
+    pub fn kind(&self, path: &[Segment]) -> Result<&'static str> {
+        Ok(self.get(path)?.kind())
     }
-    /// Returns whether the Path or stable ID resolves in this content.
-    pub fn has(&self, location: impl Into<Location>) -> Result<bool> {
-        Ok(self.snapshot()?.has(location))
-    }
-    /// Returns the stable owning ID at an existing Path.
-    pub fn id_at(&self, path: super::Path) -> Result<ElementId> {
-        self.snapshot()?.id_at(path)
-    }
-    /// Derives the current Path from parent links, or returns None for an absent ID.
-    pub fn path_of(&self, id: ElementId) -> Result<Option<super::Path>> {
-        Ok(self.snapshot()?.path_of(id))
-    }
-    /// Resolves one weak Ref hop within this snapshot; dangling targets return None.
-    pub fn resolve(&self, reference: super::Ref) -> Result<Option<Value>> {
-        Ok(self.snapshot()?.resolve(reference))
-    }
-    /// Returns referring element IDs, including Ref values within atomic embeds.
-    pub fn references_to(&self, id: ElementId) -> Result<Vec<ElementId>> {
-        Ok(self.snapshot()?.references_to(id))
+    /// Returns whether the Path resolves in this content.
+    pub fn has(&self, path: &[Segment]) -> Result<bool> {
+        Ok(self.snapshot()?.has(path))
     }
     /// Runs one synchronous atomic editing scope; a normalized Noop returns None.
     pub fn edit(
@@ -136,7 +118,7 @@ impl Document {
         callback(&mut transaction)?;
         transaction.commit()
     }
-    /// Applies an identity-addressed Change atomically against the current content.
+    /// Applies a path-addressed Change atomically against the current content.
     pub fn apply(&self, change: &Change) -> Result<Option<EditResult>> {
         self.edit(|tx| tx.apply(change))
     }
@@ -177,7 +159,7 @@ impl Document {
     }
 }
 
-/// A scope owns its working tree. Dropping it rolls back without rewinding IDs.
+/// A scope owns its working tree. Dropping it rolls back.
 pub struct Transaction {
     document: Document,
     before: Value,
@@ -205,12 +187,12 @@ impl Transaction {
         self.check()?;
         Ok(self.value.clone())
     }
-    /// Looks up a Path or stable ID; missing or incompatible locations return an error.
-    pub fn get(&self, location: impl Into<Location>) -> Result<Value> {
+    /// Looks up a Path; missing or incompatible locations return an error.
+    pub fn get(&self, path: &[Segment]) -> Result<Value> {
         self.check()?;
-        self.value.get(location)
+        self.value.get(path).cloned()
     }
-    /// Applies an identity-addressed Change atomically against the current content.
+    /// Applies a path-addressed Change atomically against the current content.
     pub fn apply(&mut self, change: &Change) -> Result<()> {
         self.check()?;
         let value = apply(&self.value, change)?;
@@ -219,150 +201,116 @@ impl Transaction {
         self.change = change;
         Ok(())
     }
-    /// Replaces content while preserving an existing target ID, or inserts a missing Map leaf.
-    pub fn set(&mut self, location: impl Into<Location>, value: Value) -> Result<()> {
+    fn run(&mut self, operations: impl IntoIterator<Item = Operation>) -> Result<()> {
+        self.apply(&Change::new(operations)?)
+    }
+    /// Replaces an existing element, or inserts a missing Map member.
+    pub fn set(&mut self, path: &[Segment], value: Value) -> Result<()> {
         self.check()?;
-        let location = location.into();
-        let existing = self.value.get(location.clone());
-        let operation = if let Ok(existing) = &existing {
-            Operation::Set {
-                target: existing.id(),
-                value: value.copy_into(Some(existing.id()))?,
+        let path = path.to_vec();
+        let operation = match self.value.get(&path) {
+            Ok(_) => Operation::Set { path, value },
+            Err(error) => {
+                let Some((Segment::Key(_), parent)) = path.split_last() else {
+                    return Err(error);
+                };
+                if !matches!(self.value.get(parent)?.body(), Body::Map(_)) {
+                    return Err(type_error("set requires an existing Map parent"));
+                }
+                Operation::Insert { path, value }
             }
-        } else if let Location::Path(mut path) = location {
-            let Some(Segment::Key(key)) = path.pop() else {
-                return Err(existing.unwrap_err());
-            };
-            let parent = self.value.get(path)?;
-            if !matches!(parent.body(), Body::Map(_)) {
-                return Err(super::change::type_error(
-                    "set requires an existing Map parent",
-                ));
-            }
-            Operation::Insert {
-                destination: Destination {
-                    parent: parent.id(),
-                    slot: Segment::Key(key),
-                },
-                value: value.copied()?,
-            }
-        } else {
-            return Err(existing.unwrap_err());
         };
-        self.apply(&Change::new([operation])?)
+        self.run([operation])
     }
     /// Deletes an existing non-root element and its owned subtree.
-    pub fn delete(&mut self, location: impl Into<Location>) -> Result<()> {
-        let target = self.get(location)?.id();
-        self.apply(&Change::new([Operation::Delete { target }])?)
+    pub fn delete(&mut self, path: &[Segment]) -> Result<()> {
+        self.run([Operation::Delete {
+            path: path.to_vec(),
+        }])
     }
-    /// Moves the same subtree; List destination indexes are interpreted after source removal.
-    pub fn move_to(
-        &mut self,
-        source: impl Into<Location>,
-        parent: impl Into<Location>,
-        slot: Segment,
-    ) -> Result<()> {
-        let target = self.get(source)?.id();
-        let parent = self.get(parent)?.id();
-        self.apply(&Change::new([Operation::Move {
-            target,
-            destination: Destination { parent, slot },
-        }])?)
+    /// Moves one element within a List; `to` is interpreted after removal.
+    pub fn list_move(&mut self, path: &[Segment], from: usize, to: usize) -> Result<()> {
+        self.run([Operation::ListMove {
+            path: path.to_vec(),
+            from,
+            to,
+        }])
     }
-    /// Copies a subtree with fresh IDs and remapped internal Refs, returning the new root ID.
-    pub fn copy(
-        &mut self,
-        source: impl Into<Location>,
-        parent: impl Into<Location>,
-        slot: Segment,
-    ) -> Result<ElementId> {
-        let value = self.get(source)?.copied()?;
-        let parent = self.get(parent)?.id();
-        let id = value.id();
-        self.apply(&Change::new([Operation::Insert {
-            destination: Destination { parent, slot },
+    /// Inserts a copy of the source subtree at a vacant Map key or List position.
+    pub fn copy(&mut self, source: &[Segment], destination: &[Segment]) -> Result<()> {
+        let value = self.get(source)?;
+        self.run([Operation::Insert {
+            path: destination.to_vec(),
             value,
-        }])?)?;
-        Ok(id)
+        }])
     }
-    /// Adds a checked i64 delta to an Int, retaining its ID.
-    pub fn increment(&mut self, target: impl Into<Location>, delta: i64) -> Result<()> {
-        let value = self.get(target)?;
-        if !matches!(value.body(), Body::Int(_)) {
-            return Err(super::change::type_error("expected Int"));
-        }
-        let target = value.id();
-        self.apply(&Change::new([Operation::Add { target, delta }])?)
+    /// Adds a checked i64 delta to an Int.
+    pub fn increment(&mut self, path: &[Segment], delta: i64) -> Result<()> {
+        self.run([Operation::Add {
+            path: path.to_vec(),
+            delta,
+        }])
     }
-    /// Replaces a List range with copies; zero count inserts and an empty input deletes.
+    /// Replaces a List range; zero count inserts and an empty input deletes.
     pub fn list_replace(
         &mut self,
-        target: impl Into<Location>,
+        path: &[Segment],
         index: usize,
         count: usize,
         values: Vec<Value>,
     ) -> Result<()> {
-        let value = self.get(target)?;
-        let Body::List(list) = value.body() else {
-            return Err(super::change::type_error("expected List"));
+        let len = match self.get(path)?.body() {
+            Body::List(list) => list.len(),
+            _ => return Err(type_error("expected List")),
         };
-        let end = checked_end(index, count, list.len())?;
-        let mut ops = list[index..end]
-            .iter()
-            .map(|v| Operation::Delete { target: v.id() })
-            .collect::<Vec<_>>();
-        for (offset, inserted) in values.into_iter().enumerate() {
-            ops.push(Operation::Insert {
-                destination: Destination {
-                    parent: value.id(),
-                    slot: Segment::Index(index.checked_add(offset).ok_or_else(|| {
-                        Error::new(ErrorCode::LimitExceeded, "List index overflow")
-                    })?),
-                },
-                value: inserted.copied()?,
+        checked_end(index, count, len)?;
+        let at = |index: usize| [path, &[Segment::Index(index)]].concat();
+        let mut operations: Vec<_> = (0..count)
+            .map(|_| Operation::Delete { path: at(index) })
+            .collect();
+        for (offset, value) in values.into_iter().enumerate() {
+            let index = index
+                .checked_add(offset)
+                .ok_or_else(|| Error::new(ErrorCode::LimitExceeded, "List index overflow"))?;
+            operations.push(Operation::Insert {
+                path: at(index),
+                value,
             });
         }
-        self.apply(&Change::new(ops)?)
+        self.run(operations)
     }
     /// Replaces a Text range using Unicode scalar coordinates in current working content.
     pub fn text_replace(
         &mut self,
-        target: impl Into<Location>,
+        path: &[Segment],
         index: usize,
         count: usize,
         text: &str,
     ) -> Result<()> {
-        let value = self.get(target)?;
-        let Body::Text(before) = value.body() else {
-            return Err(super::change::type_error("expected Text"));
+        let len = match self.get(path)?.body() {
+            Body::Text(text) => text.chars().count(),
+            _ => return Err(type_error("expected Text")),
         };
-        checked_end(index, count, before.chars().count())?;
-        self.apply(&Change::new([Operation::Text {
-            target: value.id(),
+        checked_end(index, count, len)?;
+        self.run([Operation::Text {
+            path: path.to_vec(),
             change: TextChange::from_ops([
                 TextOp::Retain(index),
                 TextOp::Delete(count),
                 TextOp::Insert(text.into()),
             ])?,
-        }])?)
+        }])
     }
     /// Applies scalar RichText operations to the current working content.
-    pub fn rich_text_edit(
-        &mut self,
-        target: impl Into<Location>,
-        operations: Vec<RichOp>,
-    ) -> Result<()> {
-        let value = self.get(target)?;
-        if !matches!(value.body(), Body::RichText(_)) {
-            return Err(super::change::type_error("expected RichText"));
-        }
-        let target = value.id();
-        self.apply(&Change::new([Operation::RichText { target, operations }])?)
+    pub fn rich_text_edit(&mut self, path: &[Segment], operations: Vec<RichOp>) -> Result<()> {
+        self.run([Operation::RichText {
+            path: path.to_vec(),
+            operations,
+        }])
     }
     /// Converts a working Text/RichText offset, rejecting surrogate splits and out-of-bounds positions.
-    pub fn utf16_to_scalar(&self, target: impl Into<Location>, position: usize) -> Result<usize> {
-        let value = self.get(target)?;
+    pub fn utf16_to_scalar(&self, path: &[Segment], position: usize) -> Result<usize> {
+        let value = self.get(path)?;
         let result = match value.body() {
             Body::Text(text) => {
                 crate::sequence::value::Text::new(text.clone()).utf16_to_code_point(position)
@@ -371,11 +319,7 @@ impl Transaction {
                 .as_rich_text()
                 .unwrap()
                 .utf16_to_code_point(position),
-            _ => {
-                return Err(super::change::type_error(
-                    "UTF-16 coordinates require Text or RichText",
-                ))
-            }
+            _ => return Err(type_error("UTF-16 coordinates require Text or RichText")),
         };
         result.map_err(|error| match error {
             crate::sequence::error::Utf16PositionError::InvalidUtf16Boundary { .. } => {
@@ -442,7 +386,6 @@ impl State {
             before: self.value.clone(),
             after: after.clone(),
             inverse: invert(&self.value, change)?,
-            edit_steps: change.operations().to_vec(),
             change: change.clone(),
             version,
             origin,

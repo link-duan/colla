@@ -5,16 +5,16 @@ use super::super::{
     transform, Change, Document, EditResult, Error, ErrorCode, Origin, Priority, Result, Value,
 };
 use super::{identity, validate_change, Commit, ServerMessage, Submission, SyncSnapshot};
+use cocodec::{Decode, Encode};
 use std::collections::BTreeMap;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
 struct Pending {
     original: Submission,
     original_base: SyncSnapshot,
     rebased: Change,
 }
-codec::record_codec!(Pending, original, original_base, rebased);
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Encode, Decode)]
 pub(crate) struct SessionData {
     client_id: String,
     next_sequence: u64,
@@ -24,16 +24,6 @@ pub(crate) struct SessionData {
     recovery: Option<Error>,
     received: BTreeMap<u64, Commit>,
 }
-codec::record_codec!(
-    SessionData,
-    client_id,
-    next_sequence,
-    confirmed,
-    pending,
-    buffer,
-    recovery,
-    received
-);
 impl SessionData {
     pub(crate) fn enqueue(&mut self, change: &Change) -> Result<()> {
         if self.recovery.is_some() || change.is_noop() {
@@ -153,7 +143,7 @@ impl SessionData {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Encode, Decode)]
 /// Complete recoverable client state, including pending, buffer, content and enabled History.
 pub struct SessionCheckpoint {
     value: Value,
@@ -161,7 +151,6 @@ pub struct SessionCheckpoint {
     history: Option<HistoryData>,
     session: SessionData,
 }
-codec::record_codec!(SessionCheckpoint, value, version, history, session);
 impl SessionCheckpoint {
     /// Returns independent canonical bytes in a typed binary envelope.
     pub fn encode(&self) -> Vec<u8> {
@@ -425,7 +414,7 @@ mod tests {
         (authority, a, b)
     }
     fn bump(tx: &mut Transaction) -> Result<()> {
-        tx.increment(vec![Segment::Key("n".into())], 1)
+        tx.increment(&[Segment::Key("n".into())], 1)
     }
     fn commit(authority: &mut Authority, session: &SyncSession) -> ServerMessage {
         let request = session.outbound().unwrap().unwrap();
@@ -463,7 +452,7 @@ mod tests {
                 document_id: "doc".into(),
                 client_id: "a".into(),
                 sequence,
-                reason: Error::new(ErrorCode::StructuralConflict, "test"),
+                reason: Error::new(ErrorCode::IncompatibleChange, "test"),
             })
         };
         a.receive(&rejection(request.sequence + 1)).unwrap();
@@ -471,7 +460,7 @@ mod tests {
         a.receive(&rejection(request.sequence)).unwrap();
         assert_eq!(
             a.recovery_reason().unwrap().unwrap().code,
-            ErrorCode::StructuralConflict
+            ErrorCode::IncompatibleChange
         );
         assert_eq!(a.outbound().unwrap(), None);
         let (_, message) = authority.accept(&request).unwrap();

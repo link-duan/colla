@@ -28,55 +28,18 @@ impl CoreValue {
     pub fn projection(&self) -> JsValue {
         m::projection(&self.value)
     }
-    pub fn id(&self) -> String {
-        self.value.id().to_string()
-    }
     pub fn kind(&self) -> String {
         self.value.kind().into()
     }
-    pub fn get(&self, location: JsValue) -> JsResult<Self> {
-        m::location(&location)
-            .and_then(|location| self.value.get(location))
+    pub fn get(&self, path: JsValue) -> JsResult<Self> {
+        m::path(&path)
+            .and_then(|path| self.value.get(&path).cloned())
             .map(Self::from_value)
-            .map_err(m::error)
-    }
-    pub fn path_of(&self, id: &str) -> JsResult<JsValue> {
-        id.parse()
-            .map(|id| m::path(self.value.path_of(id)))
-            .map_err(m::error)
-    }
-    pub fn resolve(&self, id: &str) -> JsResult<Option<Self>> {
-        id.parse()
-            .map(|target| self.value.resolve(Ref { target }).map(Self::from_value))
-            .map_err(m::error)
-    }
-    pub fn references_to(&self, id: &str) -> JsResult<Array> {
-        id.parse()
-            .map(|id| {
-                self.value
-                    .references_to(id)
-                    .into_iter()
-                    .map(|id| JsValue::from(id.to_string()))
-                    .collect()
-            })
             .map_err(m::error)
     }
     pub fn equals(&self, other: &Self) -> bool {
         self.value == other.value
     }
-    pub fn content_equals(&self, other: &Self) -> bool {
-        self.value.content_equals(&other.value)
-    }
-    pub fn copied(&self) -> JsResult<Self> {
-        self.value.copied().map(Self::from_value).map_err(m::error)
-    }
-}
-#[wasm_bindgen]
-pub fn core_validate_id(input: &str) -> JsResult<String> {
-    input
-        .parse::<ElementId>()
-        .map(|id| id.to_string())
-        .map_err(m::error)
 }
 
 #[wasm_bindgen]
@@ -159,7 +122,6 @@ fn edit_js(edit: Option<EditResult>) -> JsValue {
     let out = Object::new();
     m::set(&out, "before", &CoreValue::from_value(edit.before).into());
     m::set(&out, "after", &CoreValue::from_value(edit.after).into());
-    m::set(&out, "editSteps", &m::operations(&edit.change));
     m::set(
         &out,
         "change",
@@ -298,25 +260,12 @@ impl CoreDocument {
             .as_mut()
             .ok_or_else(|| Error::new(ErrorCode::InvalidState, "transaction scope ended"))?;
         let input = m::array(input)?;
-        let target = m::location(&input.get(1))?;
+        let target = &m::path(&input.get(1))?;
         match m::index(&input.get(0))? {
             0 => tx.set(target, m::value(&input.get(2))?)?,
             1 => tx.delete(target)?,
-            2 => tx.move_to(
-                target,
-                m::location(&input.get(2))?,
-                m::segment(&input.get(3))?,
-            )?,
-            3 => {
-                return Ok(tx
-                    .copy(
-                        target,
-                        m::location(&input.get(2))?,
-                        m::segment(&input.get(3))?,
-                    )?
-                    .to_string()
-                    .into())
-            }
+            2 => tx.list_move(target, m::index(&input.get(2))?, m::index(&input.get(3))?)?,
+            3 => tx.copy(target, &m::path(&input.get(2))?)?,
             4 => tx.increment(target, m::signed(&input.get(2))?)?,
             5 => tx.list_replace(
                 target,
@@ -330,9 +279,9 @@ impl CoreDocument {
             6..=8 => {
                 let index = m::index(&input.get(2))?;
                 let count = m::index(&input.get(3))?;
-                let start = tx.utf16_to_scalar(target.clone(), index)?;
+                let start = tx.utf16_to_scalar(target, index)?;
                 let end = tx.utf16_to_scalar(
-                    target.clone(),
+                    target,
                     index
                         .checked_add(count)
                         .ok_or_else(|| Error::new(ErrorCode::OutOfBounds, "range overflow"))?,
@@ -348,14 +297,7 @@ impl CoreDocument {
                             RichOp::Delete(end - start),
                         ];
                         for input in m::array(&input.get(4))?.iter() {
-                            let span = m::span(&input)?;
-                            ops.push(RichOp::Insert(match span {
-                                RichSpan::Embed { value, attrs } => RichSpan::Embed {
-                                    value: value.copied()?,
-                                    attrs,
-                                },
-                                other => other,
-                            }));
+                            ops.push(RichOp::Insert(m::span(&input)?));
                         }
                         tx.rich_text_edit(target, ops)?;
                     }
