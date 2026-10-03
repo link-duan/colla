@@ -62,6 +62,10 @@ pnpm test:e2e
 pnpm docs:build
 ```
 
+`pnpm test:e2e` runs Chromium, Firefox and WebKit; set
+`COLLA_BROWSERS=chromium,webkit` to choose a subset locally, for example where
+Playwright's Firefox build cannot launch on the host macOS. CI always runs all three.
+
 `pnpm measure` records artifact sizes, editing/algebra/codec timings and memory.
 Building the JS
 package requires Rust's wasm32 target, wasm-pack, Node and pnpm. Publish is a
