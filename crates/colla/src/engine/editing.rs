@@ -367,7 +367,7 @@ impl Transaction {
             Body::Text(text) => {
                 crate::sequence::value::Text::new(text.clone()).utf16_to_code_point(position)
             }
-            Body::RichText(spans) => super::rich::value_to_old(spans)?
+            Body::RichText(spans) => super::rich::to_sequence_value(spans)?
                 .as_rich_text()
                 .unwrap()
                 .utf16_to_code_point(position),

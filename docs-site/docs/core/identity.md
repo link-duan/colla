@@ -22,10 +22,16 @@ A Ref does not cause a Path to follow its target automatically.
 
 ## Read failure and snapshot boundaries
 
-`get`, `kind`, `pathOf` and `resolve` return undefined for absent results. `has` returns
-false; `idAt` requires an existing target and throws if none exists. Invalid argument
-shapes still fail, even for read operations. An ID from another document is not a
-cross-document lookup mechanism.
+`get` and `kind` return undefined, and `has` returns false, for `missing_key` or
+`out_of_bounds`. They still throw `type_mismatch` if a Path traverses a scalar or uses
+a segment incompatible with the current container. For example, with `{ n: 0n }`,
+`get(['missing'])` returns undefined, but `get(['n', 'child'])` throws; `kind` and
+`has` follow the same distinction.
+
+`pathOf` and `resolve` return undefined for absent results. `idAt` requires an existing
+target and throws if none exists. Invalid arguments and lifecycle errors still fail,
+even for read operations. An ID from another document is not a cross-document lookup
+mechanism.
 
 Keep the snapshot used to calculate a Path when you need a consistent read. An older
 Value continues to report the old location after the Document changes. Never persist

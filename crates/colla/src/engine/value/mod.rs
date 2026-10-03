@@ -43,19 +43,19 @@ pub type AttrPatch = BTreeMap<String, Option<Attr>>;
 /// A UTF-8 text span or one atomic owning Embed with attributes.
 pub enum RichSpan {
     #[cocodec(tag = 0)]
-    /// Collaborative Unicode scalar text or a scalar text operation.
+    /// A collaborative text span with formatting attributes.
     Text {
         /// UTF-8 text content addressed in Unicode scalars.
         text: String,
-        /// Atomic formatting attributes or their explicit patch.
+        /// Formatting attributes applied to the entire text span.
         attrs: Attrs,
     },
     #[cocodec(tag = 1)]
     /// One atomic owning Value in RichText.
     Embed {
-        /// Immutable owning content carried by this operation or embed.
+        /// Owning content treated as one sequence unit.
         value: Value,
-        /// Atomic formatting attributes or their explicit patch.
+        /// Formatting attributes applied to the embed.
         attrs: Attrs,
     },
 }
@@ -79,7 +79,7 @@ pub enum Body {
     /// An atomic UTF-8 string without character-level editing.
     String(String),
     #[cocodec(tag = 5)]
-    /// Collaborative Unicode scalar text or a scalar text operation.
+    /// Collaborative text addressed by Unicode scalar positions.
     Text(String),
     #[cocodec(tag = 6)]
     /// Formatted scalar text with atomic embeds.
@@ -364,11 +364,11 @@ impl Value {
         path.reverse();
         Some(path)
     }
-    /// Returns independent canonical bytes in a typed version-2 envelope.
+    /// Returns independent canonical bytes in a typed binary envelope.
     pub fn encode(&self) -> Vec<u8> {
         codec::encode(codec::Kind::Value, self)
     }
-    /// Strictly decodes and validates a typed version-2 envelope, rejecting trailing data.
+    /// Strictly decodes and validates a typed binary envelope, rejecting trailing data.
     pub fn decode(bytes: &[u8]) -> Result<Self> {
         let value: Self = codec::decode(codec::Kind::Value, bytes)?;
         value.validate()?;

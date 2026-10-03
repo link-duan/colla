@@ -33,7 +33,7 @@ Int is signed i64 represented by bigint; number represents finite Float.
 | Member                                   | Result / behavior                                            |
 | ---------------------------------------- | ------------------------------------------------------------ |
 | `Value.fromJS(input: Input): Value`      | Construct immutable content; a Value input is returned as-is |
-| `Value.decode(bytes: Uint8Array): Value` | Strict v2 decode preserving identities                       |
+| `Value.decode(bytes: Uint8Array): Value` | Strict decode preserving identities                          |
 | `value.id: ElementId`                    | Root identity of this Value                                  |
 | `encode(): Uint8Array`                   | Fresh independent canonical bytes                            |
 | `toJS(): Input`                          | Immutable content projection, omitting owning IDs            |
@@ -54,8 +54,12 @@ current or working snapshot; Value operates on its own immutable content.
 | `resolve(reference: Ref): Value \| undefined`       | One hop; dangling target returns undefined                       |
 | `referencesTo(id: ElementId): readonly ElementId[]` | IDs of referring elements                                        |
 
-Invalid argument shapes still throw on reads. Path traversal never implicitly follows a
-Ref. See [identity](/docs/core/identity) and [references](/docs/core/references).
+For `get`, `kind` and `has`, only `missing_key` and `out_of_bounds` become an absent
+result (`undefined` or `false`). A Path that traverses a scalar or uses a segment
+incompatible with the current container throws `type_mismatch`, even if its argument
+shape is valid. Invalid arguments and lifecycle errors also propagate. Path traversal
+never implicitly follows a Ref. See [identity](/docs/core/identity) and
+[references](/docs/core/references).
 
 ## Change and operations
 

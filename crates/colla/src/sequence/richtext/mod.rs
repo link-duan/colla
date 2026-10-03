@@ -194,7 +194,7 @@ pub enum RichContent {
     /// UTF-8 text addressed by Unicode scalar positions.
     #[cocodec(tag = 0)]
     Text(RichTextChunk),
-    /// One atomic embedded Core Value with logical length one.
+    /// One atomic embedded Value with logical length one.
     #[cocodec(tag = 1)]
     Embed(Value),
 }

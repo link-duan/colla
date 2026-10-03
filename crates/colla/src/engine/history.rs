@@ -241,11 +241,11 @@ pub struct HistoryCheckpoint {
 }
 codec::record_codec!(HistoryCheckpoint, base, history);
 impl HistoryCheckpoint {
-    /// Returns independent canonical bytes in a typed version-2 envelope.
+    /// Returns independent canonical bytes in a typed binary envelope.
     pub fn encode(&self) -> Vec<u8> {
         codec::encode(codec::Kind::HistoryCheckpoint, self)
     }
-    /// Strictly decodes and validates a typed version-2 envelope, rejecting trailing data.
+    /// Strictly decodes and validates a typed binary envelope, rejecting trailing data.
     pub fn decode(bytes: &[u8]) -> Result<Self> {
         let checkpoint: Self = codec::decode(codec::Kind::HistoryCheckpoint, bytes)?;
         checkpoint.base.validate()?;

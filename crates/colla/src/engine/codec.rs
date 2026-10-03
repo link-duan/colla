@@ -2,8 +2,9 @@ use super::{Error, ErrorCode, Result};
 use cocodec::{Decode, Encode};
 
 const MAGIC: &[u8] = b"COLLA";
+const VERSION: u16 = 1;
 
-// Version 2 records have required positional fields. In particular, missing
+// Records have required positional fields. In particular, missing
 // identity/revision fields must never acquire defaults during decoding.
 macro_rules! record_codec {
     ($ty:ty, $($field:ident),+ $(,)?) => {
@@ -22,7 +23,7 @@ macro_rules! record_codec {
 }
 pub(crate) use record_codec;
 
-/// Envelope type byte. Tags are part of the version-2 wire format documented in
+/// Envelope type byte. Tags are part of the wire format documented in
 /// `docs/binary-format.md`; never renumber or reuse one.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
@@ -37,11 +38,11 @@ pub(crate) enum Kind {
     AuthorityCheckpoint = 8,
 }
 
-// A typed version-2 binary envelope around the Rust-owned canonical payload.
+// A typed binary envelope around the Rust-owned canonical payload.
 // No JavaScript code generates or parses protocol bytes.
 pub(crate) fn encode<T: Encode>(kind: Kind, value: &T) -> Vec<u8> {
     let mut bytes = Vec::from(MAGIC);
-    bytes.extend_from_slice(&2u16.to_le_bytes());
+    bytes.extend_from_slice(&VERSION.to_le_bytes());
     bytes.push(kind as u8);
     value
         .encode(&mut bytes)
@@ -51,7 +52,7 @@ pub(crate) fn encode<T: Encode>(kind: Kind, value: &T) -> Vec<u8> {
 pub(crate) fn decode<T: Decode>(kind: Kind, bytes: &[u8]) -> Result<T> {
     if bytes.len() < 8
         || &bytes[..5] != MAGIC
-        || bytes[5..7] != 2u16.to_le_bytes()
+        || bytes[5..7] != VERSION.to_le_bytes()
         || bytes[7] != kind as u8
     {
         return Err(Error::new(
@@ -71,14 +72,19 @@ mod tests {
     fn envelope_rejects_wrong_kind_version_and_magic() {
         let bytes = encode(Kind::Submission, &7u64);
         assert_eq!(decode::<u64>(Kind::Submission, &bytes).unwrap(), 7);
-        assert_eq!(&bytes[..8], b"COLLA\x02\x00\x04");
-        let mut wrong_version = bytes.clone();
-        wrong_version[5] = 1;
+        assert_eq!(&bytes[..8], b"COLLA\x01\x00\x04");
         let mut wrong_magic = bytes.clone();
         wrong_magic[0] = b'X';
+        for version in [0u16, 2, 256, u16::MAX] {
+            let mut invalid = bytes.clone();
+            invalid[5..7].copy_from_slice(&version.to_le_bytes());
+            assert_eq!(
+                decode::<u64>(Kind::Submission, &invalid).unwrap_err().code,
+                ErrorCode::InvalidEncoding
+            );
+        }
         for (kind, bytes) in [
             (Kind::ServerMessage, &bytes),
-            (Kind::Submission, &wrong_version),
             (Kind::Submission, &wrong_magic),
             (Kind::Submission, &bytes[..7].to_vec()),
         ] {

@@ -13,8 +13,7 @@ package are recorded here. Both artifacts always use the same version.
   reverse-reference queries, including dangling targets.
 - Ordered identity-targeted Change operations and explicit-base apply, compose,
   invert and **transform** in Rust and JavaScript. Transform returns
-  left-after-right then right-after-left. No old-name aliases or context-free
-  structural algebra remain.
+  left-after-right then right-after-left.
 - Immutable Value/Change/protocol objects without public Wasm handles or
   clone/dispose requirements. Document.create/edit/snapshot, complete scoped
   editors, synchronous isolated subscribe, stable CollaError, atomic Noop and
@@ -24,8 +23,7 @@ package are recorded here. Both artifacts always use the same version.
   retry payloads, formal Commit confirmation, deduplication, revision gaps,
   history trimming and recovery that retains local work.
 - Distinct Value, SyncSnapshot, SessionCheckpoint, HistoryCheckpoint and
-  AuthorityCheckpoint persistence. Strict typed **version 2** Rust codecs
-  preserve identities and reject old formats. There is no compatibility layer.
+  AuthorityCheckpoint persistence. Strict typed Rust codecs preserve identities.
 - The Rust crate no longer enables `getrandom/js`. Applications compiling
   `colla` directly for `wasm32-unknown-unknown` select a getrandom backend
   themselves; `colla-ot` already does. Element ID entropy failure is returned
@@ -42,7 +40,7 @@ package are recorded here. Both artifacts always use the same version.
 ### Validation and artifact size
 
 - Regression coverage for transaction reentry/escape, payload/revision mismatch
-  and mutable external bytes; identity-aware property tests, shared Rust/JS v2
+  and mutable external bytes; identity-aware property tests, shared Rust/JS
   fixtures, three-client restart/retry simulation, malformed-input fuzz,
   package installation, browser/Worker/bundler and memory tests.
 - Zero npm runtime dependencies. Removed the Wasm serde_json runtime dependency;
@@ -115,8 +113,7 @@ package are recorded here. Both artifacts always use the same version.
 
 - Added `Document` local/remote update handling with optimistic local edits,
   pending rebase, acknowledgements, typed events, and content snapshots.
-- Added versioned `Snapshot` and `Update` envelopes with `COLLAS`/`COLLAU`
-  magic headers and protocol version 1, including Rust and JavaScript codecs.
+- Added binary `Snapshot` and `Update` envelopes, including Rust and JavaScript codecs.
 - Simplified the local Snapshot/Update payloads to direct cocodec tuples. This
   is an early-development format change with no historical byte compatibility
   promise.

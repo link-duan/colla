@@ -27,8 +27,10 @@ including diagnostic revision intervals; convert explicitly when passing them to
 ## Binary envelope
 
 Rust is the sole wire implementation. The common header is five ASCII bytes
-`COLLA`, a little-endian u16 equal to 2, then one type byte. A canonical cocodec
-payload follows. Version 1 and unversioned legacy bodies are rejected.
+`COLLA`, a little-endian u16 codec version equal to 1, then one type byte. A
+canonical cocodec payload follows. The codec version remains 1 until Colla 2.0.
+Decoders accept only the current layout; the version field alone does not promise
+compatibility between releases.
 
 | Tag | Object                              |
 | --- | ----------------------------------- |
@@ -74,7 +76,7 @@ floor, applicable contiguous log and corresponding request receipts.
 
 `encode()` returns an independent byte array. String and Text constructors enforce
 the same individual content limit as decoding. Decode retains no caller-mutable
-buffer. Shared fixed v2 examples live in [golden/v2.json](https://github.com/link-duan/colla/blob/master/golden/v2.json).
+buffer. Shared fixed examples live in [golden/fixtures.json](https://github.com/link-duan/colla/blob/master/golden/fixtures.json).
 Changing these bytes requires explicit fixture review and a format decision;
 tests are regression evidence, not a second codec implementation.
 

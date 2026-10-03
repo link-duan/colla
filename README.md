@@ -4,7 +4,7 @@
 
 Immutable structured documents with stable element identity, native Move and
 Ref, atomic editing, collaborative undo/redo, and centralized synchronization.
-Rust owns the semantic engine and version-2 codecs; the synchronous JavaScript
+Rust owns the semantic engine and codecs; the synchronous JavaScript
 facade has zero npm runtime dependencies.
 
 ```ts
@@ -13,7 +13,7 @@ const doc = Document.create({ tasks: [{ title: text('Draft') }], done: [], selec
 const history = History.attach(doc)
 const task = doc.idAt(['tasks', 0])
 doc.edit(tx => {
-  tx.text(['tasks', 0, 'title']).insert(5, ' v2')
+  tx.text(['tasks', 0, 'title']).insert(5, ' updated')
   tx.set(['selected'], ref(task))
   tx.move(task, { parent: ['done'], index: 0 })
 })
@@ -48,7 +48,6 @@ belong to applications.
 - [JavaScript API](https://link-duan.github.io/colla/reference/javascript)
 - [Rust API](https://link-duan.github.io/colla/reference/rust)
 - [Design and specifications](docs/README.md)
-- [Implementation contract](docs/implementation-0.4.0.md)
 - [Changelog](CHANGELOG.md)
 
 ## Development
@@ -73,5 +72,5 @@ separate coordinated action described in the [release runbook](docs/internal/rel
 
 ## Documentation
 
-[Read the Colla 0.4 documentation](https://link-duan.github.io/colla/docs/getting-started/)
+[Read the Colla documentation](https://link-duan.github.io/colla/docs/getting-started/)
 for Core, Editing, History, Sync, runnable examples and production integration.

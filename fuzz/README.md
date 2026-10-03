@@ -1,7 +1,7 @@
 # Colla fuzzing
 
-Coverage-guided fuzz targets that back the roadmap's "fuzz coverage" hardening
-item with repeatable evidence. They cover two layers:
+Coverage-guided fuzz targets provide repeatable decoder and algebra regression
+evidence. They cover two layers:
 
 - **Decoder boundary** — untrusted bytes must never panic, and every value the
   strict decoder accepts must be canonical.
@@ -13,12 +13,12 @@ This is a standalone crate, detached from the main workspace, so
 
 ## Targets
 
-- `decode_value` — decode arbitrary bytes as a version 2 `Value` or
+- `decode_value` — decode arbitrary bytes as a `Value` or
   `SyncSnapshot`. Accepted objects must preserve exact canonical input bytes
   through encode → decode, including all owning IDs and Ref targets.
 - `decode_change` — the same invariants for `Change`, `Submission`,
   `ServerMessage`, `SessionCheckpoint`, `HistoryCheckpoint` and
-  `AuthorityCheckpoint`. Old versions, wrong envelope types, malformed fields
+  `AuthorityCheckpoint`. Invalid headers, wrong envelope types, malformed fields
   and trailing bytes must be rejected without a panic.
 - `ot_algebra` — turn bytes into two valid multi-operation changes over the
   same identity-bearing List, mixing native Move, insertion, deletion, Set and
@@ -31,7 +31,7 @@ Rust integration/property tests additionally cover cross-parent and Map moves,
 structural conflicts, Unicode Text/RichText, Ref, History and three-client sync.
 These fuzz targets complement those tests; a bounded smoke run is not exhaustive.
 
-Seed decoder corpora with the matching envelope bytes from `golden/v2.json` to
+Seed decoder corpora with the matching envelope bytes from `golden/fixtures.json` to
 exercise valid protocol and checkpoint branches as well as malformed input.
 
 ## Running

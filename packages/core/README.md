@@ -19,8 +19,8 @@ npm install colla-ot@^0.4.0
 import { Document, text } from 'colla-ot'
 
 const doc = Document.create({ title: text('Draft') })
-doc.edit(tx => tx.text(['title']).insert(5, ' v2'))
-console.log('Updated title:', doc.get(['title'])?.toJS()) // Text containing Draft v2
+doc.edit(tx => tx.text(['title']).insert(5, ' updated'))
+console.log('Updated title:', doc.get(['title'])?.toJS()) // Text containing Draft updated
 doc.close()
 ```
 

@@ -12,6 +12,7 @@ GitHub Release only after verification succeeds.
 - Cargo, npm and lockfile versions match exactly.
 - `CHANGELOG.md` contains the release notes and no longer marks the version as
   Unreleased.
+- Review the codec header against [Protocol and encoding](../binary-format.md).
 - The target version is absent from both registries for a new release, or an
   existing artifact belongs to the exact same tag during recovery.
 - The GitHub `release` environment is configured and its

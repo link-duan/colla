@@ -23,11 +23,11 @@ impl SyncSnapshot {
     pub fn value(&self) -> &Value {
         &self.value
     }
-    /// Returns independent canonical bytes in a typed version-2 envelope.
+    /// Returns independent canonical bytes in a typed binary envelope.
     pub fn encode(&self) -> Vec<u8> {
         codec::encode(codec::Kind::SyncSnapshot, self)
     }
-    /// Strictly decodes and validates a typed version-2 envelope, rejecting trailing data.
+    /// Strictly decodes and validates a typed binary envelope, rejecting trailing data.
     pub fn decode(bytes: &[u8]) -> Result<Self> {
         let value: Self = codec::decode(codec::Kind::SyncSnapshot, bytes)?;
         value.validate()?;
@@ -77,11 +77,11 @@ impl Submission {
     pub fn change(&self) -> &Change {
         &self.change
     }
-    /// Returns independent canonical bytes in a typed version-2 envelope.
+    /// Returns independent canonical bytes in a typed binary envelope.
     pub fn encode(&self) -> Vec<u8> {
         codec::encode(codec::Kind::Submission, self)
     }
-    /// Strictly decodes and validates a typed version-2 envelope, rejecting trailing data.
+    /// Strictly decodes and validates a typed binary envelope, rejecting trailing data.
     pub fn decode(bytes: &[u8]) -> Result<Self> {
         let value: Self = codec::decode(codec::Kind::Submission, bytes)?;
         value.validate()?;
@@ -181,11 +181,11 @@ pub enum ServerMessage {
     Rejection(Rejection),
 }
 impl ServerMessage {
-    /// Returns independent canonical bytes in a typed version-2 envelope.
+    /// Returns independent canonical bytes in a typed binary envelope.
     pub fn encode(&self) -> Vec<u8> {
         codec::encode(codec::Kind::ServerMessage, self)
     }
-    /// Strictly decodes and validates a typed version-2 envelope, rejecting trailing data.
+    /// Strictly decodes and validates a typed binary envelope, rejecting trailing data.
     pub fn decode(bytes: &[u8]) -> Result<Self> {
         let value: Self = codec::decode(codec::Kind::ServerMessage, bytes)?;
         match &value {

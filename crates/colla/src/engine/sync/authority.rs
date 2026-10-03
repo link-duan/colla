@@ -17,11 +17,11 @@ pub struct AuthorityCheckpoint {
 }
 codec::record_codec!(AuthorityCheckpoint, floor, log, receipts);
 impl AuthorityCheckpoint {
-    /// Returns independent canonical bytes in a typed version-2 envelope.
+    /// Returns independent canonical bytes in a typed binary envelope.
     pub fn encode(&self) -> Vec<u8> {
         codec::encode(codec::Kind::AuthorityCheckpoint, self)
     }
-    /// Strictly decodes and validates a typed version-2 envelope, rejecting trailing data.
+    /// Strictly decodes and validates a typed binary envelope, rejecting trailing data.
     pub fn decode(bytes: &[u8]) -> Result<Self> {
         let value: Self = codec::decode(codec::Kind::AuthorityCheckpoint, bytes)?;
         Authority::restore(value.clone())?;

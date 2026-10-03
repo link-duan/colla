@@ -1,13 +1,13 @@
 # 稳定元素身份、原生 Move / Ref 与协作运行态
 
-状态：Accepted / Implemented（0.4.0，本地验收完成，未发布）
+状态：Accepted / Implemented
 
-下一版 Colla Core 同时引入 **Element ID** 与原生 **Move**：Element ID 识别元素实例，
+Colla Core 同时提供 **Element ID** 与原生 **Move**：Element ID 识别元素实例，
 独立于内容和位置；Move 表示同一元素的位置变化，并保留其身份。该决策支持元素移动后的
 长期引用，并要求并发修改能跟随被移动的元素；不能将 Move 降级为插入旧内容副本与删除
 原元素后，丢失二者之间的关联。
 
-原生 Move 可以通过位置型 OT 实现，稳定 Element ID 并不是它的必要前提。本次选择同时
+原生 Move 可以通过位置型 OT 实现，稳定 Element ID 并不是它的必要前提。选择同时
 引入身份，是为了让长期元素寻址成为 Core 的明确能力，而不只提供列表重排。代价是必须
 为身份生成、复制、替换、删除、撤销和持久化定义一致的语义。
 
@@ -20,8 +20,8 @@
 - 内容相同的两个独立元素可以具有不同身份。
 - Move 保留被移动子树根元素及其后代的身份；支持身份恢复的持久化格式必须保存身份，
   同步过程也必须传播身份，不能在读取或恢复时重新生成。
-- 保留此前选定的基础值语义：Map、List、原子 String、显式 Text/RichText、i64 Int
-  和有限 Float。Element ID 引入的结构语义需要由新版规范单独定义。
+- 基础值包括 Map、List、原子 String、显式 Text/RichText、i64 Int 和有限 Float。
+  身份及引用语义由[内容模型](../data-model.md)定义。
 
 ## 身份生命周期与引用
 
@@ -32,15 +32,14 @@ set 保留被替换元素的身份，新后代分配新 ID；Copy 为整棵子�
 重映射范围内目标，外部引用保持原目标；set 导入时源根映射到保留的目标根。ID 和反向
 引用索引是派生数据，不进入规范编码。
 
-这些约束及事务、同步、History、产物体积和依赖限制已在
-[0.4.0 实现契约](../implementation-0.4.0.md) 中确定。实现、测量和本地验收结果记录在
-[0.4.0 验收报告](../quality/0.4.0-verification.md)；实际发布仍是独立动作。
+当前行为由[内容模型](../data-model.md)、[运行态规范](../document-model.md)、
+[变更代数](../ot-properties.md)与[编码规范](../binary-format.md)定义。
+[验收报告](../quality/0.4.0-verification.md)记录实现、测量和本地验收证据。
 
 ## 协作与公开边界
 
-本次破坏性升级一并替代 ADR 0002—0005 的旧递归 Change、Snapshot/Update、手动句柄生命周期
-与旧二进制契约。所有结构代数使用显式内容基准，公开函数统一为 transform，返回双向结果。
-Rust 统一拥有 Document、History、SyncSession、Authority 及严格版本 2 codec；JS 只负责
+所有结构代数使用显式内容基准，公开函数 transform 返回双向结果。
+Rust 统一拥有 Document、History、SyncSession、Authority 及严格 codec；JS 只负责
 同步输入转换、作用域和订阅。这样能够在提交前共同校验可见内容、撤销状态和在途消息，
 代价是 Core 包含更完整的协作状态机。网络和数据库仍由应用负责。
 
@@ -48,9 +47,9 @@ Rust 统一拥有 Document、History、SyncSession、Authority 及严格版本 2
 Change 单独重基；自身 Commit 完成确认。检查点区分内容、已确认同步基准和完整会话。
 遇到无法安全继续的重基保留工作并进入恢复状态，而不是自动清空待提交内容。
 
-不可变 JS 对象不公开 Wasm 句柄。所有运行态提供幂等 close，旧快照仍可查询。代价是依赖
+不可变 JS 对象不公开 Wasm 句柄。所有运行态提供幂等 close，已返回快照仍可查询。代价是依赖
 受支持运行时的垃圾回收管理不可变对象；这避免让普通内容读写暴露手动释放约束。
 
-产物体积是实现约束：复用 cocodec 和已有 scalar 算法，删除旧结构实现与 JSON 运行时依赖。
-新增 getrandom 仅用于独立身份命名空间的安全随机源；JS 保持零 npm 运行时依赖。每次交付
+产物体积是实现约束：复用 cocodec 和 scalar 算法，JSON 不进入运行时依赖。
+getrandom 用于独立身份命名空间的安全随机源；JS 保持零 npm 运行时依赖。每次交付
 测量 Wasm、浏览器入口、tarball、编辑与重基时间和内存，不能凭依赖数量推断最终体积。

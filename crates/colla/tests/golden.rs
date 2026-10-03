@@ -104,16 +104,18 @@ fn canonical_shared_fixtures() {
     let actual = serde_json::to_string_pretty(&build()).unwrap() + "\n";
     if std::env::var_os("UPDATE_GOLDEN").is_some() {
         std::fs::write(
-            concat!(env!("CARGO_MANIFEST_DIR"), "/../../golden/v2.json"),
+            concat!(env!("CARGO_MANIFEST_DIR"), "/../../golden/fixtures.json"),
             &actual,
         )
         .unwrap();
     }
-    let expected =
-        std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../golden/v2.json"))
-            .unwrap();
+    let expected = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../golden/fixtures.json"
+    ))
+    .unwrap();
     assert_eq!(
         actual, expected,
-        "v2 canonical bytes changed; review before updating fixtures"
+        "Canonical bytes changed; review before updating fixtures"
     );
 }

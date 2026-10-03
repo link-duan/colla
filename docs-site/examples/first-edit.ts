@@ -4,8 +4,8 @@ const doc = Document.create({ title: text('Draft') })
 console.log('Before edit:', doc.get(['title'])?.toJS())
 
 doc.edit(tx => {
-  tx.text(['title']).insert(5, ' v2')
+  tx.text(['title']).insert(5, ' updated')
 })
 
-console.log('After edit:', doc.get(['title'])?.toJS()) // Text containing 'Draft v2'
+console.log('After edit:', doc.get(['title'])?.toJS()) // Text containing 'Draft updated'
 doc.close()

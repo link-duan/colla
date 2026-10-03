@@ -30,7 +30,7 @@ const doc = Document.create({ tasks: [{ title: text('Draft') }], done: [], selec
 const history = History.attach(doc)
 const task = doc.idAt(['tasks', 0])
 doc.edit(tx => {
-  tx.text(['tasks', 0, 'title']).insert(5, ' v2')
+  tx.text(['tasks', 0, 'title']).insert(5, ' updated')
   tx.set(['selected'], ref(task))
   tx.move(task, { parent: ['done'], index: 0 })
 })
@@ -38,7 +38,7 @@ history.undo()
 ```
 
 Both language APIs use the same
-base-aware `transform` and version-2 format. Transport, persistence storage,
+base-aware `transform` and binary format. Transport, persistence storage,
 authentication, presence and editor adapters belong to your application.
 
 ## Choose a reading path

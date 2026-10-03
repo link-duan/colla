@@ -18,55 +18,55 @@ codec::record_codec!(Destination, parent, slot);
 /// One ordered identity-addressed content operation.
 pub enum Operation {
     #[cocodec(tag = 0)]
-    /// Inserts owning content at a sequence or container position.
+    /// Inserts an owning subtree at a vacant Map key or List position.
     Insert {
-        /// Owning location for an insertion or native move.
+        /// Owning container and insertion slot.
         destination: Destination,
-        /// Immutable owning content carried by this operation or embed.
+        /// Subtree to insert, retaining its supplied identities.
         value: Value,
     },
     #[cocodec(tag = 1)]
-    /// Deletes existing owning content or scalar sequence units.
+    /// Deletes an existing Map member or List element and its owning subtree.
     Delete {
-        /// Stable target identity; Ref targets may be absent.
+        /// ID of the existing owning element to delete; Refs are not dereferenced.
         target: ElementId,
     },
     #[cocodec(tag = 2)]
     /// Replaces content while retaining the target root identity.
     Set {
-        /// Stable target identity; Ref targets may be absent.
+        /// ID of the existing element to replace.
         target: ElementId,
-        /// Immutable owning content carried by this operation or embed.
+        /// Replacement subtree whose root ID must equal the target ID.
         value: Value,
     },
     #[cocodec(tag = 3)]
     /// Moves the same owning subtree without changing any of its IDs.
     Move {
-        /// Stable target identity; Ref targets may be absent.
+        /// ID of the existing owning element to move.
         target: ElementId,
-        /// Owning location for an insertion or native move.
+        /// Owning container and post-removal destination slot.
         destination: Destination,
     },
     #[cocodec(tag = 4)]
-    /// Collaborative Unicode scalar text or a scalar text operation.
+    /// Edits a collaborative Text value using Unicode scalar positions.
     Text {
-        /// Stable target identity; Ref targets may be absent.
+        /// ID of the existing Text element to edit.
         target: ElementId,
-        /// Immutable identity-addressed or scalar change content.
+        /// Ordered scalar retains, insertions and deletions.
         change: crate::sequence::change::TextChange,
     },
     #[cocodec(tag = 5)]
     /// Adds a checked signed integer delta.
     Add {
-        /// Stable target identity; Ref targets may be absent.
+        /// ID of the existing Int element to increment.
         target: ElementId,
         /// Signed delta applied with checked integer arithmetic.
         delta: i64,
     },
     #[cocodec(tag = 6)]
-    /// Formatted scalar text with atomic embeds.
+    /// Edits RichText content and formatting; each embed counts as one scalar unit.
     RichText {
-        /// Stable target identity; Ref targets may be absent.
+        /// ID of the existing RichText element to edit.
         target: ElementId,
         /// Scalar sequence operations in execution order.
         operations: Vec<super::RichOp>,
@@ -137,11 +137,11 @@ impl Change {
     pub fn is_noop(&self) -> bool {
         self.0.is_empty()
     }
-    /// Returns independent canonical bytes in a typed version-2 envelope.
+    /// Returns independent canonical bytes in a typed binary envelope.
     pub fn encode(&self) -> Vec<u8> {
         codec::encode(codec::Kind::Change, self)
     }
-    /// Strictly decodes and validates a typed version-2 envelope, rejecting trailing data.
+    /// Strictly decodes and validates a typed binary envelope, rejecting trailing data.
     pub fn decode(bytes: &[u8]) -> Result<Self> {
         let value: Self = codec::decode(codec::Kind::Change, bytes)?;
         let canonical = Self::new(value.operations().iter().cloned())?;
@@ -234,13 +234,13 @@ pub fn compose(base: &Value, first: &Change, second: &Change) -> Result<Change> 
                 },
             ) if a == b => {
                 let change = crate::sequence::op::compose(
-                    &super::rich::to_old(x)?,
-                    &super::rich::to_old(y)?,
+                    &super::rich::to_sequence_change(x)?,
+                    &super::rich::to_sequence_change(y)?,
                 )
                 .map_err(|e| Error::new(ErrorCode::IncompatibleChange, e.to_string()))?;
                 Some(Operation::RichText {
                     target: *a,
-                    operations: super::rich::from_old(&change)?,
+                    operations: super::rich::from_sequence_change(&change)?,
                 })
             }
             (Some(Operation::Set { target: a, .. }), Operation::Set { target: b, .. })
@@ -321,13 +321,13 @@ pub fn invert(base: &Value, change: &Change) -> Result<Change> {
                     return Err(type_error("expected RichText"));
                 };
                 let inverse = crate::sequence::op::invert(
-                    &super::rich::to_old(operations)?,
-                    &super::rich::value_to_old(spans)?,
+                    &super::rich::to_sequence_change(operations)?,
+                    &super::rich::to_sequence_value(spans)?,
                 )
                 .map_err(|e| Error::new(ErrorCode::IncompatibleChange, e.to_string()))?;
                 vec![Operation::RichText {
                     target: *target,
-                    operations: super::rich::from_old(&inverse)?,
+                    operations: super::rich::from_sequence_change(&inverse)?,
                 }]
             }
         };
@@ -399,14 +399,14 @@ pub(crate) fn apply_operation(base: &Value, operation: &Operation) -> Result<Val
                 return Err(type_error("expected RichText"));
             };
             let result = crate::sequence::op::apply(
-                &super::rich::value_to_old(spans)?,
-                &super::rich::to_old(operations)?,
+                &super::rich::to_sequence_value(spans)?,
+                &super::rich::to_sequence_change(operations)?,
             )?;
             base.replace_at(
                 *target,
                 &Value::trusted(
                     *target,
-                    Body::RichText(super::rich::value_from_old(&result)?),
+                    Body::RichText(super::rich::from_sequence_value(&result)?),
                 ),
             )?
         }

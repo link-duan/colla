@@ -101,7 +101,7 @@ proptest! {
     }
     #[test]
     fn malformed_typed_payloads_never_panic(kind in 1u8..9, payload in prop::collection::vec(any::<u8>(),0..2048)) {
-        let mut bytes=b"COLLA\x02\x00".to_vec();bytes.push(kind);bytes.extend(payload);
+        let mut bytes=b"COLLA\x01\x00".to_vec();bytes.push(kind);bytes.extend(payload);
         match kind {
             1=>{let _=Value::decode(&bytes);},2=>{let _=Change::decode(&bytes);},
             3=>{let _=SyncSnapshot::decode(&bytes);},4=>{let _=Submission::decode(&bytes);},

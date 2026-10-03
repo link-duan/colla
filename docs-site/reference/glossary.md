@@ -120,10 +120,6 @@ An unsafe merged ownership structure, such as a cycle, invalid parent or unresol
 
 Deterministic normalized representation of one controlled object; not equivalence of all changes with the same effect.
 
-### Wire compatibility
-
-Ability to exchange encoded objects directly across versions, distinct from deterministic encoding within one version.
-
 ### Golden fixtures
 
 Shared fixed inputs, outputs and canonical bytes used as regression evidence, not an independent codec implementation.
@@ -150,7 +146,7 @@ A sequence of attributed text and atomic embeds, independent of any HTML or edit
 
 ### Embed
 
-One atomic Core Value occupying one RichText sequence position.
+One atomic Value occupying one RichText sequence position.
 
 ### Change position
 

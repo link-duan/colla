@@ -172,7 +172,7 @@ fn transformed_leaves(
                     id,
                     Operation::RichText {
                         target: id,
-                        operations: super::rich::from_old(&change)?,
+                        operations: super::rich::from_sequence_change(&change)?,
                     },
                 );
             }
@@ -212,9 +212,11 @@ fn intents(change: &Change) -> Result<Intents> {
             }
             Operation::RichText { target, operations } => {
                 let previous = result.rich.entry(*target).or_default();
-                *previous =
-                    crate::sequence::op::compose(previous, &super::rich::to_old(operations)?)
-                        .map_err(algebra_error)?;
+                *previous = crate::sequence::op::compose(
+                    previous,
+                    &super::rich::to_sequence_change(operations)?,
+                )
+                .map_err(algebra_error)?;
             }
             _ => {}
         }
@@ -373,11 +375,16 @@ fn merge(
             let (_, low_after_high) =
                 crate::sequence::op::transform(&high_rich, low_rich, TieBreak::LeftFirst)
                     .map_err(algebra_error)?;
-            let result =
-                crate::sequence::op::apply(&super::rich::value_to_old(spans)?, &low_after_high)?;
+            let result = crate::sequence::op::apply(
+                &super::rich::to_sequence_value(spans)?,
+                &low_after_high,
+            )?;
             merged = merged.replace_at(
                 id,
-                &Value::trusted(id, Body::RichText(super::rich::value_from_old(&result)?)),
+                &Value::trusted(
+                    id,
+                    Body::RichText(super::rich::from_sequence_value(&result)?),
+                ),
             )?;
         }
     }

@@ -27,8 +27,8 @@ fn main() -> colla::Result<()> {
     let title = Value::text("Draft")?;
     let id = title.id();
     let doc = Document::create(title)?;
-    doc.edit(|tx| tx.text_replace(id, 5, 0, " v2"))?;
-    println!("Updated title: {:?}", doc.get(id)?.body()); // Text("Draft v2")
+    doc.edit(|tx| tx.text_replace(id, 5, 0, " updated"))?;
+    println!("Updated title: {:?}", doc.get(id)?.body()); // Text("Draft updated")
     doc.close()?;
     Ok(())
 }

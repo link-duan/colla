@@ -28,7 +28,7 @@ attribute value. Concurrent text and formatting participate in OT together.
 
 High-level JavaScript positions count UTF-16 code units, with each embed occupying one
 position. Low-level RichText changes count Unicode scalars, also counting each embed as
-one. Embeds carry a Core Value but are atomic in the surrounding rich-text sequence;
+one. Embeds carry a Value but are atomic in the surrounding rich-text sequence;
 they are not independently editable nested documents through sequence paths.
 
 ## Integration boundaries

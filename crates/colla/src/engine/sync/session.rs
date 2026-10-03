@@ -163,11 +163,11 @@ pub struct SessionCheckpoint {
 }
 codec::record_codec!(SessionCheckpoint, value, version, history, session);
 impl SessionCheckpoint {
-    /// Returns independent canonical bytes in a typed version-2 envelope.
+    /// Returns independent canonical bytes in a typed binary envelope.
     pub fn encode(&self) -> Vec<u8> {
         codec::encode(codec::Kind::SessionCheckpoint, self)
     }
-    /// Strictly decodes and validates a typed version-2 envelope, rejecting trailing data.
+    /// Strictly decodes and validates a typed binary envelope, rejecting trailing data.
     pub fn decode(bytes: &[u8]) -> Result<Self> {
         let value: Self = codec::decode(codec::Kind::SessionCheckpoint, bytes)?;
         value.validate()?;

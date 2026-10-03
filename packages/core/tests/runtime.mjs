@@ -74,7 +74,7 @@ test('complete editing, stable identities, Move steps, inverse and immutable sna
     escapedText = tx.text(['blocks', 0, 'title'])
     escapedRich = tx.richText(['blocks', 0, 'body'])
     escapedList = tx.list(['archived'])
-    escapedText.insert(5, ' v2')
+    escapedText.insert(5, ' updated')
     escapedRich.insertText(0, 'Hello')
     escapedRich.format(0, 5, { bold: true })
     escapedRich.insertEmbed(5, ref(blockId))
@@ -83,7 +83,7 @@ test('complete editing, stable identities, Move steps, inverse and immutable sna
     tx.increment(['views'], 1n)
   })
   assert.deepEqual(doc.pathOf(blockId), ['archived', 0])
-  assert.equal(doc.resolve(ref(blockId)).get(['title']).toJS().value, 'Draft v2')
+  assert.equal(doc.resolve(ref(blockId)).get(['title']).toJS().value, 'Draft updated')
   assert.equal(edit.editSteps.find(step => step.type === 'move').target, blockId)
   assert.ok(apply(before, edit.change).equals(edit.after))
   assert.ok(apply(before, Change.create(edit.editSteps)).equals(edit.after))
@@ -398,13 +398,16 @@ test('grouped history checkpoints and public transform return order', () => {
   )
 })
 
-test('version-2 codecs reject other types, old versions and trailing bytes', () => {
+test('codecs reject invalid headers, wrong types and trailing bytes', () => {
   const value = Value.fromJS({ n: 1n, title: text('😀') })
   const encoded = value.encode()
   assert.throws(() => Change.decode(encoded), code('invalid_encoding'))
-  const old = encoded.slice()
-  old[5] = 1
-  assert.throws(() => Value.decode(old), code('invalid_encoding'))
+  assert.deepEqual(Array.from(encoded.slice(0, 8)), [67, 79, 76, 76, 65, 1, 0, 1])
+  for (const version of [0, 2, 256, 65535]) {
+    const invalid = encoded.slice()
+    new DataView(invalid.buffer).setUint16(5, version, true)
+    assert.throws(() => Value.decode(invalid), code('invalid_encoding'))
+  }
   const trailing = new Uint8Array(encoded.length + 1)
   trailing.set(encoded)
   assert.throws(() => Value.decode(trailing), code('invalid_encoding'))

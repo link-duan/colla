@@ -31,4 +31,4 @@ target IDs literally. `toJS()` is a projection, not an identity-preserving codec
 Owning identity duplication is invalid. Derived indexes are never encoded.
 
 See [JavaScript API](https://link-duan.github.io/colla/reference/javascript), [Rust API](https://link-duan.github.io/colla/reference/rust),
-[glossary](../CONTEXT.md) and [design contract](implementation-0.4.0.md).
+[glossary](../CONTEXT.md).
