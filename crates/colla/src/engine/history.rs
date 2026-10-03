@@ -244,11 +244,9 @@ impl HistoryCheckpoint {
     pub fn encode(&self) -> Vec<u8> {
         codec::encode(codec::Kind::HistoryCheckpoint, self)
     }
-    /// Strictly decodes and validates a typed binary envelope, rejecting trailing data.
+    /// Strictly decodes a typed binary envelope, rejecting trailing data;
+    /// `restore` validates the checkpoint's semantic consistency.
     pub fn decode(bytes: &[u8]) -> Result<Self> {
-        let checkpoint: Self = codec::decode(codec::Kind::HistoryCheckpoint, bytes)?;
-        checkpoint.base.validate()?;
-        checkpoint.history.validate(&checkpoint.base)?;
-        Ok(checkpoint)
+        codec::decode(codec::Kind::HistoryCheckpoint, bytes)
     }
 }

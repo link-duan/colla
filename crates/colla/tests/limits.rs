@@ -11,7 +11,6 @@ fn string_and_text_constructors_enforce_utf8_byte_limits() -> Result<()> {
     for create in constructors {
         let text = "😀".repeat(4 * MIB);
         let value = create(text.clone())?;
-        value.validate()?;
         assert!(Value::decode(&value.encode())? == value);
         assert_eq!(
             create(text + "x").unwrap_err().code,
@@ -69,7 +68,7 @@ fn pending_growth_beyond_64_mib_preserves_restart_and_retry() -> Result<()> {
 
 #[test]
 fn history_and_authority_checkpoints_larger_than_64_mib_restore() -> Result<()> {
-    let doc = Document::create(Value::string("x".repeat(4 * MIB))?)?;
+    let doc = Document::create(Value::string("x".repeat(4 * MIB))?);
     let history = History::attach(&doc)?;
     for n in 0..17 {
         let next = Value::string(if n % 2 == 0 { "y" } else { "z" }.repeat(4 * MIB))?;
@@ -79,7 +78,7 @@ fn history_and_authority_checkpoints_larger_than_64_mib_restore() -> Result<()> 
     let saved = history.checkpoint()?.encode();
     assert!(saved.len() > 64 * MIB);
     doc.close()?;
-    let restored = Document::create(content)?;
+    let restored = Document::create(content);
     let history = History::restore(&restored, HistoryCheckpoint::decode(&saved)?)?;
     history.undo()?;
     assert!(restored.get(&[])?.body() == &Body::String("z".repeat(4 * MIB)));

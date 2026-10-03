@@ -5,7 +5,7 @@ mod authority;
 mod protocol;
 mod session;
 
-use super::{Change, Error, ErrorCode, Result};
+use super::{Error, ErrorCode, Result};
 
 pub use authority::{Authority, AuthorityCheckpoint};
 pub use protocol::{Commit, Rejection, ServerMessage, Submission, SyncSnapshot};
@@ -17,15 +17,6 @@ pub(super) fn identity(value: &str) -> Result<()> {
         return Err(Error::new(
             ErrorCode::InvalidArgument,
             "document/client identity must contain 1..4096 UTF-8 bytes",
-        ));
-    }
-    Ok(())
-}
-pub(super) fn validate_change(change: &Change) -> Result<()> {
-    if &Change::new(change.operations().iter().cloned())? != change {
-        return Err(Error::new(
-            ErrorCode::InvalidEncoding,
-            "noncanonical change",
         ));
     }
     Ok(())

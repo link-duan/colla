@@ -65,7 +65,9 @@ unknown tags, invalid float values, invalid u64 protocol
 fields, malformed structures and limits. Ownership depth is bounded to 100;
 nodes/operations to 1,000,000; individual strings to 16 MiB of UTF-8.
 There is no fixed total byte-size limit on an envelope. Decoder recursion and allocation are bounded before trusting lengths.
-Values and Changes are validated again at the controlled public boundary.
+Values and Changes are valid by construction: constructors and decoders enforce the same
+invariants, so decoded content needs no further validation. Checkpoint decoders check
+structure only; restoring a checkpoint validates its semantic consistency.
 
 SessionCheckpoint checks its visible content against confirmed + rebased
 in-flight + buffer unless recovering, and verifies the original request against

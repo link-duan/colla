@@ -58,7 +58,7 @@ fn failed_and_nested_edits_leave_all_participants_unchanged() {
 fn groups_and_checkpoints_restore_original_content() {
     let child = [Segment::Index(0)];
     let list = Value::list(vec![Value::int(1)]).unwrap();
-    let doc = Document::create(list.clone()).unwrap();
+    let doc = Document::create(list.clone());
     let history = History::attach(&doc).unwrap();
     for _ in 0..3 {
         doc.edit_group(Some("typing".into()), |tx| tx.increment(&child, 1))
@@ -66,7 +66,7 @@ fn groups_and_checkpoints_restore_original_content() {
     }
     assert_eq!(doc.get(&child).unwrap().body(), &Body::Int(4));
     let checkpoint = HistoryCheckpoint::decode(&history.checkpoint().unwrap().encode()).unwrap();
-    let restored = Document::create(doc.snapshot().unwrap()).unwrap();
+    let restored = Document::create(doc.snapshot().unwrap());
     let restored_history = History::restore(&restored, checkpoint).unwrap();
     restored_history.undo().unwrap();
     assert_eq!(restored.snapshot().unwrap(), list);
@@ -272,7 +272,7 @@ fn three_clients_with_delays_retries_buffers_and_restarts_converge() {
 #[test]
 fn explicit_callback_error_rolls_back() {
     let value = Value::int(0);
-    let doc = Document::create(value.clone()).unwrap();
+    let doc = Document::create(value.clone());
     let result = doc.edit(|tx| {
         tx.increment(&[], 1)?;
         Err(CollaError::new(ErrorCode::InvalidArgument, "abort"))
@@ -363,7 +363,7 @@ fn history_restores_deleted_and_copied_content_and_skips_remote_noops() {
         ("item", Value::int(1)),
         ("list", Value::list(vec![]).unwrap()),
     ]);
-    let doc = Document::create(root.clone()).unwrap();
+    let doc = Document::create(root.clone());
     let history = History::attach_with_capacity(&doc, 2).unwrap();
     doc.edit(|tx| tx.delete(&item)).unwrap();
     assert!(!doc.has(&item).unwrap());
@@ -394,7 +394,7 @@ fn history_restores_deleted_and_copied_content_and_skips_remote_noops() {
 
 #[test]
 fn transaction_rejects_cancelled_intermediate_overflow() {
-    let doc = Document::create(map([("count", Value::int(i64::MAX))])).unwrap();
+    let doc = Document::create(map([("count", Value::int(i64::MAX))]));
     let count = [Segment::Key("count".into())];
     let result = doc.edit(|tx| {
         tx.increment(&count, 1)?;
@@ -409,8 +409,7 @@ fn transaction_compacts_once_at_commit() {
     let doc = Document::create(map([
         ("count", Value::int(0)),
         ("text", Value::text("").unwrap()),
-    ]))
-    .unwrap();
+    ]));
     let count = [Segment::Key("count".into())];
     let text = [Segment::Key("text".into())];
     let result = doc

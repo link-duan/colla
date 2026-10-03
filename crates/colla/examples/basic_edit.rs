@@ -4,7 +4,7 @@ fn main() -> colla::Result<()> {
     let doc = Document::create(Value::map([(
         "items".into(),
         Value::list(vec![Value::text("Draft")?, Value::text("Review")?])?,
-    )])?)?;
+    )])?);
     let items = [Segment::Key("items".into())];
     let first = [items[0].clone(), Segment::Index(0)];
     let history = History::attach(&doc)?;

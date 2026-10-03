@@ -371,7 +371,7 @@ fn random_edit(tx: &mut colla::Transaction, seed: &mut u64) -> colla::Result<()>
     }
 }
 fn branch(base: &Value, seed: &mut u64) -> Change {
-    let doc = Document::create(base.clone()).unwrap();
+    let doc = Document::create(base.clone());
     let mut combined = Change::noop();
     for _ in 0..1 + random(seed) % 4 {
         let result = doc

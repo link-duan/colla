@@ -42,6 +42,13 @@ fn benchmarks(c: &mut Criterion) {
     });
     let path = vec![Segment::Index(1); 10];
     let increment = Change::new([Operation::Add { path, delta: 1 }]).unwrap();
+    c.bench_function("build nested tree", |bench| {
+        bench.iter(|| {
+            (0..10).fold(Value::int(0), |value, _| {
+                Value::list((0..3).map(|_| value.clone()).collect()).unwrap()
+            })
+        })
+    });
     c.bench_function("edit deep leaf", |bench| {
         bench.iter(|| apply(black_box(&nested), &increment).unwrap())
     });
@@ -50,8 +57,7 @@ fn benchmarks(c: &mut Criterion) {
             bench.iter(|| {
                 let doc = Document::create(
                     Value::map([("a".into(), Value::int(0)), ("b".into(), Value::int(0))]).unwrap(),
-                )
-                .unwrap();
+                );
                 // Alternating paths keep every operation from merging.
                 let paths = [[Segment::Key("a".into())], [Segment::Key("b".into())]];
                 doc.edit(|tx| (0..edits).try_for_each(|i| tx.increment(&paths[i % 2], 1)))

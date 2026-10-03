@@ -13,7 +13,7 @@ impl Decode for Value {
         d.nested(|d| {
             let offset = d.offset();
             let invalid = |reason| cocodec::Error::NonCanonical { offset, reason };
-            let body = match d.varint()? {
+            let mut body = match d.varint()? {
                 0 => Body::Null,
                 1 => Body::Bool(bool::decode(d)?),
                 2 => Body::Int(i64::decode(d)?),
@@ -72,7 +72,14 @@ impl Decode for Value {
                 }
                 _ => return Err(invalid("invalid Value tag")),
             };
-            Ok(Self::trusted(body))
+            if super::canonicalize(&mut body).map_err(|_| invalid("invalid Value content"))? {
+                return Err(invalid("noncanonical Value content"));
+            }
+            let value = Self::trusted(body);
+            value
+                .check_limits()
+                .map_err(|_| invalid("value depth or node limit exceeded"))?;
+            Ok(value)
         })
     }
 }

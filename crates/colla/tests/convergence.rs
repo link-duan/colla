@@ -81,7 +81,7 @@ proptest! {
     #[test]
     fn history_undo_redo_round_trips(actions in prop::collection::vec(action(), 1..12)) {
         let base = initial();
-        let doc = Document::create(base.clone()).unwrap();
+        let doc = Document::create(base.clone());
         let history = History::attach_with_capacity(&doc, actions.len()).unwrap();
         for action in &actions {
             doc.edit(|tx| edit(tx, *action)).unwrap();
@@ -157,7 +157,7 @@ proptest! {
     ) {
         let base = initial();
         let branch = |actions: &[(u8, usize, usize)]| {
-            let doc = Document::create(base.clone()).unwrap();
+            let doc = Document::create(base.clone());
             doc.edit(|tx| {
                 for action in actions {
                     edit(tx, *action)?;

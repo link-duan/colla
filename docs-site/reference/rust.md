@@ -34,7 +34,6 @@ Float values must be finite. See [Values and types](/docs/core/values) for the c
 | `body()`, `kind()`                                                                                                                                                            | &Body, &'static str                |
 | `get(&[Segment])`                                                                                                                                                             | Result&lt;&Value&gt;               |
 | `has(&[Segment])`                                                                                                                                                             | bool                               |
-| `validate()`                                                                                                                                                                  | Result&lt;()&gt;                   |
 | `encode()`, `Value::decode(&[u8])`                                                                                                                                            | Vec&lt;u8&gt;, Result&lt;Value&gt; |
 
 Unlike JavaScript get, Rust get reports missing values as an error.
@@ -78,7 +77,7 @@ RichOp variants are `Retain { len: usize, attrs: AttrPatch }`, `Insert(RichSpan)
 
 | Signature                                                                                  | Result                              |
 | ------------------------------------------------------------------------------------------ | ----------------------------------- |
-| `Document::create(value: Value)`                                                           | `Result<Document>`                  |
+| `Document::create(value: Value)`                                                           | `Document`                          |
 | `snapshot()`                                                                               | `Result<Value>`                     |
 | `version()`                                                                                | `Result<u64>` local content version |
 | `get(path: &[Segment])`                                                                    | `Result<Value>`                     |
@@ -186,7 +185,10 @@ one in `ServerMessage::Commit(commit)` to pass it to `receive`. See
 Value, Change, SyncSnapshot, Submission, ServerMessage, SessionCheckpoint,
 HistoryCheckpoint and AuthorityCheckpoint provide `encode() -> Vec<u8>` and
 `Type::decode(bytes: &[u8]) -> Result<Type>`. Runtime constructors and decoders create
-controlled protocol objects; their fields are not public mutation APIs.
+controlled protocol objects; their fields are not public mutation APIs. Every Value and
+Change is valid by construction, so decoding rejects invalid content and no separate
+validation step exists. Checkpoint decoders check structure only; `restore` validates
+a checkpoint's semantic consistency.
 
 | Type         | Read methods                                                                                                         |
 | ------------ | -------------------------------------------------------------------------------------------------------------------- |

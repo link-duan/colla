@@ -19,7 +19,7 @@ colla = "0.4"
 use colla::{Document, Segment, Value};
 
 fn main() -> colla::Result<()> {
-    let doc = Document::create(Value::map([("title".into(), Value::text("Draft")?)])?)?;
+    let doc = Document::create(Value::map([("title".into(), Value::text("Draft")?)])?);
     let title = [Segment::Key("title".into())];
     doc.edit(|tx| tx.text_replace(&title, 5, 0, " updated"))?;
     println!("Updated title: {:?}", doc.get(&title)?.body()); // Text("Draft updated")
