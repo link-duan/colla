@@ -76,6 +76,16 @@ impl Operation {
             | Self::RichText { path, .. } => path,
         }
     }
+    /// Whether this operation is a Noop on every base.
+    fn is_noop(&self) -> bool {
+        match self {
+            Self::ListMove { from, to, .. } => from == to,
+            Self::Add { delta, .. } => *delta == 0,
+            Self::Text { change, .. } => change.is_empty(),
+            Self::RichText { operations, .. } => operations.is_empty(),
+            _ => false,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Encode, Decode)]
@@ -87,13 +97,9 @@ impl Change {
     pub fn new(operations: impl IntoIterator<Item = Operation>) -> Result<Self> {
         let mut result = Vec::new();
         for mut operation in operations {
-            if let Operation::RichText { operations, .. } = &mut operation {
-                *operations = super::rich::normalized(operations)?;
-                if operations.is_empty() {
-                    continue;
-                }
-            }
-            match &operation {
+            // TextChange is canonical by construction; decoders reject any
+            // encoding that this RichText normalization would change.
+            match &mut operation {
                 Operation::Insert { path, value } => {
                     if path.is_empty() {
                         return Err(root_error());
@@ -102,32 +108,26 @@ impl Change {
                 }
                 Operation::Delete { path } if path.is_empty() => return Err(root_error()),
                 Operation::Set { value, .. } => value.validate()?,
-                Operation::ListMove { from, to, .. } if from == to => continue,
-                Operation::Text { change, .. } => {
-                    if &crate::sequence::change::TextChange::from_ops(change.ops().iter().cloned())?
-                        != change
-                    {
-                        return Err(Error::new(
-                            ErrorCode::InvalidValue,
-                            "noncanonical text operations",
-                        ));
-                    }
-                    if change.is_empty() {
-                        continue;
-                    }
+                Operation::RichText { operations, .. } => {
+                    *operations = super::rich::normalized(operations)?;
                 }
-                Operation::Add { delta: 0, .. } => continue,
                 _ => {}
-            }
-            if result.len() >= 1_000_000 {
-                return Err(Error::new(
-                    ErrorCode::LimitExceeded,
-                    "operation limit exceeded",
-                ));
             }
             result.push(operation);
         }
-        Ok(Self(Arc::new(result)))
+        Self::from_canonical(result)
+    }
+    /// Wraps operations that are already validated and canonical, such as
+    /// those taken from existing Changes, dropping trivial Noops.
+    pub(crate) fn from_canonical(mut operations: Vec<Operation>) -> Result<Self> {
+        operations.retain(|operation| !operation.is_noop());
+        if operations.len() > 1_000_000 {
+            return Err(Error::new(
+                ErrorCode::LimitExceeded,
+                "operation limit exceeded",
+            ));
+        }
+        Ok(Self(Arc::new(operations)))
     }
     /// Creates the empty Change with no operations.
     pub fn noop() -> Self {
@@ -185,12 +185,13 @@ pub fn apply(base: &Value, change: &Change) -> Result<Value> {
 
 /// Composes sequential Changes against their original base, validating intermediate steps.
 pub fn compose(base: &Value, first: &Change, second: &Change) -> Result<Change> {
-    let sequence = Change::new(
+    let sequence = Change::from_canonical(
         first
             .operations()
             .iter()
             .chain(second.operations())
-            .cloned(),
+            .cloned()
+            .collect(),
     )?;
     // Validate the original execution order before compacting. In particular,
     // cancelling additions must not conceal an intermediate integer overflow.
@@ -259,13 +260,16 @@ pub fn compose(base: &Value, first: &Change, second: &Change) -> Result<Change> 
             _ => None,
         };
         if let Some(merged) = merged {
+            // A cancelled merge exposes the previous operation to the next one.
             operations.pop();
-            operations.push(merged);
+            if !merged.is_noop() {
+                operations.push(merged);
+            }
         } else {
             operations.push(operation.clone());
         }
     }
-    Ok(Change::new(operations)?.normalized(base)?.0)
+    Ok(Change::from_canonical(operations)?.normalized(base)?.0)
 }
 
 /// Constructs a reverse Change that restores the base content.
@@ -336,7 +340,7 @@ pub fn invert(base: &Value, change: &Change) -> Result<Change> {
         before = apply_operation(&before, operation)?;
         inverses.push(inverse);
     }
-    Change::new(inverses.into_iter().rev().flatten())
+    Change::from_canonical(inverses.into_iter().rev().flatten().collect())
 }
 
 pub(crate) fn apply_operation(base: &Value, operation: &Operation) -> Result<Value> {

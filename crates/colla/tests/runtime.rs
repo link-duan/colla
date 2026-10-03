@@ -391,3 +391,44 @@ fn history_restores_deleted_and_copied_content_and_skips_remote_noops() {
     assert!(!a.document().has(&item).unwrap());
     assert!(a.outbound().unwrap().is_none());
 }
+
+#[test]
+fn transaction_rejects_cancelled_intermediate_overflow() {
+    let doc = Document::create(map([("count", Value::int(i64::MAX))])).unwrap();
+    let count = [Segment::Key("count".into())];
+    let result = doc.edit(|tx| {
+        tx.increment(&count, 1)?;
+        tx.increment(&count, -1)
+    });
+    assert_eq!(result.unwrap_err().code, ErrorCode::IntegerOverflow);
+    assert_eq!(doc.version().unwrap(), 0);
+}
+
+#[test]
+fn transaction_compacts_once_at_commit() {
+    let doc = Document::create(map([
+        ("count", Value::int(0)),
+        ("text", Value::text("").unwrap()),
+    ]))
+    .unwrap();
+    let count = [Segment::Key("count".into())];
+    let text = [Segment::Key("text".into())];
+    let result = doc
+        .edit(|tx| {
+            tx.text_replace(&text, 0, 0, "x")?;
+            tx.increment(&count, 1)?;
+            tx.increment(&count, -1)?;
+            tx.text_replace(&text, 1, 0, "y")
+        })
+        .unwrap()
+        .unwrap();
+    assert_eq!(result.change.operations().len(), 1);
+    assert_eq!(result.after, doc.snapshot().unwrap());
+
+    let key = [Segment::Key("new".into())];
+    let result = doc.edit(|tx| {
+        tx.set(&key, Value::int(1))?;
+        tx.delete(&key)
+    });
+    assert_eq!(result.unwrap(), None);
+}

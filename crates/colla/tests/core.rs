@@ -416,3 +416,24 @@ fn random_nested_multi_operation_changes_converge() {
         merge(&base, &left, &right, Priority::Left);
     }
 }
+
+#[test]
+fn decode_rejects_noncanonical_text_operations() {
+    let text = |retain| {
+        change([Operation::Text {
+            path: vec![],
+            change: TextChange::from_ops([TextOp::Retain(retain), TextOp::Insert("a".into())])
+                .unwrap(),
+        }])
+        .encode()
+    };
+    let (one, two) = (text(1), text(2));
+    let at = (0..one.len()).find(|&i| one[i] != two[i]).unwrap();
+    assert!(Change::decode(&one).is_ok());
+    // Rewriting the retain length to zero yields a noncanonical `Retain(0)`.
+    let mut zero = one;
+    zero[at] = 0;
+    let error = Change::decode(&zero).unwrap_err();
+    assert_eq!(error.code, ErrorCode::InvalidEncoding);
+    assert!(format!("{error:?}").contains("noncanonical text operations"));
+}

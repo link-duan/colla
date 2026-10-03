@@ -25,9 +25,23 @@ pub enum TextOp {
 }
 
 /// A canonical Text operation stream.
-#[derive(Debug, Clone, Default, PartialEq, Eq, cocodec::Encode, cocodec::Decode)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, cocodec::Encode)]
 #[cocodec(transparent)]
 pub struct TextChange(Arc<Vec<TextOp>>);
+
+impl cocodec::Decode for TextChange {
+    fn decode<R: cocodec::Read>(d: &mut cocodec::Decoder<R>) -> Result<Self, cocodec::Error> {
+        let offset = cocodec::Decoder::offset(d);
+        let ops = <Vec<TextOp> as cocodec::Decode>::decode(d)?;
+        match TextChange::from_ops(ops.iter().cloned()) {
+            Ok(change) if *change.0 == ops => Ok(change),
+            _ => Err(cocodec::Error::NonCanonical {
+                offset,
+                reason: "noncanonical text operations",
+            }),
+        }
+    }
+}
 
 impl TextChange {
     /// Creates and normalizes a Text operation stream.

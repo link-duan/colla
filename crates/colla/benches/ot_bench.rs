@@ -45,6 +45,20 @@ fn benchmarks(c: &mut Criterion) {
     c.bench_function("edit deep leaf", |bench| {
         bench.iter(|| apply(black_box(&nested), &increment).unwrap())
     });
+    for edits in [100, 1000] {
+        c.bench_function(&format!("transaction {edits} increments"), |bench| {
+            bench.iter(|| {
+                let doc = Document::create(
+                    Value::map([("a".into(), Value::int(0)), ("b".into(), Value::int(0))]).unwrap(),
+                )
+                .unwrap();
+                // Alternating paths keep every operation from merging.
+                let paths = [[Segment::Key("a".into())], [Segment::Key("b".into())]];
+                doc.edit(|tx| (0..edits).try_for_each(|i| tx.increment(&paths[i % 2], 1)))
+                    .unwrap()
+            })
+        });
+    }
 }
 criterion_group!(benches, benchmarks);
 criterion_main!(benches);
