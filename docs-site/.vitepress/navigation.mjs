@@ -3,14 +3,32 @@ export const sidebar = {
   '/docs/': [
     {
       text: 'Getting started',
-      link: '/docs/getting-started/',
+      collapsed: false,
+      items: [
+        {
+          text: 'Introduction',
+          link: '/docs/getting-started/',
+        },
+        {
+          text: 'Installation',
+          link: '/docs/getting-started/installation',
+        },
+        {
+          text: 'Tutorial',
+          link: '/docs/getting-started/tutorial',
+        },
+      ],
     },
     {
       text: 'Core',
       collapsed: false,
       items: [
         {
-          text: 'Values and types',
+          text: 'Core concepts',
+          link: '/docs/core/',
+        },
+        {
+          text: 'Values',
           link: '/docs/core/values',
         },
         {
@@ -18,24 +36,24 @@ export const sidebar = {
           link: '/docs/core/paths',
         },
         {
-          text: 'Text',
+          text: 'Text and RichText',
           link: '/docs/core/text',
         },
         {
-          text: 'RichText',
-          link: '/docs/core/richtext',
+          text: 'Positions',
+          link: '/docs/core/positions',
         },
         {
-          text: 'Text coordinates',
-          link: '/docs/core/coordinates',
-        },
-        {
-          text: 'Move, Copy and Set',
-          link: '/docs/core/move-copy-set',
-        },
-        {
-          text: 'Changes and OT algebra',
+          text: 'Changes',
           link: '/docs/core/changes',
+        },
+        {
+          text: 'Change algebra',
+          link: '/docs/core/algebra',
+        },
+        {
+          text: 'Concurrent edits',
+          link: '/docs/core/concurrency',
         },
       ],
     },
@@ -54,6 +72,10 @@ export const sidebar = {
         {
           text: 'Map and List editing',
           link: '/docs/editing/maps-lists',
+        },
+        {
+          text: 'Text and RichText editing',
+          link: '/docs/editing/text',
         },
         {
           text: 'Edit results and steps',

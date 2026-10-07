@@ -41,6 +41,6 @@ authentication, presence and editor adapters belong to your application.
 
 ## Choose a reading path
 
-- **Build your first editor:** [Getting started](/docs/getting-started/) → [Editing](/docs/editing/) → [History](/docs/history/).
-- **Understand the model:** [Values](/docs/core/values) → [Paths](/docs/core/paths) → [Changes and OT](/docs/core/changes).
+- **Build your first editor:** [Tutorial](/docs/getting-started/tutorial) → [Editing](/docs/editing/) → [History](/docs/history/).
+- **Understand the model:** [Values](/docs/core/values) → [Paths](/docs/core/paths) → [Changes](/docs/core/changes) → [Change algebra](/docs/core/algebra).
 - **Connect collaborators:** [Sync overview](/docs/sync/) → [Two-client example](/docs/examples/sync) → [Persistence](/docs/production/persistence).

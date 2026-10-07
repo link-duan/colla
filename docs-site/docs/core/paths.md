@@ -1,42 +1,48 @@
 # Paths
 
-A Path describes where an element is in one content state. It is an array of string
-Map keys and numeric List indexes; `[]` names the root. Values carry no identity, so
-a Path is the only way to address content.
+A Path is the only way to address content. It is an array of segments: a string selects
+a Map key and a number selects a List index. `[]` is the root. Characters inside Text and
+RichText are not Path segments; they are addressed by [Positions](./positions).
 
-## Locate an element
+## Read with a Path
 
 ```ts
-import { Document, text } from 'colla-ot'
-const doc = Document.create({ tasks: [{ title: text('Draft') }, { title: text('Review') }] })
-doc.edit(tx => tx.list(['tasks']).move(0, 1))
-console.log('Moved title:', doc.get(['tasks', 1, 'title'])?.toJS()) // Text containing 'Draft'
-doc.close()
+import { Value, text } from 'colla-ot'
+
+const value = Value.fromJS({ tasks: [{ title: text('Draft'), done: false }], count: 1n })
+console.log('Title kind:', value.kind(['tasks', 0, 'title'])) // text
+console.log('Done:', value.get(['tasks', 0, 'done'])?.toJS()) // false
+console.log('Second task exists:', value.has(['tasks', 1])) // false
 ```
 
-Characters inside Text/RichText are addressed by sequence coordinates, not by Paths.
+`get`, `has` and `kind` are available on Values, Documents and Transactions, with the
+same rules:
 
-## Read failure and snapshot boundaries
+| Path                                         | Result                           |
+| -------------------------------------------- | -------------------------------- |
+| Names an element                             | The element                      |
+| Missing Map key or List index past the end   | `undefined`; `has` returns false |
+| Steps into a scalar, or uses a key on a List | Throws `type_mismatch`           |
 
-`get` and `kind` return undefined, and `has` returns false, for `missing_key` or
-`out_of_bounds`. They still throw `type_mismatch` if a Path traverses a scalar or uses
-a segment incompatible with the current container. For example, with `{ n: 0n }`,
-`get(['missing'])` returns undefined, but `get(['n', 'child'])` throws; `kind` and
-`has` follow the same distinction. Invalid arguments and lifecycle errors still fail,
-even for read operations.
+A missing element is an ordinary answer; a Path whose shape contradicts the content is
+a bug. For example, with `{ count: 1n }`, `get(['missing'])` returns undefined, but
+`get(['count', 'child'])` throws.
 
-## Paths change with edits
+## A Path belongs to one content state
 
-A Path is interpreted against the content it was computed from. An insertion, deletion
-or ListMove before an element changes that element's Path. Keep the snapshot used to
-calculate a Path when you need a consistent read; an older Value continues to show the
-old content after the Document changes.
+A Path is interpreted against the content it was computed from: a snapshot, the working
+content of a transaction, or the content produced by the preceding operations of a
+Change. Inserting, deleting or moving an earlier List item changes the index of every
+later item, so the same Path can name a different element after an edit.
 
-Within a transaction, each editing call interprets its Path against the current
-working content. Collaborative transformation rewrites the Paths of concurrent
-operations, so remote edits land on the intended element. Applications that keep Paths
-outside the library, such as an editor selection, must update them after each edit.
-When an element needs a stable application key, store it in the content, for example
-as an `id` field in a Map.
+- **Within a Change or a transaction**, each operation's Path is interpreted against
+  the content left by the operations before it. See [Changes](./changes).
+- **Across concurrent edits**, transformation rewrites the Paths inside the other
+  Change, so remote edits land on the element they were made against. See
+  [Concurrent edits](./concurrency).
+- **Outside the library**, such as a selection held by an editor, your application
+  must update stored Paths after each edit, or resolve them again from content.
 
-Continue with [Coordinates](./coordinates).
+To refer to an item durably, store a stable key in its Map and search for it when
+needed. To read consistently while edits continue, keep the immutable snapshot that the
+Path was computed from; older Values never change.

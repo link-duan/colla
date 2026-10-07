@@ -8,7 +8,7 @@ restores the correct client's checkpoint.
 
 Algebra properties and cross-language codec fixtures check library behavior. They do
 not establish your application's delivery, durability or editor behavior. See
-[Changes and OT algebra](/docs/core/changes#guarantees-and-boundaries) for the supported
+[Change algebra](/docs/core/algebra#boundaries) for the supported
 convergence contract.
 
 ## Integration scenarios

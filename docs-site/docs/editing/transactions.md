@@ -17,15 +17,15 @@ List insertion takes an array of Input values. Replace takes an index, removal c
 and replacement values. Text replacement takes a string; RichText replacement takes
 spans. `increment` accepts bigint and requires an Int target with no i64 overflow.
 
-Start with [Map and List editing](./maps-lists), [Text](/docs/core/text) or
-[RichText](/docs/core/richtext) for operation examples.
+Start with [Map and List editing](./maps-lists) or
+[Text and RichText editing](./text) for operation examples.
 
 ## Scope restrictions
 
 Do not await, return a Promise/thenable, nest edits, receive remote messages, or close
 the Document inside a transaction. Fetch data before entering the callback. Transactions
 and derived editors become invalid when the callback exits, including read access.
-Retain IDs or immutable Values between edits, not editors.
+Retain Paths or immutable Values between edits, not editors.
 
 ## Results and failures
 
@@ -35,5 +35,5 @@ skipping input. `doc.apply(change)` commits an already constructed Change throug
 Document; `tx.apply(change)` includes it in a larger atomic transaction.
 
 A valid increment is rolled back if a later text operation fails in the same callback.
-Start with the [first-edit example](/docs/getting-started/#make-your-first-edit), and use
+Start with the [tutorial](/docs/getting-started/tutorial#_2-edit-in-a-transaction), and use
 [grouping](/docs/history/grouping) when several transactions should undo as one user action.

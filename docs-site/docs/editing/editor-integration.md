@@ -7,11 +7,12 @@ changes into the editor's rendering model. Colla does not ship an editor-specifi
 
 Represent editable fields as Text or RichText, not plain strings. Feed browser UTF-16
 selection offsets into high-level text editors. Use one transaction for a logical atomic
-action such as inserting a block and setting its reference. Use explicit History groups
+action such as inserting a block and updating a field that lists it. Use explicit History groups
 for a multi-transaction gesture; grouping is not time-based.
 
-Resolve a selection's stable element ID at the time of editing. If its target has been
-deleted, choose an application fallback rather than editing a stale Path. IME composition,
+Keep the selection's Path current: map it through each committed change, or resolve it
+again from a stable key stored in the content. If its target has been deleted, choose
+an application fallback rather than editing a stale Path. IME composition,
 grapheme navigation and selection restoration are adapter responsibilities.
 
 ## Output path

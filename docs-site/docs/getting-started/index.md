@@ -1,49 +1,58 @@
-# Getting started
+# Introduction
 
-Colla is an Operational Transformation library for structured collaborative documents.
-It provides immutable path-addressed content, atomic editing, undo/redo and
-centralized synchronization. The Rust engine is exposed to JavaScript through the
-synchronous `colla-ot` package, with no npm runtime dependencies.
+Colla is a library for structured documents that several people edit at the same time.
+It gives your application an editable content tree, undo and redo that respect other
+users' work, and the client and server state machines that keep everyone's copy in
+step. You provide the network, storage and user interface.
 
-## Install
+## What you build with it
 
-The JavaScript package requires Node.js 22 or newer and supports modern browsers,
-Dedicated Workers and Shared Workers. All environments use the same ESM import;
-there is no public initialization or Wasm disposal step.
+Colla fits applications whose content is more than a single text field: task boards,
+forms, outlines, design tools, notes with structured blocks. A document is a tree of
+Maps, Lists, scalars and collaborative Text or RichText. Users can edit any part of it
+concurrently, including reordering List items and typing in the same paragraph, and
+every client converges to the same content.
 
-The first official release has not been published yet. The commands below apply once
-version 0.4 is available on npm and crates.io.
+## The building blocks
 
-```sh
-npm install colla-ot@^0.4.0
-```
+| Piece                             | Role                                                                    |
+| --------------------------------- | ----------------------------------------------------------------------- |
+| [Value](/docs/core/values)        | Immutable content tree; also the format for snapshots and storage       |
+| [Document](/docs/editing/)        | Editable content in one place; edits commit atomically and emit events  |
+| [History](/docs/history/)         | Undo and redo of local edits, rebased across remote edits               |
+| [SyncSession](/docs/sync/session) | Client side of synchronization: optimistic edits, pending work, retries |
+| [Authority](/docs/sync/authority) | Server side: orders submissions into one sequence of commits            |
 
-For Rust, add `colla = "0.4"` to `[dependencies]`; the minimum Rust version is 1.81.
+You can adopt them in that order. A Document on its own is a complete local editor
+model; History adds undo; SyncSession and Authority add collaboration.
 
-## Make your first edit
+## How collaboration works
 
-Create a Document with one collaborative text field, append a suffix, and read the
-updated content. The edit is visible as soon as the callback returns.
+Colla uses centralized Operational Transformation. Each client applies its own edits
+immediately, then submits them to an Authority on your server. The Authority puts all
+submissions into a single order and returns commits, which clients apply on top of
+their own pending work. Concurrent edits are transformed rather than rejected, so
+nothing has to be resolved by hand. The rules are described in
+[Concurrent edits](/docs/core/concurrency).
 
-<<< ../../examples/first-edit.ts
+Because one Authority orders every document, Colla is not a peer-to-peer or CRDT
+library. If clients must merge with each other without a server, choose a different
+tool.
 
-`text()` creates collaborative text; an ordinary string is atomic. The callback receives
-a scoped Transaction and must finish synchronously. Use `close()` when editing is finished.
+## What your application provides
 
-## Add collaboration
+Colla is synchronous and does no I/O. It never opens a socket, schedules a timer or
+writes to disk. Your application owns:
 
-Use a standalone Document for local editing. Attach History to add undo and redo.
-For synchronized editing, create a SyncSession from an Authority's SyncSnapshot and edit
-`session.document`. A Value is immutable content, a Document owns editable state, and a
-SyncSession coordinates server confirmation.
+- transport between clients and the server, and when to send;
+- persistence of server state and client checkpoints;
+- authentication, authorization and validation of what users may change;
+- the editor view, selection, presence and cursors.
 
-Your application supplies transport, persistence, authentication and editor integration.
-Colla does not open sockets or write databases. Presence and cross-document synchronization
-are also application responsibilities.
+Colla gives you encoded bytes to send and store, and decoders that reject anything
+invalid. [Production](/docs/production/persistence) covers each of these boundaries.
 
 ## Next steps
 
-- Learn [Values and types](/docs/core/values) to choose your content model.
-- Read [Editing](/docs/editing/) and [History](/docs/history/) to build an editor.
-- Follow the [two-client example](/docs/examples/sync) to connect collaborators.
-- Review [Persistence](/docs/production/persistence) before deploying your application.
+[Install the package](./installation), then follow the [tutorial](./tutorial) to build a
+shared task list from a local Document to two synchronized clients.

@@ -92,7 +92,8 @@ one. Operations run in order against the content produced by previous operations
 Transform returns **left-after-right first, right-after-left second**. Both inputs share
 a base. Compose's second input applies after the first. Invert restores content when
 applied after change. TP1 holds for all valid inputs. See
-[Changes and OT algebra](/docs/core/changes).
+[Changes](/docs/core/changes) and
+[Change algebra](/docs/core/algebra).
 
 ## Document and Transaction
 
@@ -123,7 +124,7 @@ Callbacks must be synchronous: no thenables, nested edits, remote receive or clo
 Escaped transactions/editors are invalid after callback exit. All failures roll back the
 transaction. Each call interprets its Path against the working content. Copy inserts at
 a vacant Map key or List index. See [Transactions](/docs/editing/transactions) and
-[Move/Copy/Set](/docs/core/move-copy-set).
+[Map and List editing](/docs/editing/maps-lists).
 
 ## Scoped sequence editors
 
@@ -137,7 +138,7 @@ All methods return void and validate the target kind and ranges.
 
 Indexes and counts are numbers. High-level Text/RichText methods use UTF-16 units in
 the working content at each step. Splitting a surrogate pair fails; RichText embeds
-occupy one position. List counts are element counts. See [Coordinates](/docs/core/coordinates).
+occupy one position. List counts are element counts. See [Positions](/docs/core/positions).
 
 ## Results and observation
 

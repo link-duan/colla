@@ -4,23 +4,15 @@ Concurrent changes are interpreted against a common immutable Value basis. Autho
 establishes one ordering for the document; clients rebase optimistic work as that ordered
 history arrives.
 
-## How concurrent edits resolve
+## Who wins competing intent
 
-Transform rewrites each operation's Path across the other side's insertions, deletions
-and List moves, so an edit lands on the element it was made against. Text insertions,
-deletions and RichText formatting are transformed with explicit priority where intent
-competes. Every combination produces a result:
-
-| Concurrent edits                               | Result                                  |
-| ---------------------------------------------- | --------------------------------------- |
-| Delete or Set an element, edit inside it       | Delete/Set wins; the inner edit is lost |
-| Delete and Set the same element                | Delete wins                             |
-| Set the same element twice                     | Priority selects the value              |
-| Insert the same new Map key                    | Priority selects the value              |
-| Insert at the same List position               | Priority's item comes first             |
-| Move a List item, edit inside it               | The edit follows the item               |
-| Move and delete the same List item             | Delete wins                             |
-| Move the same List item to different positions | Priority selects the position           |
+Transform rewrites concurrent edits so each lands on the element it was made against,
+and every combination produces a result. Where two edits compete, such as two Sets of
+one field or two insertions at the same position, the side with priority wins. In
+synchronization, already committed changes have priority: Authority rebases a
+submission over commits it has not seen, and clients rebase pending local work over
+incoming commits the same way. The full resolution table is in
+[Concurrent edits](/docs/core/concurrency).
 
 A deletion or replacement discards concurrent work inside that element. Where losing
 such work matters, prefer finer-grained edits over replacing a whole subtree.
@@ -33,4 +25,4 @@ This is not a TP2 guarantee or a general peer-to-peer protocol. Use the centrali
 ordering model and distinguish algorithm properties from your transport's ordering,
 durability and retry guarantees.
 
-See [Change algebra](/docs/core/changes) for the return order and a runnable concurrent-edit example.
+See [Change algebra](/docs/core/algebra) for the return order and a runnable concurrent-edit example.

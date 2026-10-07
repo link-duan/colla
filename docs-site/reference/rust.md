@@ -22,7 +22,7 @@ not standalone programs.
 | Segment   | `Key(String)`, `Index(usize)`                                                                                                                                   |
 
 Value clones share immutable storage; equality is structural.
-Float values must be finite. See [Values and types](/docs/core/values) for the content model.
+Float values must be finite. See [Values](/docs/core/values) for the content model.
 
 ## Value methods
 
@@ -64,7 +64,8 @@ Insert's path ends with the vacant Map key or List insertion index; ListMove's p
 names the List and `to` counts after removal. `Operation::path()` returns the path.
 Priority is Left or Right. Transform returns `(left_after_right, right_after_left)`;
 its inputs share a common base. Compose's second change applies after its first. See
-[Changes and OT algebra](/docs/core/changes).
+[Changes](/docs/core/changes) and
+[Change algebra](/docs/core/algebra).
 
 TextOp variants are `Retain(usize)`, `Insert(String)` and `Delete(usize)`;
 `TextChange::from_ops(impl IntoIterator<Item = TextOp>) -> Result<TextChange>`
@@ -113,7 +114,7 @@ Rust exposes sequence replacement methods directly on Transaction. A zero remova
 inserts; empty replacement content deletes. Text and RichText positions count Unicode
 scalars; List positions count elements. `utf16_to_scalar` converts against working content
 and rejects surrogate splits. Invalid ranges, missing parents, occupied Copy Map slots
-and kind mismatches are errors. See [Move, Copy and Set](/docs/core/move-copy-set).
+and kind mismatches are errors. See [Map and List editing](/docs/editing/maps-lists).
 
 ## EditResult and observation
 

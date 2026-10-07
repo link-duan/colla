@@ -1,4 +1,4 @@
-import { Change, Value, apply, text, transform } from 'colla-ot'
+import { Change, Value, apply, compose, invert, text, transform } from 'colla-ot'
 
 const base = Value.fromJS(text('Hello'))
 const left = Change.create([
@@ -25,5 +25,9 @@ console.log('Right edit alone:', apply(base, right).toJS())
 // Rebase the right edit so its position accounts for the inserted prefix.
 const [, rightAfterLeft] = transform(base, left, right, { priority: 'left' })
 const result = apply(apply(base, left), rightAfterLeft)
-
 console.log('Merged edits:', result.toJS()) // Text containing 'Say Hello!'
+
+// Combine both edits into one Change, then build its inverse.
+const combined = compose(base, left, rightAfterLeft)
+console.log('Composed:', apply(base, combined).toJS()) // Text containing 'Say Hello!'
+console.log('Inverted:', apply(result, invert(base, combined)).toJS()) // Text containing 'Hello'

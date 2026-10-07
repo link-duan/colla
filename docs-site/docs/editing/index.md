@@ -30,7 +30,7 @@ without another visible content edit. Never send Document.version as a protocol 
 
 ## Persistence choice
 
-`Document.create(Value.decode(bytes))` restores standalone content and IDs, not a
+`Document.create(Value.decode(bytes))` restores standalone content, not a
 synchronized session or its History. Use SessionCheckpoint to resume pending work and
 HistoryCheckpoint for standalone history. See [Persistence](/docs/production/persistence).
 Continue with [Transactions](./transactions) to edit atomically.

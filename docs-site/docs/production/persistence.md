@@ -7,7 +7,7 @@ alone is not enough to restore undo intent or an unconfirmed request.
 
 | Object              | Preserved state                                                                            | Restore entry                        |
 | ------------------- | ------------------------------------------------------------------------------------------ | ------------------------------------ |
-| Value               | Content and element IDs                                                                    | Document.create(Value.decode(bytes)) |
+| Value               | Content                                                                                    | Document.create(Value.decode(bytes)) |
 | SyncSnapshot        | Document ID, confirmed revision and Value                                                  | SyncSession.create                   |
 | SessionCheckpoint   | Confirmed basis, original request, rebased pending, buffer, local version, enabled History | SyncSession.restore                  |
 | HistoryCheckpoint   | Stacks, grouping, capacity and exact content basis                                         | History.restore                      |

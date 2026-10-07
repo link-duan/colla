@@ -12,14 +12,14 @@ working content of a transaction, or the content produced by the preceding
 operations of a Change. Paths are not stable across edits; collaborative
 transformation rewrites the paths of concurrent operations instead.
 
-| Edit                        | Effect                                                   |
-| --------------------------- | -------------------------------------------------------- |
-| Set existing path           | Replace the element, including the root                  |
-| Set missing Map member      | Insert the member                                        |
-| Insert / Delete             | Add at a vacant Map key or List position / remove member |
-| ListMove                    | Move one element within the same List                    |
-| Copy                        | Insert the source content at a vacant destination        |
-| Undo/redo and codec restore | Restore exact content                                    |
+| Edit                             | Effect                                                   |
+| -------------------------------- | -------------------------------------------------------- |
+| Set existing path                | Replace the element, including the root                  |
+| Transaction set, missing Map key | Emitted as Insert; a Set operation needs a target        |
+| Insert / Delete                  | Add at a vacant Map key or List position / remove member |
+| ListMove                         | Move one element within the same List                    |
+| Copy                             | Insert the source content at a vacant destination        |
+| Undo/redo and codec restore      | Restore exact content                                    |
 
 Moving content to another parent is a Delete followed by an Insert; concurrent
 edits do not follow it. Cross-parent movement that preserves concurrent edits is
