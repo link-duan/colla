@@ -370,7 +370,11 @@ fn history_restores_deleted_and_copied_content_and_skips_remote_noops() {
     history.undo().unwrap();
     assert_eq!(doc.snapshot().unwrap(), root);
     let copied = [Segment::Key("list".into()), Segment::Index(0)];
-    doc.edit(|tx| tx.copy(&item, &copied)).unwrap();
+    doc.edit(|tx| {
+        let value = tx.get(&item)?;
+        tx.list_replace(&copied[..1], 0, 0, vec![value])
+    })
+    .unwrap();
     assert_eq!(doc.get(&copied).unwrap(), Value::int(1));
     history.undo().unwrap();
     assert!(!doc.has(&copied).unwrap());

@@ -53,7 +53,8 @@ Body; a Path is a sequence of Key 0 or Index 1 segments.
 
 Body tags are Null 0, Bool 1, Int 2, Float 3, String 4, Text 5, RichText 6, List 7
 and Map 8. Operation tags are Insert 0, Delete 1, Set 2, ListMove 3, Text 4, Add 5
-and RichText 6. Each operation starts with its Path. A canonical Change omits
+and RichText 6. Each operation starts with its Path; an Insert Path ends with a List
+index, and any other Insert is noncanonical. A canonical Change omits
 operations without effect, such as a ListMove to the same index. Public low-level sequence positions are scalars. Use
 controlled Value/Change construction and the Rust codecs rather than assembling
 bytes or protocol field objects in application code.

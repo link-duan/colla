@@ -22,6 +22,7 @@ Map、List、Text、RichText 与标量**不携带身份**，以 **Path** 作为�
   - Delete 或 Set 某路径时，另一侧在其内部的操作被丢弃；同路径 Delete 胜过 Set；
     Set 对 Set 按 Priority。
   - 同一 Map 键的并发 Insert 由高优先级者生效（变换为 Set），另一侧为 Noop。
+    （已被 [0009](0009-map-writes-are-upserts.md) 取代：Map 成员改由 Set 写入。）
   - 同一 List 间隙的并发 Insert 按 Priority 排序；ListMove 与 List 内其他操作按下标
     映射变换，同一元素的并发移动按 Priority。
   - Text/RichText 使用序列 OT；Add 可交换，与 Set 并发时 Set 胜。

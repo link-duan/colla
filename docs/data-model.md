@@ -12,16 +12,18 @@ working content of a transaction, or the content produced by the preceding
 operations of a Change. Paths are not stable across edits; collaborative
 transformation rewrites the paths of concurrent operations instead.
 
-| Edit                             | Effect                                                   |
-| -------------------------------- | -------------------------------------------------------- |
-| Set existing path                | Replace the element, including the root                  |
-| Transaction set, missing Map key | Emitted as Insert; a Set operation needs a target        |
-| Insert / Delete                  | Add at a vacant Map key or List position / remove member |
-| ListMove                         | Move one element within the same List                    |
-| Copy                             | Insert the source content at a vacant destination        |
-| Undo/redo and codec restore      | Restore exact content                                    |
+| Edit                        | Effect                                          |
+| --------------------------- | ----------------------------------------------- |
+| Set Map member              | Write the member, inserting it when missing     |
+| Set List element or root    | Replace the existing element                    |
+| Insert                      | Add at a List position, shifting later elements |
+| Delete                      | Remove an existing Map member or List element   |
+| ListMove                    | Move one element within the same List           |
+| Undo/redo and codec restore | Restore exact content                           |
 
-Moving content to another parent is a Delete followed by an Insert; concurrent
+Insert addresses only List positions; Map members are written with Set. Values are
+immutable, so writing an existing Value elsewhere copies its content. Moving
+content to another parent is a Delete followed by a write; concurrent
 edits do not follow it. Cross-parent movement that preserves concurrent edits is
 planned as an opt-in MovableTree type ([ADR 0008](adr/0008-path-addressed-core.md)).
 

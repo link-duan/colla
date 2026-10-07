@@ -8,7 +8,7 @@ for rollback and callback scope.
 
 <<< ../../examples/maps-lists.ts
 
-`set` creates a missing final Map key or replaces an existing value. `delete` requires
+`set` writes a Map member, creating it when missing, or replaces an existing List item. `delete` requires
 an existing target. Neither operation creates missing intermediate parents.
 
 The List editor takes arrays for inserted or replacement items. Indexes and removal
@@ -31,15 +31,22 @@ interpreted **after removing the item**: moving `A` from index 0 to index 2 in
 `[A, B, C]` produces `[B, C, A]`. A same-position move is a Noop. There is no
 cross-parent move; delete the item and insert it at the destination instead.
 
-## Copy a subtree
+## Copy content
 
-`tx.copy(source, destination)` inserts the current content at `source` into the
-destination Path, whose final segment is a vacant Map key or a List insertion index.
-The source stays in place. It may be the root: this copies the current tree into an
-existing archive List, and the copy contains its own empty archive rather than a
-recursive reference:
+Values are immutable and carry no identity, so copying is reading a Value and writing
+it elsewhere. The source stays in place:
 
-<<< ../../examples/root-copy.ts
+```ts
+import { Document } from 'colla-ot'
+const doc = Document.create({ title: 'Draft', archive: [] })
+doc.edit(tx => tx.list(['archive']).insert(0, [tx.get([])!]))
+console.log('Archived title:', doc.get(['archive', 0, 'title'])?.toJS()) // Draft
+console.log('Archive inside copy:', doc.get(['archive', 0, 'archive'])?.toJS()) // []
+doc.close()
+```
+
+The copy holds the content as it was read: copying the root into the archive stores the
+earlier, empty archive, not a recursive reference.
 
 How ListMove, copies, Set and deletion behave under concurrent edits is compared in
 [Concurrent edits](/docs/core/concurrency#moving-copying-and-replacing).

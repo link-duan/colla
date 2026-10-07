@@ -19,18 +19,17 @@ Transform rewrites each operation's path across the other side's structural
 operations. Concurrent edits always produce a result; there is no structural
 conflict for these types.
 
-| Concurrent intents                         | Result                                                  |
-| ------------------------------------------ | ------------------------------------------------------- |
-| Delete or Set P + any operation inside P   | Delete/Set wins; the inner operation is discarded       |
-| Delete P + Set P                           | Delete wins                                             |
-| Set P + Set P                              | Priority selects the value                              |
-| Insert at the same vacant Map key          | Priority's value is kept (transformed to Set)           |
-| Insert at the same List position           | Priority's element comes first                          |
-| ListMove + edit inside the moved element   | The edit follows the element                            |
-| ListMove + Delete of the moved element     | Delete wins                                             |
-| Two ListMoves of one element               | Priority selects the destination                        |
-| Text/RichText + Text/RichText on one value | Sequence algebra; Priority orders insertions at one gap |
-| Add + Add / Add + Set                      | Both additions apply / Set wins                         |
+| Concurrent intents                           | Result                                                  |
+| -------------------------------------------- | ------------------------------------------------------- |
+| Delete or Set P + any operation inside P     | Delete/Set wins; the inner operation is discarded       |
+| Delete P + Set P                             | Delete wins                                             |
+| Set P + Set P, including Map member creation | Priority selects the value                              |
+| Insert at the same List position             | Priority's element comes first                          |
+| ListMove + edit inside the moved element     | The edit follows the element                            |
+| ListMove + Delete of the moved element       | Delete wins                                             |
+| Two ListMoves of one element                 | Priority selects the destination                        |
+| Text/RichText + Text/RichText on one value   | Sequence algebra; Priority orders insertions at one gap |
+| Add + Add / Add + Set                        | Both additions apply / Set wins                         |
 
 A ListMove destination index is interpreted after removing the moved element. For
 structural edits on the same List, each insertion or move destination is anchored

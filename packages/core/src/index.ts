@@ -754,10 +754,6 @@ export class Transaction extends Reader {
     scoped(this)
     command(this, [1, checkedPath(path)])
   }
-  copy(source: Path, destination: Path): void {
-    scoped(this)
-    command(this, [3, checkedPath(source), checkedPath(destination)])
-  }
   increment(path: Path, delta: bigint): void {
     scoped(this)
     command(this, [4, checkedPath(path), delta])

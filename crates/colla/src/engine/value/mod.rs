@@ -125,6 +125,17 @@ pub enum Segment {
 }
 /// A sequence of Map keys and List indexes interpreted against one content state.
 pub type Path = Vec<Segment>;
+/// Renders a Path for error details, such as `["items", 0]`; not a parse format.
+pub(crate) fn render_path(path: &[Segment]) -> String {
+    let segments: Vec<String> = path
+        .iter()
+        .map(|segment| match segment {
+            Segment::Key(key) => format!("{key:?}"),
+            Segment::Index(index) => index.to_string(),
+        })
+        .collect();
+    format!("[{}]", segments.join(", "))
+}
 
 const MAX_DEPTH: u32 = 100;
 const MAX_NODES: u32 = 1_000_000;
@@ -236,12 +247,13 @@ impl Value {
     }
     fn child(&self, segment: &Segment) -> Result<&Value> {
         match (self.body(), segment) {
-            (Body::Map(map), Segment::Key(key)) => map
-                .get(key)
-                .ok_or_else(|| Error::new(ErrorCode::MissingKey, key)),
-            (Body::List(list), Segment::Index(index)) => list
-                .get(*index)
-                .ok_or_else(|| Error::new(ErrorCode::OutOfBounds, "list index out of bounds")),
+            (Body::Map(map), Segment::Key(key)) => map.get(key).ok_or_else(|| {
+                Error::new(ErrorCode::MissingKey, "Map key is missing").detail("key", key)
+            }),
+            (Body::List(list), Segment::Index(index)) => list.get(*index).ok_or_else(|| {
+                Error::new(ErrorCode::OutOfBounds, "list index out of bounds")
+                    .detail("index", index.to_string())
+            }),
             _ => Err(Error::new(
                 ErrorCode::TypeMismatch,
                 "path segment does not match container",

@@ -14,7 +14,9 @@ synchronization runtime. None of the 0.3 APIs or bytes carry over.
   `MapChange`/`ListChange`/`IntChange` with nested Modify, `Change.fromJS` and
   `Change.build`) is replaced by an ordered sequence of path-addressed operations:
   Insert, Delete, Set, ListMove, Text, Add and RichText. Each operation's Path
-  and positions refer to the content produced by the preceding operations.
+  and positions refer to the content produced by the preceding operations. Set
+  writes a Map member whether or not it exists and replaces List elements or the
+  root; Insert addresses only List positions.
 - **BREAKING (algebra).** Every function takes an explicit base Value:
   `apply(base, change)`, `invert(base, change)`, `compose(base, first, second)`
   and `transform(base, left, right, priority)`. `transformPair`/`transform_pair`
@@ -63,6 +65,9 @@ synchronization runtime. None of the 0.3 APIs or bytes carry over.
   and unrecoverable rebases enter recovery-required while retaining local work.
 - SessionCheckpoint and AuthorityCheckpoint for complete client and server
   restart, alongside Value and SyncSnapshot persistence.
+- Failed edits report the operation's Path in `details.path`; common mistakes,
+  such as setting below a missing parent or appending with `set`, add
+  `details.hint`.
 
 ### Removed
 

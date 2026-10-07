@@ -7,9 +7,9 @@ use std::sync::Arc;
 /// against the content produced by the preceding operations.
 pub enum Operation {
     #[cocodec(tag = 0)]
-    /// Inserts a subtree at a vacant Map key or a List position.
+    /// Inserts a subtree at a List position, shifting later elements.
     Insert {
-        /// Parent container path followed by the vacant key or insertion index.
+        /// List path followed by the insertion index.
         path: Path,
         /// Subtree to insert.
         value: Value,
@@ -21,11 +21,12 @@ pub enum Operation {
         path: Path,
     },
     #[cocodec(tag = 2)]
-    /// Replaces an existing element, including the root.
+    /// Writes a Map member, inserting it when missing, or replaces an existing
+    /// List element or the root.
     Set {
-        /// Path of the element to replace.
+        /// Path of the Map member, List element or root.
         path: Path,
-        /// Replacement subtree.
+        /// Written subtree.
         value: Value,
     },
     #[cocodec(tag = 3)]
@@ -115,13 +116,17 @@ impl Decode for Change {
 /// Values and TextChanges are valid by construction.
 fn canonicalize(operation: &mut Operation) -> Result<bool> {
     let path = operation.path();
-    if path.is_empty()
-        && matches!(
-            operation,
-            Operation::Insert { .. } | Operation::Delete { .. }
-        )
-    {
-        return Err(root_error());
+    match operation {
+        Operation::Insert { .. } | Operation::Delete { .. } if path.is_empty() => {
+            return Err(root_error())
+        }
+        Operation::Insert { .. } if !matches!(path.last(), Some(Segment::Index(_))) => {
+            return Err(Error::new(
+                ErrorCode::InvalidArgument,
+                "Insert targets a List index; write Map members with Set",
+            ))
+        }
+        _ => {}
     }
     for segment in path {
         if let Segment::Key(key) = segment {
@@ -300,13 +305,20 @@ pub fn invert(base: &Value, change: &Change) -> Result<Change> {
     for operation in change.operations() {
         let inverse = match operation {
             Operation::Insert { path, .. } => vec![Operation::Delete { path: path.clone() }],
-            Operation::Delete { path } => vec![Operation::Insert {
-                path: path.clone(),
-                value: before.get(path)?.clone(),
-            }],
-            Operation::Set { path, .. } => vec![Operation::Set {
-                path: path.clone(),
-                value: before.get(path)?.clone(),
+            Operation::Delete { path } => {
+                let (path, value) = (path.clone(), before.get(path)?.clone());
+                vec![match path.last() {
+                    Some(Segment::Key(_)) => Operation::Set { path, value },
+                    _ => Operation::Insert { path, value },
+                }]
+            }
+            // Setting a missing Map member is undone by deleting it.
+            Operation::Set { path, .. } => vec![match before.get(path) {
+                Ok(value) => Operation::Set {
+                    path: path.clone(),
+                    value: value.clone(),
+                },
+                Err(_) => Operation::Delete { path: path.clone() },
             }],
             Operation::ListMove { path, from, to } => vec![Operation::ListMove {
                 path: path.clone(),
@@ -365,36 +377,28 @@ pub fn invert(base: &Value, change: &Change) -> Result<Change> {
 }
 
 pub(crate) fn apply_operation(base: &Value, operation: &Operation) -> Result<Value> {
+    apply_step(base, operation)
+        .map_err(|error| error.detail("path", super::value::render_path(operation.path())))
+}
+fn apply_step(base: &Value, operation: &Operation) -> Result<Value> {
     let result = match operation {
         Operation::Insert { path, value } => {
-            let (slot, parent) = path.split_last().ok_or_else(root_error)?;
-            base.update(parent, |parent| {
-                Ok(Value::trusted(match (parent.body(), slot) {
-                    (Body::Map(map), Segment::Key(key)) => {
-                        if map.contains_key(key) {
-                            return Err(Error::new(
-                                ErrorCode::InvalidArgument,
-                                "Map insertion key is occupied",
-                            )
-                            .detail("key", key));
-                        }
-                        let mut map = map.clone();
-                        map.insert(key.clone(), value.clone());
-                        Body::Map(map)
-                    }
-                    (Body::List(list), Segment::Index(index)) => {
-                        if *index > list.len() {
-                            return Err(Error::new(
-                                ErrorCode::OutOfBounds,
-                                "List insertion index is out of bounds",
-                            ));
-                        }
-                        let mut list = list.clone();
-                        list.insert(*index, value.clone());
-                        Body::List(list)
-                    }
-                    _ => return Err(type_error("insertion slot does not match parent kind")),
-                }))
+            let Some((Segment::Index(index), list)) = path.split_last() else {
+                return Err(type_error("Insert requires a List index"));
+            };
+            base.update(list, |list| {
+                let Body::List(list) = list.body() else {
+                    return Err(type_error("expected List"));
+                };
+                if *index > list.len() {
+                    return Err(Error::new(
+                        ErrorCode::OutOfBounds,
+                        "List insertion index is out of bounds",
+                    ));
+                }
+                let mut list = list.clone();
+                list.insert(*index, value.clone());
+                Ok(Value::trusted(Body::List(list)))
             })?
         }
         Operation::Delete { path } => {
@@ -416,7 +420,18 @@ pub(crate) fn apply_operation(base: &Value, operation: &Operation) -> Result<Val
                 }))
             })?
         }
-        Operation::Set { path, value } => base.update(path, |_| Ok(value.clone()))?,
+        Operation::Set { path, value } => match path.split_last() {
+            // A Map member is written whether or not it exists.
+            Some((Segment::Key(key), parent)) => base.update(parent, |parent| {
+                let Body::Map(map) = parent.body() else {
+                    return Err(type_error("expected Map"));
+                };
+                let mut map = map.clone();
+                map.insert(key.clone(), value.clone());
+                Ok(Value::trusted(Body::Map(map)))
+            })?,
+            _ => base.update(path, |_| Ok(value.clone()))?,
+        },
         Operation::ListMove { path, from, to } => base.update(path, |list| {
             let Body::List(list) = list.body() else {
                 return Err(type_error("expected List"));

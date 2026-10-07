@@ -38,7 +38,7 @@ test('packed package has zero dependencies and works outside the workspace', asy
       import { Document, History, Value, Path, Change, Transaction, transform, text } from "colla-ot"
       const doc = Document.create({ title: text("Hi"), chosen: null })
       const title: Path = ["title"]
-      const result = doc.edit(tx => { tx.text(title).insert(2, "!"); tx.copy(title, ["copied"]) })
+      const result = doc.edit(tx => { tx.text(title).insert(2, "!"); tx.set(["copied"], tx.get(title)!) })
       if (result) { const [left, right]: readonly [Change, Change] = transform(result.before, result.change, Change.noop(), { priority: "left" }); void [left, right] }
       const snapshot: Value = doc.snapshot()
       History.attach(doc).undo()

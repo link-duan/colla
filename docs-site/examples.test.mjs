@@ -11,7 +11,6 @@ const expectedOutput = {
     'Temporary field exists: false',
     "Final steps: [ 'review', 'release' ]",
   ],
-  'root-copy': ['Original title: Draft', 'Archived title: Draft', 'Archive inside copy: []'],
   'session-restart': [
     'Before restart: 1n',
     'After restart: 1n',

@@ -158,26 +158,105 @@ fn delete_wins_over_set_and_sets_follow_priority() {
 }
 
 #[test]
-fn competing_map_insertions_follow_priority() {
+fn competing_map_member_creations_follow_priority() {
     let root = map([]);
-    let insert = |n| {
-        change([Operation::Insert {
+    let set = |n| {
+        change([Operation::Set {
             path: vec![key("k")],
             value: Value::int(n),
         }])
     };
     assert_eq!(
-        merge(&root, &insert(1), &insert(2), Priority::Left)
+        merge(&root, &set(1), &set(2), Priority::Left)
             .get(&[key("k")])
             .unwrap(),
         &Value::int(1)
     );
     assert_eq!(
-        merge(&root, &insert(1), &insert(2), Priority::Right)
+        merge(&root, &set(1), &set(2), Priority::Right)
             .get(&[key("k")])
             .unwrap(),
         &Value::int(2)
     );
+}
+
+#[test]
+fn map_set_upserts_and_inverts_to_the_previous_state() {
+    let root = map([("a", Value::int(1))]);
+    let created = change([Operation::Set {
+        path: vec![key("b")],
+        value: Value::int(2),
+    }]);
+    let after = apply(&root, &created).unwrap();
+    assert_eq!(after, map([("a", Value::int(1)), ("b", Value::int(2))]));
+    let inverse = invert(&root, &created).unwrap();
+    assert_eq!(
+        inverse.operations(),
+        [Operation::Delete {
+            path: vec![key("b")]
+        }]
+    );
+    assert_eq!(apply(&after, &inverse).unwrap(), root);
+
+    let deletion = change([Operation::Delete {
+        path: vec![key("a")],
+    }]);
+    assert_eq!(
+        invert(&root, &deletion).unwrap().operations(),
+        [Operation::Set {
+            path: vec![key("a")],
+            value: Value::int(1),
+        }]
+    );
+}
+
+#[test]
+fn set_requires_a_map_parent_or_an_existing_list_element() {
+    let root = map([("list", ints([0]))]);
+    let set = |path: Path| {
+        apply(
+            &root,
+            &change([Operation::Set {
+                path,
+                value: Value::null(),
+            }]),
+        )
+        .unwrap_err()
+    };
+    let error = set(vec![key("list"), key("x")]);
+    assert_eq!(error.code, ErrorCode::TypeMismatch);
+    assert_eq!(error.details["path"], r#"["list", "x"]"#);
+    assert_eq!(set(vec![key("list"), at(1)]).code, ErrorCode::OutOfBounds);
+    assert_eq!(
+        set(vec![key("missing"), key("x")]).code,
+        ErrorCode::MissingKey
+    );
+}
+
+#[test]
+fn insert_rejects_map_keys() {
+    let error = Change::new([Operation::Insert {
+        path: vec![key("k")],
+        value: Value::null(),
+    }])
+    .unwrap_err();
+    assert_eq!(error.code, ErrorCode::InvalidArgument);
+}
+
+#[test]
+fn transaction_set_reports_path_and_hint() {
+    let doc = Document::create(map([("steps", ints([0]))]));
+    let error = doc
+        .edit(|tx| tx.set(&[key("meta"), key("x")], Value::int(1)))
+        .unwrap_err();
+    assert_eq!(error.code, ErrorCode::MissingKey);
+    assert_eq!(error.details["path"], r#"["meta", "x"]"#);
+    assert_eq!(error.details["hint"], "set does not create missing parents");
+    let error = doc
+        .edit(|tx| tx.set(&[key("steps"), at(1)], Value::int(1)))
+        .unwrap_err();
+    assert_eq!(error.code, ErrorCode::OutOfBounds);
+    assert_eq!(error.details["hint"], "append with a List insert");
 }
 
 #[test]

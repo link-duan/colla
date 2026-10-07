@@ -34,11 +34,11 @@ check(stale.document.get(['count'])?.toJS() === 3n, 'Recovery blocked local work
 stale.close()
 live.close()
 
-// Copying the root into a descendant creates a finite copy of the prior tree.
+// Writing the root into a descendant stores a finite copy of the prior tree.
 const doc = Document.create({ title: 'Draft', archive: [], items: ['A', 'B', 'C'] })
 const frozen = doc.snapshot()
-doc.edit(tx => tx.copy([], ['archive', 0]))
-check(doc.get(['archive', 0])!.equals(frozen), 'Root Copy changed source content')
+doc.edit(tx => tx.list(['archive']).insert(0, [tx.get([])!]))
+check(doc.get(['archive', 0])!.equals(frozen), 'Root copy changed source content')
 doc.edit(tx => tx.list(['items']).move(0, 2))
 check(
   JSON.stringify(doc.get(['items'])?.toJS()) === '["B","C","A"]',

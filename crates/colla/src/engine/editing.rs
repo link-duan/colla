@@ -202,23 +202,27 @@ impl Transaction {
     fn run(&mut self, operations: impl IntoIterator<Item = Operation>) -> Result<()> {
         self.apply(&Change::new(operations)?)
     }
-    /// Replaces an existing element, or inserts a missing Map member.
+    /// Writes a Map member, inserting it when missing, or replaces an existing
+    /// List element or the root.
     pub fn set(&mut self, path: &[Segment], value: Value) -> Result<()> {
-        self.check()?;
-        let path = path.to_vec();
-        let operation = match self.value.get(&path) {
-            Ok(_) => Operation::Set { path, value },
-            Err(error) => {
-                let Some((Segment::Key(_), parent)) = path.split_last() else {
-                    return Err(error);
-                };
-                if !matches!(self.value.get(parent)?.body(), Body::Map(_)) {
-                    return Err(type_error("set requires an existing Map parent"));
+        self.run([Operation::Set {
+            path: path.to_vec(),
+            value,
+        }])
+        .map_err(|error| {
+            let (Some((segment, parent)), ErrorCode::MissingKey | ErrorCode::OutOfBounds) =
+                (path.split_last(), error.code)
+            else {
+                return error;
+            };
+            match (self.value.get(parent).map(Value::body), segment) {
+                (Err(_), _) => error.detail("hint", "set does not create missing parents"),
+                (Ok(Body::List(list)), Segment::Index(index)) if *index == list.len() => {
+                    error.detail("hint", "append with a List insert")
                 }
-                Operation::Insert { path, value }
+                _ => error,
             }
-        };
-        self.run([operation])
+        })
     }
     /// Deletes an existing non-root element and its owned subtree.
     pub fn delete(&mut self, path: &[Segment]) -> Result<()> {
@@ -232,14 +236,6 @@ impl Transaction {
             path: path.to_vec(),
             from,
             to,
-        }])
-    }
-    /// Inserts a copy of the source subtree at a vacant Map key or List position.
-    pub fn copy(&mut self, source: &[Segment], destination: &[Segment]) -> Result<()> {
-        let value = self.get(source)?;
-        self.run([Operation::Insert {
-            path: destination.to_vec(),
-            value,
         }])
     }
     /// Adds a checked i64 delta to an Int.

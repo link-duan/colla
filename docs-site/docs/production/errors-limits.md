@@ -1,8 +1,10 @@
 # Errors and resource limits
 
 Public failures use CollaError with a stable code, operation and immutable details.
-Some errors also identify the affected element. Match codes rather than parsing message
-text; reason strings are diagnostic information, not a protocol contract.
+Match codes rather than parsing message text; details are diagnostic information, not a
+protocol contract. Failed edits include `details.path`, a readable rendering of the
+operation's Path such as `["items", 0]`. Common mistakes add `details.hint`, for
+example when `set` targets a missing parent or tries to append to a List.
 
 ## Respond at the right boundary
 

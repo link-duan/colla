@@ -81,15 +81,12 @@ impl<'a> State<'a> {
 
 fn list_edit(operation: &Operation) -> Option<(&[Segment], ListEdit)> {
     match operation {
-        Operation::Insert { path, .. } | Operation::Delete { path } => match path.split_last() {
-            Some((Segment::Index(index), list)) => Some((
-                list,
-                if matches!(operation, Operation::Insert { .. }) {
-                    ListEdit::Insert(*index)
-                } else {
-                    ListEdit::Delete(*index)
-                },
-            )),
+        Operation::Insert { path, .. } => match path.split_last() {
+            Some((Segment::Index(index), list)) => Some((list, ListEdit::Insert(*index))),
+            _ => unreachable!("Change construction restricts Insert to List indexes"),
+        },
+        Operation::Delete { path } => match path.split_last() {
+            Some((Segment::Index(index), list)) => Some((list, ListEdit::Delete(*index))),
             _ => None,
         },
         Operation::ListMove { path, from, to } => Some((
@@ -120,7 +117,7 @@ fn with_list_edit(operation: &Operation, list: &[Segment], edit: ListEdit) -> Op
         _ => unreachable!("List rebase preserves the edit kind"),
     }
 }
-// The element-addressed prefix: an Insert's slot is a gap, not an element.
+// The element-addressed prefix: an Insert's List index is a gap, not an element.
 fn element_path(operation: &Operation) -> &[Segment] {
     match operation {
         Operation::Insert { path, .. } => &path[..path.len() - 1],
@@ -152,7 +149,8 @@ fn rebase(
             let target = element_path(mine);
             if target.starts_with(removed) {
                 // Content inside a deleted or replaced element is discarded.
-                // On the same element Delete wins and competing Sets follow priority.
+                // On the same element Delete wins and competing Sets, including
+                // Sets creating one Map member, follow priority.
                 let same = target.len() == removed.len()
                     && !matches!(mine, Operation::Insert { .. } | Operation::ListMove { .. });
                 return Ok(match mine {
@@ -160,24 +158,6 @@ fn rebase(
                     Operation::Set { .. } if same && !deleting && mine_first => Some(mine.clone()),
                     _ => None,
                 });
-            }
-        }
-        Operation::Insert { path, .. } => {
-            if let (
-                Operation::Insert {
-                    path: mine_path,
-                    value,
-                },
-                Some(Segment::Key(_)),
-            ) = (mine, path.last())
-            {
-                if mine_path == path {
-                    // Competing Map insertions: the first replaces the other.
-                    return Ok(mine_first.then(|| Operation::Set {
-                        path: path.clone(),
-                        value: value.clone(),
-                    }));
-                }
             }
         }
         Operation::Text { path, change } => {
@@ -220,7 +200,7 @@ fn rebase(
                 }
             }
         }
-        Operation::ListMove { .. } | Operation::Add { .. } => {}
+        Operation::Insert { .. } | Operation::ListMove { .. } | Operation::Add { .. } => {}
     }
     let Some((list, edit)) = list_edit(other) else {
         return Ok(Some(mine.clone()));

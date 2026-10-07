@@ -74,7 +74,7 @@ test('complete editing, ListMove, inverse and immutable snapshots', () => {
     escapedRich.insertText(0, 'Hello')
     escapedRich.format(0, 5, { bold: true })
     escapedRich.insertEmbed(5, 7n)
-    tx.copy(['blocks', 0, 'title'], ['featured2'])
+    tx.set(['featured2'], tx.get(['blocks', 0, 'title']))
     tx.list(['blocks']).move(0, 1)
     tx.increment(['views'], 1n)
   })
@@ -243,7 +243,7 @@ test('listener failures are isolated and both event channels reject reentry', ()
   assert.equal(syncEvents, 2)
 })
 
-test('copy inserts plain content and Undo restores deleted content', () => {
+test('reused Values write plain content and Undo restores deleted content', () => {
   const doc = Document.create({ item: { target: 1n }, copied: null })
   const history = History.attach(doc)
   const snapshot = doc.snapshot()
@@ -254,7 +254,7 @@ test('copy inserts plain content and Undo restores deleted content', () => {
   assert.equal(doc.get(['item', 'target']).toJS(), 1n)
   doc.edit(tx => {
     tx.delete(['copied'])
-    tx.copy(['item'], ['copied'])
+    tx.set(['copied'], tx.get(['item']))
   })
   assert.ok(doc.get(['copied']).equals(doc.get(['item'])))
 })
@@ -422,4 +422,29 @@ test('concurrent ListMove carries a nested edit', () => {
   const merged = apply(apply(base, movement), editAfter)
   assert.ok(merged.equals(apply(apply(base, edit), movementAfter)))
   assert.equal(merged.get(['items', 1, 'title']).toJS().value, 'a!')
+})
+
+test('set writes Map members directly and failed edits report path and hint', () => {
+  const doc = Document.create({ steps: ['draft'] })
+  const created = doc.edit(tx => tx.set(['title'], 'Plan'))
+  assert.deepEqual(
+    created.change.operations.map(op => op.type),
+    ['set'],
+  )
+  assert.throws(
+    () => doc.edit(tx => tx.set(['meta', 'x'], 1n)),
+    error =>
+      error.code === 'missing_key' &&
+      error.details.path === '["meta", "x"]' &&
+      error.details.hint === 'set does not create missing parents',
+  )
+  assert.throws(
+    () => doc.edit(tx => tx.set(['steps', 1], 'publish')),
+    error => error.code === 'out_of_bounds' && error.details.hint === 'append with a List insert',
+  )
+  assert.throws(
+    () => Change.create([{ type: 'insert', path: ['title'], value: Value.fromJS(1n) }]),
+    error => error.code === 'invalid_argument',
+  )
+  doc.close()
 })

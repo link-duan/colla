@@ -60,8 +60,8 @@ Unlike JavaScript get, Rust get reports missing values as an error.
 | Add               | `path: Path`, `delta: i64`               |
 | RichText          | `path: Path`, `operations: Vec<RichOp>`  |
 
-Insert's path ends with the vacant Map key or List insertion index; ListMove's path
-names the List and `to` counts after removal. `Operation::path()` returns the path.
+Insert's path ends with a List insertion index; Set writes a Map member, adding it if
+missing, or replaces a List element or the root. ListMove's path names the List and `to` counts after removal. `Operation::path()` returns the path.
 Priority is Left or Right. Transform returns `(left_after_right, right_after_left)`;
 its inputs share a common base. Compose's second change applies after its first. See
 [Changes](/docs/core/changes) and
@@ -102,7 +102,6 @@ or unwinding abandon the edit. See [Transactions](/docs/editing/transactions).
 | `set(path: &[Segment], value: Value)`                                            | `Result<()>`    |
 | `delete(path: &[Segment])`                                                       | `Result<()>`    |
 | `list_move(path: &[Segment], from: usize, to: usize)`                            | `Result<()>`    |
-| `copy(source: &[Segment], destination: &[Segment])`                              | `Result<()>`    |
 | `increment(path: &[Segment], delta: i64)`                                        | `Result<()>`    |
 | `list_replace(path: &[Segment], index: usize, count: usize, values: Vec<Value>)` | `Result<()>`    |
 | `text_replace(path: &[Segment], index: usize, count: usize, text: &str)`         | `Result<()>`    |
@@ -113,8 +112,8 @@ or unwinding abandon the edit. See [Transactions](/docs/editing/transactions).
 Rust exposes sequence replacement methods directly on Transaction. A zero removal count
 inserts; empty replacement content deletes. Text and RichText positions count Unicode
 scalars; List positions count elements. `utf16_to_scalar` converts against working content
-and rejects surrogate splits. Invalid ranges, missing parents, occupied Copy Map slots
-and kind mismatches are errors. See [Map and List editing](/docs/editing/maps-lists).
+and rejects surrogate splits. Invalid ranges, missing parents and kind mismatches are
+errors. See [Map and List editing](/docs/editing/maps-lists).
 
 ## EditResult and observation
 

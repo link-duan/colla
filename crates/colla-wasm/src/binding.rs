@@ -263,7 +263,6 @@ impl CoreDocument {
             0 => tx.set(target, m::value(&input.get(2))?)?,
             1 => tx.delete(target)?,
             2 => tx.list_move(target, m::index(&input.get(2))?, m::index(&input.get(3))?)?,
-            3 => tx.copy(target, &m::path(&input.get(2))?)?,
             4 => tx.increment(target, m::signed(&input.get(2))?)?,
             5 => tx.list_replace(
                 target,

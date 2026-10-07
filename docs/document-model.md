@@ -6,7 +6,7 @@ management and isolated subscriptions. Content, local version, History, pending
 and outbound effects are computed before a single commit.
 
 A scoped transaction can read its working Value, edit every value type, move List
-elements, copy subtrees and apply a path-addressed Change. Each editing call
+elements and apply a path-addressed Change. Each editing call
 interprets its Path against the current working content. Normalized Noop returns no
 result and changes no runtime state. Closing or receiving remotely inside the
 scope fails. Nested transactions and thenable results are rejected. Escaped

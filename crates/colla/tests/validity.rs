@@ -82,19 +82,39 @@ fn change_decode_rejects_noop_and_invalid_values() {
     zero[at] = 0;
     assert_invalid(Change::decode(&zero), "noncanonical change");
 
-    let insert = Change::new([Operation::Insert {
+    // An Insert addressing a Map key is never canonical; only Set writes Map members.
+    let write = |path: Vec<Segment>, insert: bool| {
+        let value = Value::null();
+        Change::new([if insert {
+            Operation::Insert { path, value }
+        } else {
+            Operation::Set { path, value }
+        }])
+        .unwrap()
+        .encode()
+    };
+    let (set, insert) = (
+        write(vec![Segment::Index(0)], false),
+        write(vec![Segment::Index(0)], true),
+    );
+    let tag = (0..set.len()).find(|&i| set[i] != insert[i]).unwrap();
+    let mut map_insert = write(vec![key("x")], false);
+    map_insert[tag] = insert[tag];
+    assert_invalid(Change::decode(&map_insert), "noncanonical change");
+
+    let set = Change::new([Operation::Set {
         path: vec![key("x")],
         value: nested_marker(),
     }])
     .unwrap()
     .encode();
-    assert_invalid(Change::decode(&negative_zero(insert)), "noncanonical Value");
+    assert_invalid(Change::decode(&negative_zero(set)), "noncanonical Value");
 }
 
 #[test]
 fn change_rejects_oversized_path_keys() {
     let path = vec![key(&"k".repeat(16 * 1024 * 1024 + 1))];
-    let error = Change::new([Operation::Insert {
+    let error = Change::new([Operation::Set {
         path,
         value: Value::int(0),
     }])

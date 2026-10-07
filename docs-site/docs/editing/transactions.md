@@ -8,7 +8,7 @@ validation abandons the entire edit.
 
 | Surface                 | Methods                                          |
 | ----------------------- | ------------------------------------------------ |
-| Transaction             | set, delete, move, copy, increment, apply        |
+| Transaction             | set, delete, increment, apply                    |
 | `tx.list(location)`     | insert, delete, replace                          |
 | `tx.text(location)`     | insert, delete, replace                          |
 | `tx.richText(location)` | insertText, insertEmbed, delete, replace, format |

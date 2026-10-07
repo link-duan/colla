@@ -34,7 +34,7 @@ fn text_len(tx: &Transaction) -> Result<usize> {
 /// One local edit chosen from `action`; positions are reduced modulo the current size.
 fn edit(tx: &mut Transaction, action: (u8, usize, usize)) -> Result<()> {
     let (kind, a, b) = action;
-    match kind % 6 {
+    match kind % 7 {
         0 => tx.increment(&[key("count")], 1 + (a % 5) as i64),
         1 => {
             let pos = a % (text_len(tx)? + 1);
@@ -59,12 +59,20 @@ fn edit(tx: &mut Transaction, action: (u8, usize, usize)) -> Result<()> {
             let selected = tx.get(&[key("todo"), Segment::Index(a % len)])?;
             tx.set(&[key("selected")], selected)
         }
-        _ => {
+        5 => {
             let len = list_len(tx, "todo")?;
             if len == 0 {
                 return Ok(());
             }
             tx.delete(&[key("todo"), Segment::Index(a % len)])
+        }
+        // Create or delete an optional Map member.
+        _ => {
+            if tx.get(&[key("extra")]).is_ok() {
+                tx.delete(&[key("extra")])
+            } else {
+                tx.set(&[key("extra")], Value::int(a as i64))
+            }
         }
     }
 }

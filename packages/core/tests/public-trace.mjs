@@ -9,7 +9,7 @@ export function trace() {
     tx.text(["items", 0, "title"]).insert(3, "!")
     tx.richText(["items", 0, "body"]).insertEmbed(0, 1n)
     tx.list(["items"]).move(0, 1)
-    tx.copy(["items", 1, "title"], ["chosen"])
+    tx.set(["chosen"], tx.get(["items", 1, "title"]))
   })
   if (doc.get(["items", 1, "title"]).toJS().value !== "A😀!") throw Error("ListMove failed")
   const after = doc.snapshot()

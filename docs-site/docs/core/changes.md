@@ -10,17 +10,18 @@ processing edits without a Document.
 
 | `type`     | Fields               | Effect and precondition                                                        |
 | ---------- | -------------------- | ------------------------------------------------------------------------------ |
-| `insert`   | `path`, `value`      | Adds `value`. The last segment is a vacant Map key or a List index ≤ length    |
+| `insert`   | `path`, `value`      | Inserts `value` into a List. The last segment is an index ≤ length             |
 | `delete`   | `path`               | Removes an existing Map member or List item                                    |
-| `set`      | `path`, `value`      | Replaces an existing element, including the root                               |
+| `set`      | `path`, `value`      | Writes a Map member, adding it if missing; replaces a List item or the root    |
 | `listMove` | `path`, `from`, `to` | Moves one item within the List at `path`; `to` is read after removing the item |
 | `add`      | `path`, `delta`      | Adds a bigint to an existing Int; overflow outside i64 fails                   |
 | `text`     | `path`, `operations` | Edits the Text at `path` with a sequence of steps                              |
 | `richtext` | `path`, `operations` | Edits and formats the RichText at `path` with a sequence of steps              |
 
-`value` is a [Value](./values). The root can be replaced with `set` but cannot be the
-target of `insert` or `delete`. Unlike `tx.set`, a `set` operation never creates a
-missing Map key; the transaction method emits `insert` in that case.
+`value` is a [Value](./values). Map members are written only with `set`; an `insert`
+whose Path ends with a Map key is rejected. A `set` on a List index replaces an existing
+item and never appends. The root can be replaced with `set` but cannot be the target of
+`insert` or `delete`.
 
 ## Operations run in order
 
@@ -36,7 +37,7 @@ const change = Change.create([
   // 'review' moved from index 1 to index 2 because of the insertion above.
   { type: 'set', path: ['tasks', 2], value: Value.fromJS('approve') },
   { type: 'listMove', path: ['tasks'], from: 2, to: 0 },
-  { type: 'insert', path: ['note'], value: Value.fromJS(text('Ready')) },
+  { type: 'set', path: ['note'], value: Value.fromJS(text('Ready')) }, // adds a Map member
 ])
 console.log('Result:', apply(base, change).toJS())
 // { note: Text { type: 'text', value: 'Ready' }, tasks: [ 'approve', 'plan', 'draft' ] }

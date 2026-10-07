@@ -7,19 +7,18 @@ conflict state for the application to resolve.
 
 ## How concurrent edits resolve
 
-| Concurrent edits                              | Result                                                      |
-| --------------------------------------------- | ----------------------------------------------------------- |
-| Delete or Set an element + any edit inside it | Delete/Set wins; the inner edit is discarded                |
-| Delete + Set of the same element              | Delete wins                                                 |
-| Set + Set of the same element                 | Priority selects the value                                  |
-| Insert at the same vacant Map key             | Priority's value is kept                                    |
-| Insert at the same List position              | Both are kept; priority's item comes first                  |
-| ListMove + edit inside the moved item         | The edit follows the item                                   |
-| ListMove + Delete of the moved item           | Delete wins                                                 |
-| ListMove + ListMove of the same item          | Priority selects the destination                            |
-| Text or RichText edits on the same value      | Both apply; priority orders insertions at the same position |
-| Add + Add on the same Int                     | Both additions apply                                        |
-| Add + Set on the same Int                     | Set wins                                                    |
+| Concurrent edits                              | Result                                                         |
+| --------------------------------------------- | -------------------------------------------------------------- |
+| Delete or Set an element + any edit inside it | Delete/Set wins; the inner edit is discarded                   |
+| Delete + Set of the same element              | Delete wins                                                    |
+| Set + Set of the same element                 | Priority selects the value, also when both create a Map member |
+| Insert at the same List position              | Both are kept; priority's item comes first                     |
+| ListMove + edit inside the moved item         | The edit follows the item                                      |
+| ListMove + Delete of the moved item           | Delete wins                                                    |
+| ListMove + ListMove of the same item          | Priority selects the destination                               |
+| Text or RichText edits on the same value      | Both apply; priority orders insertions at the same position    |
+| Add + Add on the same Int                     | Both additions apply                                           |
+| Add + Set on the same Int                     | Set wins                                                       |
 
 Priority is the left/right rule passed to `transform`; see
 [Change algebra](./algebra#priority) for how the runtime chooses it.
@@ -30,18 +29,18 @@ item that stays in place.
 
 ## Moving, copying and replacing
 
-Four ways to relocate or replace content behave differently under concurrency:
+Four ways to relocate, copy or replace content behave differently under concurrency:
 
-| Edit             | Effect                                    | Concurrent edits inside the original element |
-| ---------------- | ----------------------------------------- | -------------------------------------------- |
-| ListMove         | Reorders one item within its List         | Follow the item                              |
-| Delete + Insert  | Moves content to another parent           | Discarded with the deleted element           |
-| Insert of a copy | Adds a copy of existing content elsewhere | Apply to the original only                   |
-| Set              | Replaces an element                       | Discarded by the replacement                 |
+| Edit                         | Effect                                 | Concurrent edits inside the original element |
+| ---------------------------- | -------------------------------------- | -------------------------------------------- |
+| ListMove                     | Reorders one item within its List      | Follow the item                              |
+| Delete + write               | Moves content to another parent        | Discarded with the deleted element           |
+| Write a Value read elsewhere | Copies existing content to a new place | Apply to the original only                   |
+| Set                          | Replaces an element                    | Discarded by the replacement                 |
 
 Only ListMove preserves concurrent work while relocating content, and only within one
 List. There is no cross-parent move; moving content to another parent is a deletion
-followed by an insertion. A movable tree type with cross-parent moves is planned as an
+followed by a write. A movable tree type with cross-parent moves is planned as an
 opt-in addition. The [ListMove example](/docs/examples/list-move) shows a reorder and a
 concurrent edit converging.
 

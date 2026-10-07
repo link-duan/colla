@@ -61,8 +61,9 @@ shape is valid. Invalid arguments and lifecycle errors also propagate. See
 | `change.operations: readonly Operation[]`                 | Immutable operation projection |
 | `change.encode(): Uint8Array`                             | Canonical bytes                |
 
-Every operation has a `path`. Insert's path ends with the vacant Map key or List
-insertion index; listMove's path names the List, and `to` counts after removal.
+Every operation has a `path`. Insert's path ends with a List insertion index; Set
+writes a Map member, adding it if missing, or replaces a List item or the root.
+listMove's path names the List, and `to` counts after removal.
 
 ```ts
 type Operation =
@@ -109,21 +110,19 @@ applied after change. TP1 holds for all valid inputs. See
 
 Transaction has shared reads, `snapshot(): Value`, and these scoped mutations:
 
-| Transaction member                      | Return         |
-| --------------------------------------- | -------------- |
-| `set(path: Path, input: Input)`         | void           |
-| `delete(path: Path)`                    | void           |
-| `copy(source: Path, destination: Path)` | void           |
-| `increment(path: Path, delta: bigint)`  | void           |
-| `apply(change: Change)`                 | void           |
-| `list(path: Path)`                      | ListEditor     |
-| `text(path: Path)`                      | TextEditor     |
-| `richText(path: Path)`                  | RichTextEditor |
+| Transaction member                     | Return         |
+| -------------------------------------- | -------------- |
+| `set(path: Path, input: Input)`        | void           |
+| `delete(path: Path)`                   | void           |
+| `increment(path: Path, delta: bigint)` | void           |
+| `apply(change: Change)`                | void           |
+| `list(path: Path)`                     | ListEditor     |
+| `text(path: Path)`                     | TextEditor     |
+| `richText(path: Path)`                 | RichTextEditor |
 
 Callbacks must be synchronous: no thenables, nested edits, remote receive or close.
 Escaped transactions/editors are invalid after callback exit. All failures roll back the
-transaction. Each call interprets its Path against the working content. Copy inserts at
-a vacant Map key or List index. See [Transactions](/docs/editing/transactions) and
+transaction. Each call interprets its Path against the working content. See [Transactions](/docs/editing/transactions) and
 [Map and List editing](/docs/editing/maps-lists).
 
 ## Scoped sequence editors
