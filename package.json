@@ -21,8 +21,8 @@
     "docs:check": "pnpm --filter colla-docs check"
   },
   "devDependencies": {
-    "oxfmt": "^0.71.0",
-    "oxlint": "^1.86.0"
+    "oxfmt": "^0.72.0",
+    "oxlint": "^1.87.0"
   },
   "packageManager": "pnpm@10.34.5"
 }
