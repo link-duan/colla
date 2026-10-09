@@ -16,8 +16,8 @@ jobs:
   rust-msrv:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@1.81.0
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@1.120.0
         with:
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
@@ -27,7 +27,7 @@ jobs:
   rust:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy,rustfmt
@@ -41,7 +41,7 @@ jobs:
   cargo-deny:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:
           command: check advisories bans licenses sources
@@ -63,7 +63,7 @@ jobs:
             node_resolve: latest
     name: JavaScript (Node ${{ matrix.node }}, ${{ matrix.bundlers.name }})
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-workspace
         with:
           node-version: ${{ matrix.node }}
@@ -77,7 +77,7 @@ jobs:
   browser-e2e:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-workspace
       - run: pnpm --filter colla-ot exec playwright install --with-deps chromium firefox webkit
       - run: pnpm test:e2e
@@ -85,7 +85,7 @@ jobs:
   fuzz-smoke:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@nightly
       - uses: Swatinem/rust-cache@v2
         with:
@@ -96,17 +96,17 @@ jobs:
         with:
           tool: cargo-fuzz@0.13.2
       # Reuse the corpora grown by the scheduled fuzz workflow.
-      - uses: actions/cache/restore@v4
+      - uses: actions/cache/restore@v6
         with:
           path: fuzz/corpus/decode_value
           key: fuzz-corpus-decode_value-${{ github.run_id }}
           restore-keys: fuzz-corpus-decode_value-
-      - uses: actions/cache/restore@v4
+      - uses: actions/cache/restore@v6
         with:
           path: fuzz/corpus/decode_change
           key: fuzz-corpus-decode_change-${{ github.run_id }}
           restore-keys: fuzz-corpus-decode_change-
-      - uses: actions/cache/restore@v4
+      - uses: actions/cache/restore@v6
         with:
           path: fuzz/corpus/ot_algebra
           key: fuzz-corpus-ot_algebra-${{ github.run_id }}
@@ -125,7 +125,7 @@ jobs:
   quality-baseline:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-workspace
       - run: pnpm check:versions
       - name: Measure quality baseline
@@ -142,7 +142,7 @@ jobs:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - uses: dtolnay/rust-toolchain@stable
