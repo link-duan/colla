@@ -32,12 +32,12 @@
     "test:memory": "node --expose-gc tests/memory.mjs"
   },
   "devDependencies": {
-    "@playwright/test": "1.62.1",
+    "@playwright/test": "1.63.0",
     "@rollup/plugin-node-resolve": "^16.0.1",
-    "@types/node": "^24.0.0",
-    "rollup": "^4.46.2",
-    "typescript": "^5.9.2",
-    "vite": "^8.2.2"
+    "@types/node": "^26.6.4",
+    "rollup": "^4.64.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.3"
   },
   "engines": {
     "node": ">=22"
