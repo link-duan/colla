@@ -20,7 +20,7 @@ jobs:
       matrix:
         target: [decode_value, decode_change, ot_algebra]
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@nightly
       - uses: Swatinem/rust-cache@v2
         with:
@@ -28,7 +28,7 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-fuzz@0.13.2
-      - uses: actions/cache/restore@v4
+      - uses: actions/cache/restore@v6
         with:
           path: fuzz/corpus/${{ matrix.target }}
           key: fuzz-corpus-${{ matrix.target }}-${{ github.run_id }}
@@ -40,7 +40,7 @@ jobs:
         if: success()
         run: cargo fuzz cmin --target x86_64-unknown-linux-gnu ${{ matrix.target }}
       # Saved even after a crash so the next run keeps the coverage it reached.
-      - uses: actions/cache/save@v4
+      - uses: actions/cache/save@v6
         if: always()
         with:
           path: fuzz/corpus/${{ matrix.target }}
